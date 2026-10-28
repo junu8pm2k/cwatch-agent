@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-17T06:09:35.611Z",
+  "runId": "8dfce50b-8b5f-4a18-93bd-91780bff910a",
+  "gaps": [],
+  "results": [
+    {
+      "tool": "web__web_search",
+      "status": "success_with_data",
+      "backend": "mcp.api",
+      "searchResults": 3,
+      "pages": 0
+    }
+  ],
+  "traceIssues": []
+}

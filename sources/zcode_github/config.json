@@ -1,0 +1,10 @@
+{
+  "slug": "zcode_github",
+  "kind": "github_releases",
+  "active": true,
+  "repo": "zai-org/ZCode",
+  "entityId": "zcode",
+  "entityName": "ZCode",
+  "domain": "zcode.z.ai",
+  "product": "ZCode"
+}

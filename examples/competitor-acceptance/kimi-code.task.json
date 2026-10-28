@@ -1,0 +1,32 @@
+{
+  "taskId": "acceptance-kimi-code-20261024",
+  "competitor": {
+    "id": "kimi-code",
+    "name": "Kimi Code",
+    "aliases": [
+      "KimiCode",
+      "Kimi Code CLI"
+    ],
+    "domains": [
+      "www.kimi.com"
+    ]
+  },
+  "product": "Kimi Code",
+  "signalTypes": [
+    "release",
+    "price",
+    "content",
+    "campaign"
+  ],
+  "window": {
+    "start": "2026-09-24T00:00:00+08:00",
+    "end": "2026-10-25T00:00:00+08:00",
+    "basis": "published_at",
+    "timezone": "Asia/Shanghai"
+  },
+  "allowedSources": [
+    "web",
+    "kimi_code_github"
+  ],
+  "outputScope": "draft"
+}

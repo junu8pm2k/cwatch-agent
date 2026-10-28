@@ -1,0 +1,3895 @@
+{
+  "startedAt": "2026-10-27T10:55:46.108Z",
+  "endedAt": "2026-10-27T11:00:01.777Z",
+  "command": "npm run verify",
+  "dataset": "synthetic-nodejs-regression-v1",
+  "datasets": [
+    {
+      "id": "synthetic-nodejs-regression-v1",
+      "labels": "fixtures/labels.json"
+    },
+    {
+      "id": "synthetic-competitor-domain-cases-v1",
+      "labels": "fixtures/eval-cases.json"
+    }
+  ],
+  "metrics": {
+    "definition": "passing independently asserted fixed regression cases / all executed cases; not model generation accuracy",
+    "total": 551,
+    "passed": 551,
+    "groups": {
+      "contract": {
+        "total": 383,
+        "passed": 383
+      },
+      "semantic": {
+        "total": 63,
+        "passed": 63
+      },
+      "integration": {
+        "total": 105,
+        "passed": 105
+      }
+    }
+  },
+  "releaseGate": true,
+  "results": [
+    {
+      "name": "RunService streams the real replay pipeline, persists its report and restores history",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 244
+    },
+    {
+      "name": "RunService approves exactly one host write with its immutable argument hash",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 173
+    },
+    {
+      "name": "RunService denies exactly one host write with its immutable argument hash",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 164
+    },
+    {
+      "name": "Cancelling a web approval clears it and never executes a late approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 84
+    },
+    {
+      "name": "RunService capacity and cancellation bound concurrent investigations without mixing their state",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "RunService rejects arbitrary source configuration, unselected sources and unsafe limits",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "RunService enforces an exclusive output lease and marks interrupted persisted runs unknown",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 144
+    },
+    {
+      "name": "A UI Trace observer receives a copy only after durable append and cannot corrupt the audit",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5
+    },
+    {
+      "name": "RunService exposes enabled custom MCP sources as metadata without resolving or disclosing credentials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 12
+    },
+    {
+      "name": "generic tasks accept an ordinary instruction and no sources without investigation fields",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "generic tasks can finish directly, persist and replay without any investigation milestones",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "selected Skills guide generic tasks but cannot expand sources or override explore write protection",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "generic ask mode still approves a modifying tool exactly once",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "generic runtime prevents a configured remote source from occupying a trusted host namespace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 9
+    },
+    {
+      "name": "generic tasks use API MCP and enforced source guides without an entity or evidence schema",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 116
+    },
+    {
+      "name": "generic compression checkpoints retain the task and catalogs without inventing investigation stages",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "RunService defaults to a generic task and persists its answer without creating claims",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 108
+    },
+    {
+      "name": "real Pi subprocess loads a selected Skill, calls a user stdio MCP and finishes a generic task with raw results",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2117
+    },
+    {
+      "name": "Workbench HTTP serves local assets with a restrictive CSP and never serves workspace files",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 193
+    },
+    {
+      "name": "Workbench mutations require exact origin, CSRF token and bounded JSON, before starting runs",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 85
+    },
+    {
+      "name": "Workbench HTTP starts a real replay, streams its state, downloads the report and isolates run IDs",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 447
+    },
+    {
+      "name": "standard sources expose one Web search/fetch pair and GitHub MCP without legacy or fake news tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "task missing entity/timezone needs clarification",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 22
+    },
+    {
+      "name": "cross-source names dispatch original name and exact arguments",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "sanitization collision rejects atomically",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "source configuration update invalidates disclosed binding",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 21
+    },
+    {
+      "name": "revoke removes tools and stops stale calls",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "inactive source yields execute_count=0",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "stale model permission cannot overwrite host explore yields execute_count=0",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "explore refuses modification even when an approval responder exists",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "POST-like read semantics allowed independently of name",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 19
+    },
+    {
+      "name": "schema and out-of-task source denied before execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "approval reject has zero executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 18
+    },
+    {
+      "name": "approval unavailable has zero executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 15
+    },
+    {
+      "name": "approval expire has zero executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 33
+    },
+    {
+      "name": "approval one shot, duplicate callback cannot execute twice",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "approval parameters immutable while caller mutates original",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 18
+    },
+    {
+      "name": "changed pending approval parameters invalidate authorization",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "source deactivation during approval prevents approved execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "tool timeout stops waiting even if adapter ignores cancellation",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 516
+    },
+    {
+      "name": "effective policy rechecked after approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "cancel pending approval cleans pending; late approval cannot execute",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "cancellation rejects late tool results and preserves unknown side effects",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 40
+    },
+    {
+      "name": "restart marks durable pending as unknown and never replays",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 30
+    },
+    {
+      "name": "context overflow fails without truncating constraints",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4
+    },
+    {
+      "name": "full replay persists plan/report/trace; event log reconstructs state",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 323
+    },
+    {
+      "name": "plan write failure permits zero source executions",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 223
+    },
+    {
+      "name": "plan callback failure distinct from file failure",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 254
+    },
+    {
+      "name": "step and tool budgets terminate deterministically",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 303
+    },
+    {
+      "name": "model cancellation and timeout persist terminal run",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 150
+    },
+    {
+      "name": "no progress and premature finish cannot be called success",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 115
+    },
+    {
+      "name": "trace redacts actual secrets and rejects invalid ordering",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "injected webpage instructions cannot exfiltrate; secrets removed from persisted artifacts",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 343
+    },
+    {
+      "name": "untrusted content cannot expand tool vocabulary or host permissions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 15
+    },
+    {
+      "name": "Pi encode/decode preserves binding name, parameters and tool decision",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "Pi multi-call decoding preserves all identities and rejects ambiguous or malformed batches",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "local MCP actual stdio tools/list and tools/call",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 265
+    },
+    {
+      "name": "GitHub HTTP 401 mapped without no-activity inference",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 14
+    },
+    {
+      "name": "GitHub HTTP 429 mapped without no-activity inference",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "GitHub HTTP 503 mapped without no-activity inference",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "GitHub endpoint/request/response mapping is concrete",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 14
+    },
+    {
+      "name": "GitHub empty / malformed / timeout remain distinct",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 59
+    },
+    {
+      "name": "structured extraction preserves publication time without registering a second fetch tool",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4
+    },
+    {
+      "name": "two independent sessions do not share messages or evidence state",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 609
+    },
+    {
+      "name": "only MCP channels use the MCP prefix; local namespaces distinguish workflow, session and sources",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 38
+    },
+    {
+      "name": "opaque MCP proxy names dispatch untouched names containing dots and double underscores",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "local sources dispatch original names without decoding their sanitized registration keys",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "local native tools and local source slugs cannot impersonate MCP registration names",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 20
+    },
+    {
+      "name": "external MCP definitions cannot claim native or session namespaces",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 8
+    },
+    {
+      "name": "native tool collisions reject atomically and preserve the first source binding",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 9
+    },
+    {
+      "name": "Pi proxies derive Craft labels and bounded prompt snippets without mutating host schemas",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 6
+    },
+    {
+      "name": "Pi SDK read write edit grep find and ls execute through the shared host executor",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 695
+    },
+    {
+      "name": "Pi builtins respect explore mode and denied writes have no filesystem side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 115
+    },
+    {
+      "name": "Pi file tools reject traversal, private files, protected config and junction escapes",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 80
+    },
+    {
+      "name": "Pi bash is approved once, runs in the selected workspace and omits host credentials",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 96
+    },
+    {
+      "name": "Pi bash cancellation settles execution and suppresses late results",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 515
+    },
+    {
+      "name": "Pi builtin execution requires host context and the proxy returns native content blocks",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "permission mode parser defaults to explore and normalizes the legacy safe alias",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "invalid runtime modes fail without changing the effective host mode",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "explore enforces the independent six-action permission matrix through ToolExecutor",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 133
+    },
+    {
+      "name": "ask enforces the independent six-action permission matrix through ToolExecutor",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 170
+    },
+    {
+      "name": "allow-all enforces the independent six-action permission matrix through ToolExecutor",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 155
+    },
+    {
+      "name": "ask modification denied has zero executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 41
+    },
+    {
+      "name": "ask modification unavailable has zero executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "allow-all still rejects unknown tools, schemas, task scope, source scope and stale/inactive bindings",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 78
+    },
+    {
+      "name": "allow-all does not permit undeclared action semantics",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "allow-all downgrade to explore is checked before the next backend action",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "allow-all downgrade to ask is checked before the next backend action",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "allow-all backend calls retain permission stages and Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "allow-all cancellation keeps an in-flight modification unknown and rejects its late result",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "allow-all still enforces tool timeout for modifications",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 525
+    },
+    {
+      "name": "historical safe-mode Trace remains valid while unknown mode values are rejected",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "CLI default mode runs replay and records its canonical mode",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1732
+    },
+    {
+      "name": "CLI explore mode runs replay and records its canonical mode",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1624
+    },
+    {
+      "name": "CLI ask mode runs replay and records its canonical mode",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1663
+    },
+    {
+      "name": "CLI allow-all mode runs replay and records its canonical mode",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1663
+    },
+    {
+      "name": "CLI legacy safe mode runs replay and records its canonical mode",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1615
+    },
+    {
+      "name": "CLI rejects invalid permission flags before creating or recovering an output directory",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1503
+    },
+    {
+      "name": "runPreToolUseChecks returns allow/prompt/block from the current host mode without executing tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "shared pre-tool checks reject mismatched names, schema and inactive sources before execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "allow-all cannot bypass a business prerequisite in the shared pre-tool pipeline",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "pre-tool prerequisite errors become explicit block results",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 11
+    },
+    {
+      "name": "pre_tool_use_response is correlated to SDK call, execution, task, binding and arguments",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 30
+    },
+    {
+      "name": "host pre-tool bridge blocks a mismatched request instead of granting an approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "shared prerequisites are rechecked after approval before any tool executes",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 31
+    },
+    {
+      "name": "pre-tool approval occurs once even with multiple backend policy rechecks",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 32
+    },
+    {
+      "name": "shared prerequisites are checked again immediately before a backend request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 31
+    },
+    {
+      "name": "cancelled pre-tool approval produces one block response and no late execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 42
+    },
+    {
+      "name": "Trace rejects missing, mismatched, replayed or blocking pre-tool responses before execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "Trace still accepts historical executions without the new pre-tool protocol",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 58
+    },
+    {
+      "name": "wrapTool preserves schema, arguments, tool identity, context and progress forwarding",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "wrapTool rejects cancellation and fatal session state before the original execute",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "wrapTool propagates a tool error and rejects a late result after cancellation",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "buildProxyTools snapshots bindings and forwards SDK toolCallId to the host",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 11
+    },
+    {
+      "name": "official and reprint merge one event with two snapshots",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 51
+    },
+    {
+      "name": "same headline with distinct event identity stays separate",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "same display name never forces attribution; conflicting ID rejected",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "unknown publication never replaced by retrieval time",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 11
+    },
+    {
+      "name": "timezone-equivalent timestamps and [start,end) boundary",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 3
+    },
+    {
+      "name": "selected occurred/effective time basis never falls back",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4
+    },
+    {
+      "name": "same fact update appends version and preserves old evidence",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 30
+    },
+    {
+      "name": "evidence gaps and counter evidence cannot receive accept review",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "review rejects unsupported claim text",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 20
+    },
+    {
+      "name": "divergent supported values for same event require conflict review",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "fixed independent labels match complete corpus; all source evidence retained",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "failure statuses and empty results remain gaps not no-activity",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 48
+    },
+    {
+      "name": "runtime partial source failure keeps good facts and failure in draft",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 186
+    },
+    {
+      "name": "signal runtime validation rejects naive timestamps and impossible status/data",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "actual Pi SDK HTTP codec runs same scripted loop as replay (local provider fixture)",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1992
+    },
+    {
+      "name": "Pi AgentSession owns complete tool loop, usage and normalized audit replay",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1809
+    },
+    {
+      "name": "real Pi subprocess uses all seven SDK builtins through host policy before the investigation workflow",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2229
+    },
+    {
+      "name": "Stable system and tool definitions repeat while provider cache telemetry preserves full token accounting",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1907
+    },
+    {
+      "name": "Disabling SDK cache controls retains transcript history, normal usage accounting and explicit request metadata",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1894
+    },
+    {
+      "name": "Explicit provider context rejection below the proactive threshold compacts and retries without repeating completed tools",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1985
+    },
+    {
+      "name": "A second consecutive context rejection opens the circuit without another compression request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1844
+    },
+    {
+      "name": "An oversized initial prompt has no reducible history and never retries an identical request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1736
+    },
+    {
+      "name": "A rejected reactive summary stops and opens the circuit instead of recursively summarizing errors",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1877
+    },
+    {
+      "name": "Cancellation during reactive summarization prevents the retry and retains completed source actions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1869
+    },
+    {
+      "name": "Reactive recovery respects the remaining business request budget before spending a summary request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1844
+    },
+    {
+      "name": "Reactive continuation refreshes revoked bindings instead of restoring the failed request tool surface",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1968
+    },
+    {
+      "name": "Provider rate limits mentioning context length do not trigger compression or a retry",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1702
+    },
+    {
+      "name": "Incremental session memory excludes rejected responses and continues after reactive compression",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2316
+    },
+    {
+      "name": "Real Pi session incrementally persists isolated session memory with metered usage and a readable current checkpoint",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2121
+    },
+    {
+      "name": "Real Pi invalid memory response stops without a memory cursor or further business action",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1804
+    },
+    {
+      "name": "Real Pi memory thinking-only truncation retries once, meters both responses and commits only valid JSON",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1939
+    },
+    {
+      "name": "Real Pi repeated memory exhaustion stops without committing or executing subsequent business tools",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1791
+    },
+    {
+      "name": "Real Pi hanging memory recovery remains cancellable and cannot commit a checkpoint",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1786
+    },
+    {
+      "name": "Session memory stays separate from compaction and is reattached with its processed-message freshness",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2231
+    },
+    {
+      "name": "Pi session step budget prevents the next HTTP request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1808
+    },
+    {
+      "name": "Pi session tool budget rejects before any tool side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1779
+    },
+    {
+      "name": "Pi session executes every call in a response serially with complete identity-matched results",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1883
+    },
+    {
+      "name": "Pi batch approvals are independent even for identical tool names and arguments",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1877
+    },
+    {
+      "name": "Pi batch reserves all tool budgets before any side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1749
+    },
+    {
+      "name": "Pi batch counts repeated tool names against the same-tool budget",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1799
+    },
+    {
+      "name": "Pi rejects truncated batches before their first execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1695
+    },
+    {
+      "name": "Pi batch retains an unknown tool error and executes the later valid call with its own ID",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1864
+    },
+    {
+      "name": "Pi batch rechecks source revocation between calls",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1757
+    },
+    {
+      "name": "Pi cancellation inside a batch prevents later calls without replaying the completed one",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1867
+    },
+    {
+      "name": "Fresh SDK call IDs cannot hide repeated no-progress batches",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1852
+    },
+    {
+      "name": "Pi session rejects truncated tool arguments even when JSON is parseable",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1813
+    },
+    {
+      "name": "Pi SDK invalid schema rejection is retained as an Observation",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1838
+    },
+    {
+      "name": "Pi SDK unknown tool rejection is retained as an Observation",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1701
+    },
+    {
+      "name": "Pi session cannot collect before submitting its plan",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1767
+    },
+    {
+      "name": "Pi session cannot collect again after analysis",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1873
+    },
+    {
+      "name": "Pi explore hides write tools and rejects a model hallucinating their names",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1829
+    },
+    {
+      "name": "Pi session ask mode waits for a one-shot host approval before publishing",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1842
+    },
+    {
+      "name": "Pi session preserves the originally disclosed binding when a source changes during a model request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1846
+    },
+    {
+      "name": "Pi session cancellation stops an in-flight provider and records no late events",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1716
+    },
+    {
+      "name": "Pi session cancellation reaches a running host tool and rejects its late result",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1740
+    },
+    {
+      "name": "Pi session run timeout terminates a pending provider request without retry",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 6070
+    },
+    {
+      "name": "Pi session stops when the retained complete tool turn alone exceeds the active character budget",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1729
+    },
+    {
+      "name": "Pi sessions keep concurrent tasks, transcripts and reports isolated",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2089
+    },
+    {
+      "name": "Real Pi subprocess compacts long history, keeps archived source originals and completes with metered summaries",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2201
+    },
+    {
+      "name": "A failed host post-compact hook prevents the next real provider request and commits no boundary",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1841
+    },
+    {
+      "name": "Real Pi microcompact and paged archive reads avoid summaries and do not repeat source actions",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2357
+    },
+    {
+      "name": "A large non-raw tool result reaches the next provider request only as a bounded recoverable view",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1805
+    },
+    {
+      "name": "Transcript write failure stops a real Pi subprocess before its tool can execute",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1668
+    },
+    {
+      "name": "Pi session preserves provider HTTP 401 failure and disables hidden retries",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1679
+    },
+    {
+      "name": "Pi session preserves provider HTTP 429 failure and disables hidden retries",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1670
+    },
+    {
+      "name": "Pi session returns redacted tool results to the SDK transcript and persistent Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1766
+    },
+    {
+      "name": "Pi session repeated decisions stop without further requests or tool execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1722
+    },
+    {
+      "name": "Pi session rejects a final answer before producing its verified draft",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1629
+    },
+    {
+      "name": "Pi session respects cancellation before startup without making a provider request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "Pi AgentSession ask routes modifying, sending and publishing through the host policy",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5393
+    },
+    {
+      "name": "Pi AgentSession allow-all routes modifying, sending and publishing through the host policy",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5495
+    },
+    {
+      "name": "A killed real Pi worker leaves the host alive and a new SDK session can complete",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 3483
+    },
+    {
+      "name": "A real Pi worker crash cancels its in-flight host read and preserves earlier completed work",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1727
+    },
+    {
+      "name": "Pi output token limit reaches the actual provider request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1736
+    },
+    {
+      "name": "Pi cumulative tokens reduce the next output allowance and block excess tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1714
+    },
+    {
+      "name": "Pi missing provider token usage stops instead of treating it as free usage",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1707
+    },
+    {
+      "name": "Pi streamed response length stops before a tool can execute",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1664
+    },
+    {
+      "name": "Pi model request deadline reaps the worker and records no late work",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4823
+    },
+    {
+      "name": "Pi refreshes permission branches and removes write tools before the next real model request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1752
+    },
+    {
+      "name": "Repeated compaction preserves full native transcript, exact latest tool pairs and pinned task after reload",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 84
+    },
+    {
+      "name": "Every compact summary carries a refreshed host transcript link and retrieves exact pre-compact assistant content",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 73
+    },
+    {
+      "name": "Whole-result snip bounds non-raw content and details while preserving originals for paged readback",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 108
+    },
+    {
+      "name": "Microcompact runs before summaries, retains recent tool pairs and never edits ordinary assistant messages",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "Tool result views and readback use entry identity even when provider tool-call IDs repeat",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "Microcompact excludes errors, write receipts and unclassified dynamic tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4
+    },
+    {
+      "name": "Formal summary fallback consumes microcompacted views without resurrecting archived tool bodies",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 44
+    },
+    {
+      "name": "Projection durability failure blocks continuation and forged assistant edits are rejected",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "Archive reads remain redacted and integrity checked, and revoking the read tool blocks edited context",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 19
+    },
+    {
+      "name": "Window pressure includes cache usage, newly appended messages and reserved output without double-counting totals",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5
+    },
+    {
+      "name": "Unmetered or oversized summary responses cannot create a compaction boundary",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "Empty, truncated or failed summaries preserve old active history and never commit a boundary",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 39
+    },
+    {
+      "name": "Concurrent transcript flushes append once and durability failure blocks summary requests",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "Cancellation or exhausted summary allowance prevents boundary commit",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 12
+    },
+    {
+      "name": "Formal compaction retains a whole multi-tool API response and its complete result set",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Incomplete API rounds never enter formal compaction or create a boundary",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 9
+    },
+    {
+      "name": "Committed compact context orders summary, kept rounds, attachments and hook results and reloads identically",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "Vague summaries, failed hooks and oversized attachments cannot commit a compact context",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 94
+    },
+    {
+      "name": "A partial compact append without a commit reloads the previous complete context",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "Retention prefers two complete recent API rounds when they fit and preserves a queued user request",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "Historical compaction entries without a commit remain readable with complete retained tool rounds",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "Post-compact source guide snapshots preserve unread and changed prerequisites without auto-reading",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 19
+    },
+    {
+      "name": "Post-compact skills distinguish injected documents from resource reads and reject stale previews",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "Verified plan paging and source progress continue from completed host phases",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "Working state scopes unresolved execution and current tool bindings to this run without replay",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 30
+    },
+    {
+      "name": "Recent resources are bounded and source-supplied file or agent claims never become host working state",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 8
+    },
+    {
+      "name": "Transcript lookup pages the exact redacted native JSONL including old user, assistant, error and request entries",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 142
+    },
+    {
+      "name": "Transcript anchors keep pagination stable as the session and read receipts grow",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 11
+    },
+    {
+      "name": "Transcript lookup rejects foreign anchors, arbitrary paths, invalid pages and cross-session identities",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Transcript lookup detects changed or missing headers, content, metadata, order and lines",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 75
+    },
+    {
+      "name": "Session memory initializes by context threshold and incrementally updates by window growth or tool count across shrinkage",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 100
+    },
+    {
+      "name": "Thinking-only memory exhaustion recovers once using fresh allowance and complete rounds without skipping backlog",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 63
+    },
+    {
+      "name": "Repeated truncated memory stops at two metered attempts and retains the previous checkpoint",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 88
+    },
+    {
+      "name": "Memory recovery honors cancellation, fresh budget and usage failures before another physical request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 276
+    },
+    {
+      "name": "Memory low reasoning and JSON wire parameters are scoped to verified Step 5 endpoints",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 376
+    },
+    {
+      "name": "Session memory batches complete rounds without dropping backlog or advancing through half a tool pair",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 98
+    },
+    {
+      "name": "Failed, unmetered, malformed or cancelled memory responses preserve the previous durable cursor",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 130
+    },
+    {
+      "name": "Host memory persistence rejects stale revisions, foreign or regressing cursors, corruption and write failures",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "Memory request and usage budgets or mid-update cancellation cannot advance a durable checkpoint",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 88
+    },
+    {
+      "name": "Only explicit provider context errors without partial output qualify for reactive compression",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Reactive circuit allows one retry per consecutive incident and caps total recoveries even after success",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Rejected response projection omits only checked failed native responses and rejects forged identities",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Reusable prompt prefix stays before current permissions and source state while observations stay outside the system prompt",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "Tool wire definitions have deterministic ordering and schema keys without hiding revoked or replaced bindings",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 24
+    },
+    {
+      "name": "Cache telemetry distinguishes reported reuse from normalized zero and missing data without discounting token budgets",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Native SDK emits supported Anthropic cache markers for short retention and omits them for none without making a network request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 212
+    },
+    {
+      "name": "API round grouping keeps all calls and out-of-order results together and permits IDs reused in later rounds",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "API round validation rejects missing, orphaned, duplicate and mismatched results without pairing across responses",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Agent worker environment excludes host source tokens, model keys and Node preload options",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Agent subprocess rejects exit-startup and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 222
+    },
+    {
+      "name": "Agent subprocess rejects disconnect and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 355
+    },
+    {
+      "name": "Agent subprocess rejects wrong-session and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 221
+    },
+    {
+      "name": "Agent subprocess rejects wrong-sequence and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 242
+    },
+    {
+      "name": "Agent subprocess rejects malformed and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 229
+    },
+    {
+      "name": "Agent subprocess rejects oversized and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 235
+    },
+    {
+      "name": "Agent subprocess rejects execute-first and preserves a terminal host Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 230
+    },
+    {
+      "name": "Agent subprocess rejects batch-wrong-id before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 232
+    },
+    {
+      "name": "Agent subprocess rejects batch-reordered before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 230
+    },
+    {
+      "name": "Agent subprocess rejects batch-duplicate-id before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 230
+    },
+    {
+      "name": "Agent subprocess rejects batch-complete-early before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 225
+    },
+    {
+      "name": "Agent subprocess rejects batch-next-model before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 226
+    },
+    {
+      "name": "Agent subprocess rejects batch-overwrite before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 256
+    },
+    {
+      "name": "Agent subprocess rejects batch-forged-observation before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 237
+    },
+    {
+      "name": "Agent subprocess rejects batch-forged-success before a side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 235
+    },
+    {
+      "name": "Unresponsive Agent startup is force-killed within a bounded grace period",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 357
+    },
+    {
+      "name": "Agent changed-hash cannot execute an approved tool",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 224
+    },
+    {
+      "name": "Agent exit-after-allow cannot execute an approved tool",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 244
+    },
+    {
+      "name": "Agent omit-execute cannot execute an approved tool",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 498
+    },
+    {
+      "name": "Duplicate Agent pre-tool requests cancel the original pending approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 238
+    },
+    {
+      "name": "Agent crash during approval cancels the request and ignores a late approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 280
+    },
+    {
+      "name": "Agent crash during a host write aborts it and persists unknown without replaying",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 292
+    },
+    {
+      "name": "Duplicate Agent execute requests never dispatch a tool twice",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 234
+    },
+    {
+      "name": "model environment uses generic API_KEY and BASE_URL",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "missing model settings fail with variable name and no credential disclosure",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "unsafe or request-path BASE_URL rejected without echoing its contents",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "built-in provider can use generic key without overriding endpoint",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "env example contains supported variable names and no credential value",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Run limits reject non-integers, non-finite values and unsafe timer delays",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Token totals include caches once and do not double-count reasoning subsets",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Per-tool budget counts changed arguments across a run before the next side effect",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 158
+    },
+    {
+      "name": "A zero per-tool budget prevents even the first workflow write",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 81
+    },
+    {
+      "name": "Model response character budget blocks an oversized decision without executing tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 103
+    },
+    {
+      "name": "The host model deadline stops a model which ignores cancellation and persists its reason",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 121
+    },
+    {
+      "name": "CLI rejects missing and invalid limit arguments before creating output directories",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 6130
+    },
+    {
+      "name": "explore exposes exactly its allowed tool surface across builtin and MCP source channels",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 113
+    },
+    {
+      "name": "ask exposes exactly its allowed tool surface across builtin and MCP source channels",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 110
+    },
+    {
+      "name": "allow-all exposes exactly its allowed tool surface across builtin and MCP source channels",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 106
+    },
+    {
+      "name": "Context template injects permission branches, entity, whitelist and time on every turn",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "A running context never silently grants newly registered or replaced bindings",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 10
+    },
+    {
+      "name": "AgentEvent validates permission payloads and Trace refuses malformed events before writing",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 16
+    },
+    {
+      "name": "Source builder classifies browser as builtin and wraps platform APIs as MCP",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Disabled sources do not start processes, resolve credentials or disclose tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "MCP pool deduplicates discovery, isolates caller cancellation and closes only the last lease",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "MCP pool keeps different configurations separate and enforces its capacity",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "One generic API MCP tool discovers endpoints through a separately audited guide and refreshes credentials",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 172
+    },
+    {
+      "name": "Unread source guides block repeated API calls even in allow-all without making HTTP requests",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 134
+    },
+    {
+      "name": "Guide reads require an active task-selected source and cannot accept arbitrary file paths",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 68
+    },
+    {
+      "name": "Changed guides invalidate reading state and require a fresh controlled read",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 128
+    },
+    {
+      "name": "Missing, oversized and symlink source guides never establish API prerequisites",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 88
+    },
+    {
+      "name": "Guide instructions and model params cannot grant write permission to a generic API tool",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 85
+    },
+    {
+      "name": "Generic API ask authorizes actual write requests with their original method, path and params",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 89
+    },
+    {
+      "name": "Generic API allow-all authorizes actual write requests with their original method, path and params",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 76
+    },
+    {
+      "name": "Generic API ask without an approver has zero upstream write calls",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 55
+    },
+    {
+      "name": "Read-only POST rules validate endpoint params and do not authorize neighboring POST endpoints",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 88
+    },
+    {
+      "name": "Explicit GET write semantics override the default GET classification",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "URL, allowlist, source scope and protected params reject before HTTP in every mode",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 96
+    },
+    {
+      "name": "Generic API MCP keeps HTTP 401 as auth_failed",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 51
+    },
+    {
+      "name": "Generic API MCP keeps HTTP 429 as rate_limited",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 49
+    },
+    {
+      "name": "Generic API MCP keeps HTTP 503 as unknown",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 56
+    },
+    {
+      "name": "GitHub primary rate limit survives API MCP, executor snapshots and Trace without retrying or leaking credentials",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 95
+    },
+    {
+      "name": "GitHub ordinary forbidden stays authentication or permission failure while a secondary 403 remains rate limited",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 154
+    },
+    {
+      "name": "Generic JSON stays discovery and standardized retrieval rejects another source identity",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 98
+    },
+    {
+      "name": "Generic API read cancellation reaches HTTP and produces no late Trace writes",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 131
+    },
+    {
+      "name": "Concurrent API MCP requests retain separate invocation contexts",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 66
+    },
+    {
+      "name": "MCP handler enforces its schema and forwards host-stage policy failures",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 59
+    },
+    {
+      "name": "GitHub replay uses one pooled generic API tool and the same guide prerequisite",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "Generic API configuration rejects old per-endpoint tools and unsafe rule semantics",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Query auth and raw POST bodies stay controlled and the intent is not forwarded to the API",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 81
+    },
+    {
+      "name": "Rotated query credentials and stream errors are scrubbed before HTTP stage errors reach Trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 89
+    },
+    {
+      "name": "Generic API streaming body cap remains 2 MB",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 97
+    },
+    {
+      "name": "Missing API credentials never borrow model credentials or make a network request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 94
+    },
+    {
+      "name": "Specific API rules win over equally deep subtree rules",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 96
+    },
+    {
+      "name": "A generic API write cancelled after dispatch stays unknown and is never retried",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 87
+    },
+    {
+      "name": "Generic API mode downgrade is rechecked before an upstream HTTP write",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 85
+    },
+    {
+      "name": "Source catalog accepts arrays, single configs and per-source config directories",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 14
+    },
+    {
+      "name": "Generic API GET retains the investigation plan and analysis prerequisites",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 319
+    },
+    {
+      "name": "GitHub primary 403 quota exhaustion carries a safe UTC reset and remains a failed collection",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "GitHub secondary limits honor Retry-After even with remaining primary quota",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "GitHub true authentication failures and ordinary forbidden responses are not reclassified from quota hints",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "GitHub quota rules never reinterpret another platform 403 or an unrelated 503",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Secondary GitHub limits without a usable deadline record a labeled minimum rather than an invented server reset",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Retry-After HTTP dates are accepted and combined limits never suggest an earlier retry",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Malformed, credential-bearing, overflowing and expired retry headers do not fabricate a deadline",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Successful GitHub responses expose actual quota without promising a retry or another request allowance",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Official reference coverage deduplicates repeated hits across queries without counting duplicates as recall",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Known starting URLs restore bounded entry reach when official search is empty without falsifying search coverage",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "A shared official hostname or another GitHub repository does not satisfy an exact reference entry",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Discovery metrics reject widened reference scope and do not accept foreign candidate or mismatched fetch URLs",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Discovery URL matching removes fragments and trailing slash but preserves page paths, queries and tag case",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Failed or cancelled fetches never fill reference text coverage and snippets never become structured facts",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Configured official seeds and whitelist are disclosed in stable tools without exposing provider credentials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2
+    },
+    {
+      "name": "Source builder carries configured seeds into the actual web tool catalog without network discovery",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Competitor discovery query matrix preserves the existing official whitelist, seeds and exact repository scope",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4
+    },
+    {
+      "name": "Eval dataset validates six facets, frozen hashes and all three correctly labeled origins",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 42
+    },
+    {
+      "name": "Eval schema rejects missing facets, unscored requirements, unsafe selectors and forged review eligibility",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 50
+    },
+    {
+      "name": "Eval case hashes prevent a silently edited label from entering the same dataset version",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "Eval lineage forbids split leakage, missing parents and cycles",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 21
+    },
+    {
+      "name": "Grader calibration keeps passing candidates pending and recognizes an independently recorded review in a unit fixture",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 74
+    },
+    {
+      "name": "Grader calibration detects misclassified limits, forbidden terminal success and pending labels never mask failure",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 79
+    },
+    {
+      "name": "Missing evidence stays unknown rather than passed and a leaked canary is an unconditional failed boundary",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 83
+    },
+    {
+      "name": "Malformed or incomplete SUT Trace fails observability instead of being excused as an invalid evaluation",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 61
+    },
+    {
+      "name": "Evidence manifest detects tampering and outside-workspace references",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 74
+    },
+    {
+      "name": "Reports retain pending and invalid denominators and never manufacture live-model accuracy or cost",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "Version comparison exposes regressions and missing attempts while rejecting changed labels or graders",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "Cancellation during promise construction observes its rejection without crashing after a durable terminal",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Explicit SDK resources expose host prompt only and cannot discover or extend hidden user Skills",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "A worker crash with SUT evidence remains a tested-system failure rather than an excluded invalid sample",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Real-model cases reject scripted answer trajectories and keep their output format contract explicit",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "Archived regrading uses frozen labels and verified evidence while preserving the original result",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 292
+    },
+    {
+      "name": "Failure intake rejects pending cases and keeps confirmed evaluation failures unapproved and outside the dataset",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 296
+    },
+    {
+      "name": "Holdout cases stored inside the developer workspace are rejected even with a valid content hash",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 60
+    },
+    {
+      "name": "Fact extraction remains separate from output-format compliance and never chooses between ambiguous JSON answers",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "A known JSON answer missing a required field fails instead of being mislabeled as unavailable grading evidence",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 141
+    },
+    {
+      "name": "Rate-limit note validation rejects omitted, blank and non-string notes while accepting varied explanations",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 169
+    },
+    {
+      "name": "Rate-limit task discloses its one-request constraint and note validation has a valid selector contract",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "Output contracts distinguish raw JSON, sole fences and prose without accepting multiple answers",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "The same Case output policy generates the model instruction and scoring input without disclosing answers",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 56
+    },
+    {
+      "name": "New dataset execution rejects undeclared format gates while frozen legacy Cases remain readable for audit",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 43
+    },
+    {
+      "name": "Undeclared legacy output requirements stay pending, and an unrelated real error still fails",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 155
+    },
+    {
+      "name": "Disputed legacy format failures cannot enter the failure corpus under the corrected grader",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 197
+    },
+    {
+      "name": "An active synthetic case cannot inherit a withdrawn failure as its parent",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 152
+    },
+    {
+      "name": "Model suite registers twenty reviewable cases in four five-case groups and preserves archived revisions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 114
+    },
+    {
+      "name": "New model-case graders reject every wrong or omitted required answer field without approving calibration fixtures",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 161
+    },
+    {
+      "name": "A recorded review can advance a model Case revision while pending calibration and lineage remain valid",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 211
+    },
+    {
+      "name": "Synthetic release oracle covers inclusive start, exclusive end, missing dates and actual timezone sorting",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Review preview changes no files, approval records, history or locks",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 49
+    },
+    {
+      "name": "An explicit review updates only selected metadata, hashes and catalog and archives the exact old dataset",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 126
+    },
+    {
+      "name": "Review rejects missing reviewers, duplicate selection and unknown cases before changing the dataset",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 139
+    },
+    {
+      "name": "A review cannot silently approve a case edited outside its frozen manifest hash",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 147
+    },
+    {
+      "name": "Review locks reject simultaneous writers without removing another writer lock",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 25
+    },
+    {
+      "name": "A dataset-write failure rolls back the case and catalog and leaves a readable recovery snapshot",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 162
+    },
+    {
+      "name": "Conflicting history is never overwritten and a repeated approval does not replace the first review",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 266
+    },
+    {
+      "name": "A batch review increments the dataset once and accepts a second review against an identical prior snapshot",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 242
+    },
+    {
+      "name": "Three graders preserve the original archive, exclude private reasoning and bind each score to frozen evidence",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 394
+    },
+    {
+      "name": "Quality score calibration separates low scores, unknowns and factual or safety disputes",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Human templates cannot be submitted blank and reject wrong run bindings, duplicate dimensions and fabricated evidence",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 72
+    },
+    {
+      "name": "Perfect LLM and human scores cannot override a rule failure or an original controller crash",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 207
+    },
+    {
+      "name": "Approved cases still require both quality graders and flag disagreements rather than picking the best score",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 319
+    },
+    {
+      "name": "Malformed, truncated, tool-calling and uncited judge outputs archive invalid assessments and preserve reported usage",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 165
+    },
+    {
+      "name": "Judge timeout, cancellation and provider errors remain bounded, redacted and separately counted",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 146
+    },
+    {
+      "name": "Judge input limits fail before network dispatch; known secrets are removed from packets and wire archives",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 66
+    },
+    {
+      "name": "Quality aggregation rejects tampered score artifacts and tampered original evidence",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 222
+    },
+    {
+      "name": "Quality reports retain invalid attempts, write JSON and Markdown, and do not mutate dataset approval",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 117
+    },
+    {
+      "name": "An interrupted judge request remains visible and blocks release without inventing a completed assessment",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 264
+    },
+    {
+      "name": "Runs without a final answer retain their rules and do not fabricate semantic quality scores",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 92
+    },
+    {
+      "name": "LLM Judge uses a real SDK request with no tools, no shared conversation and no retry after HTTP failure",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 106
+    },
+    {
+      "name": "Four-scenario coverage inventories every registered case once and keeps engineering tests outside the case denominator",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 193
+    },
+    {
+      "name": "Markdown output requirements are disclosed from one frozen contract without disclosing expected rows or scoring labels",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 48
+    },
+    {
+      "name": "Active report cases cannot silently acquire an undisclosed output contract and historical case bytes remain preserved",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 177
+    },
+    {
+      "name": "Complete report grading detects missing sections, empty sections, fabricated facts, wrong citations and omitted rows",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 657
+    },
+    {
+      "name": "A report must exist on disk and match the final response rather than merely claiming it was produced",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 250
+    },
+    {
+      "name": "Report rules retain unknown dates, unresolved versions and empty result sets without inventing replacement facts",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 125
+    },
+    {
+      "name": "Model core-logic graders reject skipped steps, wrong tools and invalid parameters even when the final answer claims success",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 338
+    },
+    {
+      "name": "Seven new scripted runtime cases execute in restricted workers and report real positive/negative outcomes",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 12014
+    },
+    {
+      "name": "Eighteen model-mode cases use the real SDK and actual tool/Markdown pipeline under an explicitly scripted local provider",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2112
+    },
+    {
+      "name": "Negative scoring starts at 100, includes 80, rejects 70 and floors deductions at zero",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 648
+    },
+    {
+      "name": "Result failure or any safety boundary deducts 100 once and cannot be softened by process group metadata",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 974
+    },
+    {
+      "name": "The five-minute efficiency allowance uses ceil on excess minutes and never treats unknown time as free",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2555
+    },
+    {
+      "name": "Checks sharing one process deduction group are charged once and retain every evidence link",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 330
+    },
+    {
+      "name": "Sequence penalties count missing, extra, incorrect and reordered steps rather than charging one flat array mismatch",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 305
+    },
+    {
+      "name": "Required evidence gaps, malformed sequences and legacy results remain unknown instead of becoming 100-point trials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 686
+    },
+    {
+      "name": "Five trials average only when every score reaches 80; one failure produces zero while pass@k and pass^k differ",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2961
+    },
+    {
+      "name": "Stability does not silently mix missing, duplicate, invalid or different-grader trials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1490
+    },
+    {
+      "name": "Agent-specific tolerance is separate from strict case scoring and never forgives a safety veto",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 602
+    },
+    {
+      "name": "Controller crashes and evidence corruption remain numeric vetoes after regrading",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 183
+    },
+    {
+      "name": "Comparing reports rejects changes to agent tolerance or trial planning",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 107
+    },
+    {
+      "name": "A five-trial restricted-worker evaluation persists penalty evidence, stability and agent policy without approving candidates",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 9240
+    },
+    {
+      "name": "The explicit score gate accepts a 90-point process-only trial while preserving the original required-check failure",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1882
+    },
+    {
+      "name": "Structured traces automatically correlate model rounds, batch tool IDs, policies and backend stages",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 50
+    },
+    {
+      "name": "Blocked requests have structured permission errors and no invented execution timestamps or backend calls",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "Tool exceptions and unavailable source results retain different execution outcomes and normalized errors",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 73
+    },
+    {
+      "name": "A failed model request is closed by its run terminal with an explicit correlated error",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "Auxiliary usage does not invent request timing, success or zero monetary cost",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Historical JSONL exports are deterministic and leave the original event bytes unchanged",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 20
+    },
+    {
+      "name": "Incomplete snapshots stay incomplete and exporting never replays tools or appends audit events",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "Projection write failures are surfaced without losing the durable terminal event or observer notification",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "Eval rejects structured trace tampering and the schema rejects orphaned parent IDs",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 57
+    },
+    {
+      "name": "Workbench serves structured traces through the existing local-origin HTTP boundary",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 498
+    },
+    {
+      "name": "Browser source URL, entity and schema boundaries reject before browser launch",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 25
+    },
+    {
+      "name": "Browser registration rejects private, credential and unlisted URLs without launching",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Cancelling during browser startup still waits for a late browser to close",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "labeled domain dataset: official-reprint-dedup",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "labeled domain dataset: exact-snapshot-dedup",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 19
+    },
+    {
+      "name": "labeled domain dataset: wrong-entity-kept-as-gap",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "labeled domain dataset: display-name-not-identity",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 17
+    },
+    {
+      "name": "labeled domain dataset: missing-publication-not-retrieval",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "labeled domain dataset: window-end-exclusive",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 15
+    },
+    {
+      "name": "labeled domain dataset: source-failure-not-no-activity",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "labeled domain dataset: counter-evidence-blocks-accept",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "Previously stored evidence cannot escape a narrower source or signal-type scope",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 32
+    },
+    {
+      "name": "Omitting a planned source remains partial even when other collected facts are valid",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 234
+    },
+    {
+      "name": "standard built-in skills are installable and inject instructions without YAML; explicit legacy overrides still load",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 52
+    },
+    {
+      "name": "User MCP store persists only configuration references and supports enable/disable/remove",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 20
+    },
+    {
+      "name": "User MCP rejects embedded credentials, unknown transports and mixed stdio/remote configuration",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Unclassified custom MCP tools remain modifying despite server readOnlyHint and never execute in explore",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 50
+    },
+    {
+      "name": "Custom MCP ask uses the existing one-shot gate and original remote tool name",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 57
+    },
+    {
+      "name": "Custom MCP allow-all uses the existing one-shot gate and original remote tool name",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "Custom MCP schema and task scope violations have zero tools/call requests",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 42
+    },
+    {
+      "name": "Custom MCP credentials are redacted from observations and rejected when exposed during discovery",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 42
+    },
+    {
+      "name": "Custom MCP missing credentials fail before any connection and direct dispatch needs executor context",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Cancelled custom MCP calls cannot append late results or provider events",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 61
+    },
+    {
+      "name": "User stdio MCP discovers actual tools, maps only requested env and preserves retrieval fixture provenance",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 545
+    },
+    {
+      "name": "Skill parsing supports YAML folded strings and rejects missing/duplicate metadata and traversal names",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 2
+    },
+    {
+      "name": "Local Skill install snapshots resources, filters credentials and never executes packaged scripts",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 76
+    },
+    {
+      "name": "Skill reads reject traversal, non-selected skills and changed files",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 44
+    },
+    {
+      "name": "Managed configuration and skill resources refuse directory symlinks and recursive deletion outside their roots",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 14
+    },
+    {
+      "name": "Failed GitHub Skill installs clean staging and never leave a partially installed skill",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5
+    },
+    {
+      "name": "GitHub Skill installer reads pinned Git blobs without checkout or executing code",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 39
+    },
+    {
+      "name": "GitHub Skill source parser rejects credential URLs, traversal and option injection",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "CLI installs and selects a Skill during replay without changing the investigation tool vocabulary",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 4967
+    },
+    {
+      "name": "Installed Skill resource reads enter ToolExecutor and known credentials never reach model context",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 580
+    },
+    {
+      "name": "User MCP automatically negotiates legacy SSE after HTTP 405",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 5
+    },
+    {
+      "name": "User SSE endpoint changes never send credentials to another origin",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "User MCP HTTP 401 is explicit and never falls back to another transport",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "User MCP HTTP 429 is explicit and never falls back to another transport",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Single-skill GitHub repository roots and explicit branch names are supported",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "CLI user MCP plus installed Skill runs through a real Pi child process with audited resource and remote tool calls",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 15847
+    },
+    {
+      "name": "Successful arbitrary MCP results stay unstructured gaps instead of being promoted to competitor facts",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 154
+    },
+    {
+      "name": "MCP names matching Object prototype properties cannot replace host action classification",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 25
+    },
+    {
+      "name": "Public stdio settings such as a short locale do not get mistaken for credentials during discovery",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 320
+    },
+    {
+      "name": "StepFun custom model is not assumed to have controlled native web tools",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "native configuration must be explicit or a recognized native Anthropic endpoint",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "native search preferred, bounded, traced and never dispatched through planner model",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 44
+    },
+    {
+      "name": "native fetch returns exact-URL page data with audit events",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 40
+    },
+    {
+      "name": "unsupported native without configured MCP returns unavailable with no direct webpage request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 44
+    },
+    {
+      "name": "native HTTP 401 does not silently fall back",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "native HTTP 429 does not silently fall back",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 27
+    },
+    {
+      "name": "native answer without tool events is rejected as unverifiable",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 30
+    },
+    {
+      "name": "native rewritten query or wrong URL is recorded and rejected, not accepted as authorized data",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "web denied source and out-of-scope URL/query have zero HTTP executions",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "source revocation between native rejection and MCP prevents MCP request",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 33
+    },
+    {
+      "name": "web cancellation stops fallback and late provider events",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 54
+    },
+    {
+      "name": "no configured web backend returns explicit errors and performs zero network requests",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 48
+    },
+    {
+      "name": "URL guard still excludes IP literals, credentials and unsupported ports",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "full agent loop consumes search/fetch observations and retains discovery gaps beside structured facts",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 360
+    },
+    {
+      "name": "search discoveries are saved as gaps and never promoted to facts automatically",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 54
+    },
+    {
+      "name": "full raw response is snapshotted before bounded model observation; snapshot tampering rejected",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 50
+    },
+    {
+      "name": "web adapters require executor context; no callable direct network bypass",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "generic MCP URL and token are independent from the model and never reuse its key",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "native remains ahead of configured MCP with zero MCP requests",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "native unsupported goes to configured MCP with both tiers audited",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 60
+    },
+    {
+      "name": "MCP fetch maps exact URL content and saves raw snapshot",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 59
+    },
+    {
+      "name": "MCP unsupported returns an explicit error without local network calls",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 35
+    },
+    {
+      "name": "MCP unavailable returns an explicit error without local network calls",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 26
+    },
+    {
+      "name": "MCP HTTP 401 stops without hiding failure in local fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "MCP HTTP 429 stops without hiding failure in local fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 58
+    },
+    {
+      "name": "missing MCP token never borrows model key and server auth failure remains visible",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "MCP search filters out of scope results without falling back or inventing timestamps",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 54
+    },
+    {
+      "name": "MCP invalid page URL and schema incompatibility are rejected without local fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 90
+    },
+    {
+      "name": "source revocation after MCP discovery blocks tools/call before network execution",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 79
+    },
+    {
+      "name": "MCP cancellation stops future operations and local fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 51
+    },
+    {
+      "name": "MCP request timeout is visible with no local HTTP fallback",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 68
+    },
+    {
+      "name": "both native and MCP unsupported stop after two tiers",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "only URL plus token config works with independent model settings and custom environment names",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "Remote MCP request timeout is explicit, bounded and propagated without changing the configured endpoint",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "Configured MCP fetch consumes a nested page envelope and records its request budget and exact URL",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 63
+    },
+    {
+      "name": "Nested fetch envelopes cannot conceal failed status, multiple pages, empty text or a foreign returned URL",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "MCP request timeout returns one explicit failure without switching endpoint, transport or backend",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1078
+    },
+    {
+      "name": "Parent cancellation interrupts a configured longer MCP request without retry or page success",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 84
+    },
+    {
+      "name": "generic SDK discovery adapts vendor_search without provider configuration",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 57
+    },
+    {
+      "name": "generic SDK discovery adapts web_search_exa without provider configuration",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 55
+    },
+    {
+      "name": "generic SDK discovery adapts tavily-search without provider configuration",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 60
+    },
+    {
+      "name": "generic fetch recognizes batch extract with one authorized URL and nested results",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "MCP search text blocks are parsed as bounded Markdown discovery results",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 48
+    },
+    {
+      "name": "generic result shapes stay discoveries and never invent publication dates",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "generic fetch supports Markdown and resources but rejects reported wrong URLs",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "ambiguous or destructive remote tools never get guessed or called",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 13
+    },
+    {
+      "name": "MCP schemas accept 2020-12 and draft-7 but reject unknown required fields and async validators",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 23
+    },
+    {
+      "name": "generic transport supports custom API-key header and anonymous MCP",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 76
+    },
+    {
+      "name": "URL-only search config registers in replay without reading tokens or network access",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "removed local fallback configuration is rejected instead of silently ignored",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "legacy SSE is automatically negotiated after Streamable HTTP 405 with the same token",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 88
+    },
+    {
+      "name": "SSE advertised cross-origin post endpoint never receives credentials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 29
+    },
+    {
+      "name": "local REST search uses direct HTTP and shared policy stages without MCP handshake",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "Google-style GET query/key/cx and custom result field mapping work through the local API adapter",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 76
+    },
+    {
+      "name": "local REST fetch tool uses an API with array URL input and nested page mapping",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 55
+    },
+    {
+      "name": "REST body API key and plaintext fetch are supported without credential exposure",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 28
+    },
+    {
+      "name": "REST HTTP 401 returns an explicit local tool failure with no fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "REST HTTP 403 returns an explicit local tool failure with no fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 64
+    },
+    {
+      "name": "REST HTTP 429 returns an explicit local tool failure with no fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 37
+    },
+    {
+      "name": "REST HTTP 503 returns an explicit local tool failure with no fallback",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "name": "REST missing fetch capability never invokes search API or directly fetches page",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 31
+    },
+    {
+      "name": "local API tool input is denied by parent entity and URL scope before HTTP",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 32
+    },
+    {
+      "name": "API HTTP request rechecks revocation after local tool execution starts",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "API request cancellation rejects late results and produces no events after termination",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 42
+    },
+    {
+      "name": "API redirect, malformed JSON and oversized bodies stay failures",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 126
+    },
+    {
+      "name": "mapped REST search filters disallowed URLs, empty success remains empty and errors do not become empty",
+      "group": "semantic",
+      "critical": true,
+      "passed": true,
+      "durationMs": 98
+    },
+    {
+      "name": "API source schema validates endpoints, credential presence and incompatible options",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "local API adapter requires executor context before any HTTP",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "explicit local API selection stays independent of native model credentials",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 34
+    },
+    {
+      "name": "local API discoveries run through plan/analyze/review/draft with honest gaps",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 194
+    },
+    {
+      "name": "local API and external MCP tools share executor policy, observations and trace",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 72
+    },
+    {
+      "name": "legacy searchMcp API configuration executes locally without MCP discovery",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 81
+    },
+    {
+      "name": "local fetch rejects a mismatched returned URL and marks bounded page text",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 89
+    },
+    {
+      "name": "local API adapter refuses unknown operations and malformed input before HTTP",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1
+    },
+    {
+      "name": "API source examples validate and replay without reading real service credentials",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 7
+    },
+    {
+      "name": "upstream stream errors cannot leak API credentials into HTTP stage trace",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 36
+    },
+    {
+      "name": "API auth cannot overwrite an authorized query parameter or configured request value",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 31
+    },
+    {
+      "name": "API query credentials with reserved characters are redacted in echoed URLs",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 57
+    },
+    {
+      "name": "conversation keeps user turns and prior decisions, scopes no-progress to each turn, and replays them",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 62
+    },
+    {
+      "name": "waiting for a user pauses execution and model timers but follow-up turns retain cumulative budgets",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 367
+    },
+    {
+      "name": "real Pi conversation preserves previous user, assistant and tool messages without replaying the tool",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1659
+    },
+    {
+      "name": "user follow-ups survive real Pi compaction with incremental memory under the same session identity",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1794
+    },
+    {
+      "name": "a user follow-up refreshes host permissions and removes revoked tool bindings before its first request",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1673
+    },
+    {
+      "name": "cancelling an idle real Pi conversation exits its worker without another model request",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1634
+    },
+    {
+      "name": "HTTP conversation accepts follow-ups once, rejects busy/conflicting input, closes normally and preserves answers",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 158
+    },
+    {
+      "name": "conversations isolate messages, cancel idle sessions and mark saved waiting sessions interrupted after restart",
+      "group": "contract",
+      "critical": true,
+      "passed": true,
+      "durationMs": 155
+    },
+    {
+      "name": "Workbench preparation timeout does not cancel a conversation while it waits for the next user",
+      "group": "integration",
+      "critical": true,
+      "passed": true,
+      "durationMs": 1187
+    }
+  ]
+}

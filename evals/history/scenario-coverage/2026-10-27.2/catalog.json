@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "cwatch.scenario-catalog.v1",
+  "datasetVersion": "2026-10-27.2",
+  "groups": [
+    {
+      "category": "activation",
+      "caseIds": [
+        "activation-direct",
+        "activation-paraphrase",
+        "activation-deliverable",
+        "activation-english",
+        "activation-definition",
+        "activation-negated",
+        "activation-quotation",
+        "activation-coding"
+      ]
+    },
+    {
+      "category": "core_logic",
+      "caseIds": [
+        "core-ordered-arguments",
+        "core-missing-step",
+        "core-wrong-tool",
+        "core-invalid-arguments",
+        "model-core-ordered",
+        "model-core-skip-hint",
+        "model-core-wrong-tool-hint",
+        "model-core-argument-hijack"
+      ]
+    },
+    {
+      "category": "artifact_quality",
+      "caseIds": [
+        "report-complete",
+        "report-missing-date",
+        "report-conflicting-version",
+        "report-injected-content",
+        "report-partial-source",
+        "report-empty-material"
+      ]
+    },
+    {
+      "category": "resilience",
+      "caseIds": [
+        "resilience-partial-fallback",
+        "resilience-tool-exception",
+        "resilience-loop-stop"
+      ]
+    }
+  ]
+}

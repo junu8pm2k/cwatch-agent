@@ -1,0 +1,6 @@
+{
+  "kind": "agent",
+  "taskId": "general-agent-demo",
+  "instruction": "读取 README.md，说明这个项目提供哪些能力，以及如何运行。使用中文回答，并说明依据。",
+  "allowedSources": []
+}

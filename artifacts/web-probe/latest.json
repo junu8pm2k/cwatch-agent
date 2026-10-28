@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-17T06:01:11.498Z",
+  "runId": "bed89f9e-e310-4198-87c9-b6283e99bb58",
+  "gaps": [],
+  "results": [
+    {
+      "tool": "web__web_search",
+      "status": "success_with_data",
+      "backend": "mcp.remote",
+      "searchResults": 1,
+      "pages": 0
+    },
+    {
+      "tool": "web__web_fetch",
+      "status": "unknown",
+      "backend": "mcp.remote",
+      "searchResults": 0,
+      "pages": 0,
+      "error": "unavailable:search_mcp_request_timeout"
+    }
+  ],
+  "traceIssues": []
+}

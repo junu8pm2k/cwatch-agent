@@ -1,0 +1,45 @@
+{
+  "requestId": "b2fd7768-aa42-46b0-bda8-bd003579f333",
+  "taskId": "nodejs-release-demo",
+  "runId": "ea93b068-6e32-4cbf-82b0-6c0fe3e04822",
+  "sourceSlug": "github",
+  "toolBinding": {
+    "name": "releases.list",
+    "description": "List public GitHub releases from nodejs/node.",
+    "action": "collect",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "const": "nodejs/node"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "repo",
+        "limit"
+      ],
+      "additionalProperties": false
+    },
+    "id": "c8586cdc238d5ec137c4ed7ceec1958ada88a1e271ecf9113bda06857f11dc49",
+    "source_slug": "github",
+    "original_name": "releases.list",
+    "proxy_name": "github__releases_list",
+    "backendNames": {
+      "pi": "github__releases_list",
+      "replay": "github__releases_list"
+    },
+    "channel": "api",
+    "revision": 1
+  },
+  "argsHash": "54879e97ca753b2e82c4cb81d2af82fffddee5cf8e7fc93da7c61f8cbc4255bb",
+  "state": "completed",
+  "startedAt": "2026-10-17T04:47:32.448Z",
+  "execute_count": 1,
+  "endedAt": "2026-10-17T04:47:32.451Z"
+}

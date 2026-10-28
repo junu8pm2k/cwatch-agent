@@ -1,0 +1,82 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local credentials and runtime state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+credentials.*.json
+auth.json
+.runtime/
+.cache/
+
+# Keep the reviewed delivery sample and acceptance evidence.
+# Repeated demos, clean-install copies, and local probe traces remain local.
+/artifacts/*
+!/artifacts/README.md
+!/artifacts/cleanup-summary.json
+!/artifacts/coverage/
+/artifacts/coverage/*
+!/artifacts/coverage/latest.json
+!/artifacts/coverage/latest.md
+!/artifacts/delivery-demo/
+!/artifacts/eval/
+!/artifacts/audit/
+!/artifacts/model-probe/
+!/artifacts/dependency-audit.json
+!/artifacts/verification-manifest.json
+!/artifacts/source-probe/
+/artifacts/source-probe/*
+!/artifacts/source-probe/latest.json
+!/artifacts/web-probe/
+/artifacts/web-probe/*
+!/artifacts/web-probe/latest.json
+!/artifacts/api-mcp-probe/
+/artifacts/api-mcp-probe/*
+!/artifacts/api-mcp-probe/latest.json
+!/artifacts/session-live/
+/artifacts/session-live/*
+!/artifacts/session-live/latest.json
+!/artifacts/subprocess-live/
+/artifacts/subprocess-live/*
+!/artifacts/subprocess-live/latest.json
+!/artifacts/extensions-demo/
+/artifacts/extensions-demo/*
+!/artifacts/extensions-demo/latest.json
+
+# Logs, temporary files, editor and operating-system metadata
+*.log
+*.tmp
+*.swp
+*.swo
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# User-managed MCP configuration and installed third-party skills
+.cwatch/
+# Keep legacy local configuration ignored after the rename.
+.cint/
+
+# Compact real browser protocol acceptance report
+!/artifacts/browser-eval/
+/artifacts/browser-eval/*
+!/artifacts/browser-eval/latest.json
+!/artifacts/browser-eval/latest.md
+
+# Compact local Web workbench acceptance evidence
+!/artifacts/web-eval/
+/artifacts/web-eval/*
+!/artifacts/web-eval/latest.json
+!/artifacts/web-eval/latest.md

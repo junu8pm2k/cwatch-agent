@@ -1,0 +1,16 @@
+[
+  {
+    "slug": "news",
+    "kind": "mcp",
+    "active": true,
+    "command": "node",
+    "args": [
+      "--experimental-transform-types",
+      "tests/fixtures/news-mcp-server.ts"
+    ],
+    "toolSemantics": {
+      "search.news": "collect"
+    },
+    "fixture": "fixtures/news.json"
+  }
+]

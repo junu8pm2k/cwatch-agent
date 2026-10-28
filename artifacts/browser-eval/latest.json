@@ -1,0 +1,54 @@
+{
+  "startedAt": "2026-10-22T02:26:40.555Z",
+  "endedAt": "2026-10-22T02:27:26.161Z",
+  "command": "npm run eval:browser",
+  "dataset": "synthetic-browser-render-v1",
+  "dataProvenance": "fixture",
+  "engine": "real Playwright Chromium/Edge",
+  "browserVersions": [
+    "155.0.4283.62"
+  ],
+  "metrics": {
+    "total": 6,
+    "passed": 6
+  },
+  "releaseGate": true,
+  "results": [
+    {
+      "name": "Real browser renders JavaScript pricing, blocks POST and external requests, and saves auditable HTML",
+      "group": "integration",
+      "passed": true,
+      "durationMs": 7039
+    },
+    {
+      "name": "Real browser redirects cannot contact an unapproved origin or become facts",
+      "group": "contract",
+      "passed": true,
+      "durationMs": 6919
+    },
+    {
+      "name": "Real browser cancellation closes its process and produces no late trace events",
+      "group": "contract",
+      "passed": true,
+      "durationMs": 6847
+    },
+    {
+      "name": "Real Pi worker drives browser and API MCP through the same host permission and evidence pipeline",
+      "group": "integration",
+      "passed": true,
+      "durationMs": 10909
+    },
+    {
+      "name": "Browser request budget counts denied attempts and closes the renderer on exhaustion",
+      "group": "contract",
+      "passed": true,
+      "durationMs": 6962
+    },
+    {
+      "name": "Browser response byte cap rejects oversized content before fulfilling it to the page",
+      "group": "contract",
+      "passed": true,
+      "durationMs": 6928
+    }
+  ]
+}

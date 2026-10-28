@@ -1,0 +1,48 @@
+{
+  "requestId": "50bee8e2-23b1-497c-b5b9-fc952e7633a0",
+  "taskId": "nodejs-release-demo",
+  "runId": "ea93b068-6e32-4cbf-82b0-6c0fe3e04822",
+  "sourceSlug": "workflow",
+  "toolBinding": {
+    "name": "draft",
+    "description": "Save a draft from reviewed claims and your narrative; only known claim IDs allowed.",
+    "action": "local_draft",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "narrative": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "claimIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "narrative",
+        "claimIds"
+      ],
+      "additionalProperties": false
+    },
+    "id": "8d81e600ad7a01669970e24308fc44518f9a556af577285c0adf1a9d05661d6b",
+    "source_slug": "workflow",
+    "original_name": "draft",
+    "proxy_name": "workflow__draft",
+    "backendNames": {
+      "pi": "workflow__draft",
+      "replay": "workflow__draft"
+    },
+    "channel": "workflow",
+    "revision": 1
+  },
+  "argsHash": "b4474ac5d45a642c621995ac5a849989e7442a68db755c530984a3fbc17ec360",
+  "state": "completed",
+  "startedAt": "2026-10-17T04:47:32.492Z",
+  "execute_count": 1,
+  "endedAt": "2026-10-17T04:47:32.497Z"
+}

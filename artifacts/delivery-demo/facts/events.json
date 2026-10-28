@@ -1,0 +1,29 @@
+[
+  {
+    "id": "event-be1c34871cd5233c092287f2",
+    "entityId": "nodejs",
+    "product": "Node.js",
+    "signalType": "release",
+    "eventKey": "release:v24.0.0",
+    "versionIds": [
+      "ver-41f7a820ad475e1f6fdef3f1"
+    ],
+    "evidenceIds": [
+      "ev-d3aedd77c3a0689a86f280fa",
+      "ev-a518121634fc812f4ea59b38"
+    ]
+  },
+  {
+    "id": "event-1d4fcf1c39ddc9cfc018b2b1",
+    "entityId": "nodejs",
+    "product": "Node.js",
+    "signalType": "release",
+    "eventKey": "release:v24.1.0",
+    "versionIds": [
+      "ver-66b10bda5d2c5f82c54e46b4"
+    ],
+    "evidenceIds": [
+      "ev-25c68a38550ded7c55e20175"
+    ]
+  }
+]

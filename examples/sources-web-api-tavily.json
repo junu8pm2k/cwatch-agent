@@ -1,0 +1,20 @@
+[
+  {
+    "slug": "web", "kind": "web", "active": true,
+    "allowedDomains": ["nodejs.org", "github.com"],
+    "webApi": {
+      "search": {
+        "url": "https://api.tavily.com/search", "method": "POST",
+        "queryParam": "query", "limitParam": "max_results",
+        "auth": { "tokenEnv": "API_SEARCH_KEY" },
+        "fixedParams": { "search_depth": "basic" }
+      },
+      "fetch": {
+        "url": "https://api.tavily.com/extract", "method": "POST",
+        "urlParam": "urls", "urlAsArray": true,
+        "auth": { "tokenEnv": "API_FETCH_KEY" }
+      }
+    },
+    "fixture": "fixtures/web-discovery.json"
+  }
+]

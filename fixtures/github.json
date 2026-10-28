@@ -1,0 +1,5 @@
+{
+  "status": "success_with_data", "provenance": "fixture",
+  "raw": "[{\"tag_name\":\"v24.1.0\",\"name\":\"Node.js v24.1.0\",\"html_url\":\"https://github.com/nodejs/node/releases/tag/v24.1.0\",\"published_at\":\"2025-05-21T12:00:00Z\",\"body\":\"SYNTHETIC FIXTURE\"}]",
+  "signals": [{ "entity": { "id": "nodejs", "name": "Node.js", "domain": "nodejs.org" }, "product": "Node.js", "signalType": "release", "sourceSlug": "github", "url": "https://github.com/nodejs/node/releases/tag/v24.1.0", "eventKey": "release:v24.1.0", "content": { "title": "Node.js v24.1.0", "value": "v24.1.0", "polarity": "supports" }, "published_at": "2025-05-21T12:00:00Z", "retrieved_at": "2026-10-17T10:02:00+08:00", "collectionStatus": "success_with_data" }]
+}

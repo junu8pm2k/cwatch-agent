@@ -1,0 +1,5 @@
+{
+  "status": "success_with_data", "signals": [], "provenance": "fixture", "backend": "fixture.feeds",
+  "raw": "Synthetic discovery fixture, not a captured live search.",
+  "searchResults": [{ "url": "https://nodejs.org/en/blog/release/v24.0.0", "title": "Node.js v24.0.0", "snippet": "Synthetic Node.js release search result", "published_at": null, "retrieved_at": "2026-10-17T10:00:00+08:00" }]
+}

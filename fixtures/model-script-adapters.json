@@ -1,0 +1,73 @@
+[
+  {
+    "kind": "call_tool",
+    "name": "workflow__save_plan",
+    "args": {
+      "taskId": "nodejs-adapters-demo",
+      "objective": "Inspect browser and API MCP adapters with explicit synthetic data.",
+      "sources": [
+        "browser",
+        "github"
+      ],
+      "queries": [
+        "Node.js releases within configured publication window"
+      ],
+      "evidenceRequirements": [
+        "stable entity ID",
+        "source URL and raw snapshot",
+        "publication time independent from retrieval time"
+      ],
+      "window": {
+        "start": "2025-05-01T00:00:00+08:00",
+        "end": "2026-11-01T00:00:00+08:00"
+      }
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "session__browser_tool",
+    "args": {
+      "url": "https://nodejs.org/en/blog/release/v24.0.0"
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "session__read_source_guide",
+    "args": {
+      "source": "github"
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "mcp__github__api_github",
+    "args": {
+      "path": "/repos/nodejs/node/releases",
+      "method": "GET",
+      "params": {
+        "per_page": 5
+      }
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__analyze",
+    "args": {}
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__review",
+    "args": {}
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__draft",
+    "args": {
+      "narrative": "Synthetic adapter demonstration; not a live competitor intelligence result.",
+      "claimIds": "$analyzed_claim_ids"
+    }
+  },
+  {
+    "kind": "respond",
+    "text": "离线草稿和证据已保存，请人工审阅。"
+  }
+]

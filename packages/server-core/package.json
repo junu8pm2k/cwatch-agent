@@ -1,0 +1,22 @@
+{
+  "name": "@cwatch/server-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Host investigation runtime",
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime/investigation": "./src/runtime/investigation.ts",
+    "./runtime/working-state": "./src/runtime/working-state.ts",
+    "./runtime/run-service": "./src/runtime/run-service.ts",
+    "./runtime/agent": "./src/runtime/agent.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cwatch/core": "0.1.0",
+    "@cwatch/shared": "0.1.0",
+    "zod": "4.1.12"
+  }
+}

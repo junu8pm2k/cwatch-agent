@@ -1,0 +1,15 @@
+{
+  "name": "@cwatch/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Command-line application",
+  "scripts": {
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cwatch/core": "0.1.0",
+    "@cwatch/shared": "0.1.0",
+    "@cwatch/server-core": "0.1.0"
+  }
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "slug": "web",
+    "kind": "web",
+    "active": true,
+    "allowedDomains": [
+      "agent.minimax.cn",
+      "agent.minimax.io",
+      "github.com"
+    ],
+    "urls": [
+      "https://agent.minimax.cn/about",
+      "https://agent.minimax.cn/docs/changelog",
+      "https://github.com/MiniMax-AI/minimax-code"
+    ],
+    "searchMcp": { "requestTimeoutMs": 60000 }
+  },
+  {
+    "slug": "minimax_code_github",
+    "kind": "github_releases",
+    "active": true,
+    "repo": "MiniMax-AI/minimax-code",
+    "entityId": "minimax-code",
+    "entityName": "MiniMax Code",
+    "domain": "agent.minimax.cn",
+    "product": "MiniMax Code"
+  }
+]

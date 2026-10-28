@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "cwatch.eval-dataset.v1",
+  "id": "cwatch-contract-regression",
+  "version": "2026-10-25.2",
+  "cases": [
+    {
+      "id": "github-rate-limit",
+      "revision": 1,
+      "file": "cases/github-rate-limit.json",
+      "sha256": "98f39a87d3246c60eecefc74b572c8c4d6f66f640053d58d06c33a986c0eeac2"
+    },
+    {
+      "id": "github-auth",
+      "revision": 1,
+      "file": "cases/github-auth.json",
+      "sha256": "b12ff93149c766def175018675c9c06473501f848b225abf1ec9f057d8d37c4f"
+    },
+    {
+      "id": "batch-read",
+      "revision": 1,
+      "file": "cases/batch-read.json",
+      "sha256": "0aec6ca062f20f32f7bc5021fc0702be66c24b2ece76530034ee8856ee1d27f2"
+    },
+    {
+      "id": "batch-denial",
+      "revision": 1,
+      "file": "cases/batch-denial.json",
+      "sha256": "c5fb88ec2684afc64fce5ba71ced3f752b5c0bcbfc8184a1b30b9ae52e3cc413"
+    },
+    {
+      "id": "batch-cancel",
+      "revision": 1,
+      "file": "cases/batch-cancel.json",
+      "sha256": "c8d997b63eeb3f04bd45ae0ef72bfc1da6b8288cbc5deaabecf1f8ef33f43be3"
+    },
+    {
+      "id": "tool-timeout",
+      "revision": 1,
+      "file": "cases/tool-timeout.json",
+      "sha256": "8ae26214a3e612e3d05b2f06a60d7fc24947b680245bbde825beea3618a43a1a"
+    },
+    {
+      "id": "memory-recovery",
+      "revision": 1,
+      "file": "cases/memory-recovery.json",
+      "sha256": "7a8bed1dda0c33ed87bf83b16c4402e4782324a3b05c05d66b973b7153e94539"
+    },
+    {
+      "id": "memory-exhausted",
+      "revision": 1,
+      "file": "cases/memory-exhausted.json",
+      "sha256": "3b6a533a5bb4ed8cc49e6f74c560c4035c790f88f5eb7aa79ddde10579a2ee2b"
+    },
+    {
+      "id": "memory-cancel",
+      "revision": 1,
+      "file": "cases/memory-cancel.json",
+      "sha256": "02449efe5741aafa97295cfdc6ffbebfd6f7bb9c88fbc05d90bd5b2079d6a1e1"
+    },
+    {
+      "id": "memory-invalid",
+      "revision": 1,
+      "file": "cases/memory-invalid.json",
+      "sha256": "a772e7fb977184544ad3268b1eed6a769e7bc64f541579f9eb5f2f43d97906a9"
+    },
+    {
+      "id": "batch-budget",
+      "revision": 1,
+      "file": "cases/batch-budget.json",
+      "sha256": "1bb0291a3a5280c443c4986f3561fb801703c13b4070aa7c8c3e9ff14c978091"
+    },
+    {
+      "id": "discovery-empty",
+      "revision": 1,
+      "file": "cases/discovery-empty.json",
+      "sha256": "5b7a3be9d5675142aaf2a6bdbfd0d8da70ba1317f5573d26e101dc35e7af803e"
+    }
+  ]
+}
