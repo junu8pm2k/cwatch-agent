@@ -1,0 +1,4 @@
+[
+  { "kind": "call_tool", "name": "read", "args": { "path": "README.md", "offset": 1, "limit": 40 } },
+  { "kind": "respond", "text": "本次是固定脚本驱动的通用 Agent 演示：已通过本地 read 工具读取 README.md。项目提供工具注册、权限与审批、MCP/API 数据源、Skill、会话上下文和调查业务模板。可运行 npm run verify 验证项目，npm run web 启动工作台。此回答为测试脚本预设内容，不代表真实模型总结能力。" }
+]

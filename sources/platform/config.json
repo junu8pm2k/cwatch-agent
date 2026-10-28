@@ -1,0 +1,42 @@
+{
+  "slug": "platform",
+  "kind": "api",
+  "active": false,
+  "entityId": "nodejs",
+  "entityName": "Node.js",
+  "domain": "nodejs.org",
+  "product": "Node.js",
+  "api": {
+    "baseUrl": "https://api.example.com/v1",
+    "auth": {
+      "tokenEnv": "PLATFORM_API_TOKEN",
+      "location": "header",
+      "scheme": "bearer"
+    },
+    "allowedPaths": [
+      "/**"
+    ],
+    "requestRules": [
+      {
+        "method": "POST",
+        "path": "/search",
+        "action": "collect",
+        "paramsSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "resultFormat": "json"
+  }
+}

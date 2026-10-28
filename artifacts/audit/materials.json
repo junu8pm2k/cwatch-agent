@@ -1,0 +1,776 @@
+{
+  "at": "2026-10-17T04:44:31.838Z",
+  "materials": [
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\resume-draft.md",
+      "bytes": 1494,
+      "sha256": "911487b7bea1690854df5c775e825befbe4ffe68267683019501b036188f3976",
+      "headings": [
+        "# 竞品情报调研与质量评测 Agent"
+      ],
+      "originalClaims": [
+        "- **竞品来源 MCP Hub** 设计由 SourceServerBuilder 装配 MCP 与 API 的来源契约，池内发现工具并按原名派发，来源 Adapter 映射为 CompetitorSignal；将协议适配与实体、证据、时间字段归一分层。\r",
+        "- **竞品采集 Tool Calling 门禁** 选择执行前裁决承载 ActionPolicy，分析 runPreToolUseChecks 的模式、来源与审批分支，按 pre_tool_use_response 控制调用；为采集、修改和外发定义参数规则及拒绝后无执行的验收。\r",
+        "- **竞品任务 Context Engineering** 设计 CompetitorTask 的实体、时间窗与来源范围，复用 BaseAgent.chat 的技能前置处理；以 buildStableContextParts 装配稳定块，buildVolatileContextParts 承载当轮任务和来源状态。\r",
+        "- **竞品采集 Agent Runtime 取消** 针对取消调研时的挂起审批，分析 requestId 关联与 handleAbort 的 block 清理，设计 ExecutionRecord 区分权限等待、执行中和取消状态；采集缺口保留未知，避免误报成功或副作用已回滚。\r",
+        "- **竞品事实 Agent Eval** 以 CompetitorSignal 的官网与转载快照规划 EvalCase，按实体、事实数、证据和双时点设置断言；将归因、去重、时间窗评测与 routing.test.ts 的底座契约回归分开。\r"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\scenario-design.md",
+      "bytes": 28836,
+      "sha256": "d0ff61714b7bf57c33d7eb23f5a17ce2f61f2f14abb4866f170631409ad87cab",
+      "headings": [
+        "# 竞品场景设计与验收契约",
+        "## Route Card",
+        "## 共用领域约定",
+        "## 竞品 Source 接入契约",
+        "## 平台查询 Adapter 与请求参数约束",
+        "## 普通 CLI 的 MCP 协议适配方案",
+        "## 竞品事实与证据版本的历史存储设计",
+        "## 竞品工具唯一注册记录设计",
+        "## 竞品查询与外发 ActionPolicy",
+        "## CompetitorTask 及上下文装配计划",
+        "## 调研执行账本与取消状态方案",
+        "## 竞品调研计划与审阅内容契约",
+        "## 来源激活与工具更新任务规则",
+        "## 竞品调查步骤与证据停止条件",
+        "## 固定竞品快照用例与评分契约",
+        "## 只读范围与执行次数故障用例",
+        "## 工具注册到实际派发的契约用例",
+        "## 只读证据审阅意见契约"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\alignment-audit.md",
+      "bytes": 16464,
+      "sha256": "e1cc8aca386c196b98faa172384562030809303acdb2c9de1d1c86c3d0b5a84b",
+      "headings": [
+        "# 场景对齐与真实性审计",
+        "## 四类事实",
+        "## Agent Architecture Mapping",
+        "## Artifact Inventory",
+        "## Coverage Check",
+        "## 自动选择与竞争力排序",
+        "## Claim / Evidence / Ownership 审计",
+        "## 原生能力与场景扩展边界",
+        "## 待确认项与降级措辞",
+        "## 对抗审查"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\agent-project-model.json",
+      "bytes": 100207,
+      "sha256": "24252623261072acaaa72e8603edc8fa57e83deef4c3a1a0799e1d459c838a03",
+      "headings": [],
+      "jsonTopLevelKeys": [
+        "schema_version",
+        "project",
+        "target_role",
+        "scenario",
+        "artifacts",
+        "coverage",
+        "candidate_menu",
+        "route_card",
+        "fact_categories",
+        "selection_state"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\claim-ledger.json",
+      "bytes": 22798,
+      "sha256": "d23703c3b10f0fc2587b20b08199b92b1d0bb475a9a65aa4b220a7b34ac739e3",
+      "headings": [],
+      "jsonTopLevelKeys": [
+        "schema_version",
+        "profile",
+        "claims"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\evidence-navigation.md",
+      "bytes": 30280,
+      "sha256": "4f8cb79bf1910273493e6f0440dd897ee36ce2299d9983484c6ac406a8e39885",
+      "headings": [
+        "# Evidence Navigation",
+        "## 当前候选与主张",
+        "## Artifact 与工程入口",
+        "## Skill 索引导航",
+        "## Project-relative 源码入口"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\scenario-competitor-intel-2026-10-12\\source-verification.json",
+      "bytes": 5362,
+      "sha256": "d4570e41ca18162880586eeb9e2aa7bcccd30413053c96e8a12e3a266af25748",
+      "headings": [],
+      "jsonTopLevelKeys": [
+        "date",
+        "source_commit",
+        "snapshot_date",
+        "archive_sha256",
+        "archive_matches_manifest",
+        "file_count",
+        "records",
+        "base_tests_run",
+        "domain_tests_run",
+        "scope"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\resume-paste-ready.md",
+      "bytes": 1333,
+      "sha256": "629dd76c2017869ed694ce68841d74222030e2fc8d4bfe5d5564719b0b3a13cd",
+      "headings": [
+        "# 竞品情报 Agent Harness 与行为评测平台"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\reviewed\\resume-draft-reviewed.md",
+      "bytes": 1209,
+      "sha256": "05f062dc609d951cd18af85db79c3a81e75c03b2873af04db3b51eca5437bf2e",
+      "headings": [
+        "# 竞品情报 Agent 接入与评测设计"
+      ]
+    },
+    {
+      "file": "C:\\Users\\Swing\\Desktop\\竞品情报agent-resume\\resume-package\\tool-unification-flow.md",
+      "bytes": 10940,
+      "sha256": "1d165a26e42602b582932cdbff026e9df43226ce49d27f4fcdd52e0dcddf72ca",
+      "headings": [
+        "# 工具统一流程全景图（来源接入 → 工具调用结束）",
+        "## 一句话读法"
+      ]
+    }
+  ],
+  "historicalSource": {
+    "commit": "8981384b",
+    "date": "2026-08-06",
+    "compared": [
+      {
+        "path": "packages/shared/src/sources/server-builder.ts",
+        "exists": true,
+        "historicalSha256": "36e7c1332941acf7be54f7aea8bea3db1493f4a4d4455fc7f1c459658c3e9005",
+        "currentSha256": "36e7c1332941acf7be54f7aea8bea3db1493f4a4d4455fc7f1c459658c3e9005",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/sources/api-tools.ts",
+        "exists": true,
+        "historicalSha256": "9dc364130f67cae42beedcc6ace10a845c94c0bc9f681150171633f4243dada2",
+        "currentSha256": "9dc364130f67cae42beedcc6ace10a845c94c0bc9f681150171633f4243dada2",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/sources/__tests__/server-builder-flow.test.ts",
+        "exists": true,
+        "historicalSha256": "bfc9be2f5d4c9f9f7bb90665b88971ef4dd5b4e3489da1d10a7fb472d9aa2991",
+        "currentSha256": "bfc9be2f5d4c9f9f7bb90665b88971ef4dd5b4e3489da1d10a7fb472d9aa2991",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/mcp/api-source-pool-client.ts",
+        "exists": true,
+        "historicalSha256": "dff22d74fbc8fbfbe0780bfa6c5c64adc3f9a7190cd120c78fdefe0d6fac55e6",
+        "currentSha256": "dff22d74fbc8fbfbe0780bfa6c5c64adc3f9a7190cd120c78fdefe0d6fac55e6",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/mcp/mcp-pool.ts",
+        "exists": true,
+        "historicalSha256": "e72c94654f050368726d1990e28d3e44f305cdcd8c31e0798e2ded985661fa50",
+        "currentSha256": "e72c94654f050368726d1990e28d3e44f305cdcd8c31e0798e2ded985661fa50",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/mcp/proxy-tool-name.ts",
+        "exists": true,
+        "historicalSha256": "02e47b88ef70a022a6e28bd61fab2b41b5a174e92c72dd08e0726a385b31083e",
+        "currentSha256": "02e47b88ef70a022a6e28bd61fab2b41b5a174e92c72dd08e0726a385b31083e",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/mcp/__tests__/proxy-tool-name.test.ts",
+        "exists": true,
+        "historicalSha256": "2d975b6c7022055a0d44f84ebc949612ceccf95aafa3b1688bf3a5dac0e55984",
+        "currentSha256": "2d975b6c7022055a0d44f84ebc949612ceccf95aafa3b1688bf3a5dac0e55984",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/mcp/pool-server.ts",
+        "exists": true,
+        "historicalSha256": "398fd2eaddeee48285717ebbff94cbf3247400ff49fc9dd56c1603987894386d",
+        "currentSha256": "398fd2eaddeee48285717ebbff94cbf3247400ff49fc9dd56c1603987894386d",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/tests/mcp-pool.test.ts",
+        "exists": true,
+        "historicalSha256": "f5ff9bd10d73c9f1768f88d499117b44a652990921c56abf48523121be135aa8",
+        "currentSha256": "f5ff9bd10d73c9f1768f88d499117b44a652990921c56abf48523121be135aa8",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/core/pre-tool-use.ts",
+        "exists": true,
+        "historicalSha256": "1b7fe233df7bc0eca400e77c4f169d0f9afcddc18be757867399e0f8b3122b93",
+        "currentSha256": "1b7fe233df7bc0eca400e77c4f169d0f9afcddc18be757867399e0f8b3122b93",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/core/__tests__/pre-tool-use-checks.isolated.ts",
+        "exists": true,
+        "historicalSha256": "f1d925696ac557be9d52e6a80db3274e78c2a8ce447ef6d29e75b9ab0289ec01",
+        "currentSha256": "f1d925696ac557be9d52e6a80db3274e78c2a8ce447ef6d29e75b9ab0289ec01",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/pi-agent.ts",
+        "exists": true,
+        "historicalSha256": "2312456fbebfa0dbf8b801f14e8ff309f9c7a424fffdb98d3c61d92d4eabd49b",
+        "currentSha256": "2312456fbebfa0dbf8b801f14e8ff309f9c7a424fffdb98d3c61d92d4eabd49b",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/claude-agent.ts",
+        "exists": true,
+        "historicalSha256": "c42ce55da41f46b231a6620102ef737bbb044d14d3064a5ef9196d8b842a3a0e",
+        "currentSha256": "c42ce55da41f46b231a6620102ef737bbb044d14d3064a5ef9196d8b842a3a0e",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/base-agent.ts",
+        "exists": true,
+        "historicalSha256": "6f21b46d8e79a10d6eb9068727a23546ad35f5cfddace3eb9e1ef1ae44f6ca02",
+        "currentSha256": "6f21b46d8e79a10d6eb9068727a23546ad35f5cfddace3eb9e1ef1ae44f6ca02",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/prompts/system.ts",
+        "exists": true,
+        "historicalSha256": "523a8ce30a7a03ab7286f496a67b93b772aa503eac11b14b45f0e1bcb3651fad",
+        "currentSha256": "523a8ce30a7a03ab7286f496a67b93b772aa503eac11b14b45f0e1bcb3651fad",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/pi-agent-server/src/index.ts",
+        "exists": true,
+        "historicalSha256": "51e3826c1ea02cf747025ab4048f08d51bfb6faa77c5f56887314e648aae6634",
+        "currentSha256": "51e3826c1ea02cf747025ab4048f08d51bfb6faa77c5f56887314e648aae6634",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/pi-agent-server/src/session-tool-registration.test.ts",
+        "exists": true,
+        "historicalSha256": "6416a5c8bc76b12172afcbdeda5c2012824fb8beeab6e31bd21dde3f36a50371",
+        "currentSha256": "6416a5c8bc76b12172afcbdeda5c2012824fb8beeab6e31bd21dde3f36a50371",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/pi-agent-server/src/system-prompt-override.ts",
+        "exists": true,
+        "historicalSha256": "af2988c6fdf1744357b451b1abe2337cc9c3199eb95a7d66728d60bad906a94a",
+        "currentSha256": "af2988c6fdf1744357b451b1abe2337cc9c3199eb95a7d66728d60bad906a94a",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/pi-agent-server/src/system-prompt-override.test.ts",
+        "exists": true,
+        "historicalSha256": "dafb9dc513dc42a46560ba8caa8471b2c22380a3ff34ba4a5b178a9c45478c2d",
+        "currentSha256": "dafb9dc513dc42a46560ba8caa8471b2c22380a3ff34ba4a5b178a9c45478c2d",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/session-tools-core/src/context.ts",
+        "exists": true,
+        "historicalSha256": "922e2ec0acf3684a0001020ef93b5c20442c2619a154164f98deeb106bd59aab",
+        "currentSha256": "922e2ec0acf3684a0001020ef93b5c20442c2619a154164f98deeb106bd59aab",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/session-tools-core/src/handlers/submit-plan.ts",
+        "exists": true,
+        "historicalSha256": "b882d69f9257139197f80e3ec037e77387aeaf5de60a99f2671ed989901f370d",
+        "currentSha256": "b882d69f9257139197f80e3ec037e77387aeaf5de60a99f2671ed989901f370d",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/session-tools-core/src/tool-defs.ts",
+        "exists": true,
+        "historicalSha256": "1becd0b9a5f165c7f019376805e7420538558e678d82a5927176a29e46c0b7d2",
+        "currentSha256": "1becd0b9a5f165c7f019376805e7420538558e678d82a5927176a29e46c0b7d2",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/agent/backend/pi/session-tool-parity.test.ts",
+        "exists": true,
+        "historicalSha256": "da29400c99c532b62abd1c74f10d1aeb3ec2215f83e1ebd3c6757faa2dfd0773",
+        "currentSha256": "da29400c99c532b62abd1c74f10d1aeb3ec2215f83e1ebd3c6757faa2dfd0773",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/protocol/routing.ts",
+        "exists": true,
+        "historicalSha256": "9fa7cd40079b73e107507172d295bcf6a87e45116b8de3fb653db8540308da73",
+        "currentSha256": "9fa7cd40079b73e107507172d295bcf6a87e45116b8de3fb653db8540308da73",
+        "matchesHistoricalSnapshot": true
+      },
+      {
+        "path": "packages/shared/src/protocol/__tests__/routing.test.ts",
+        "exists": true,
+        "historicalSha256": "a28e4f9255fc3da2743853766dc3b12dbf7cd1dc345baee548ab705d9d8e2252",
+        "currentSha256": "a28e4f9255fc3da2743853766dc3b12dbf7cd1dc345baee548ab705d9d8e2252",
+        "matchesHistoricalSnapshot": true
+      }
+    ]
+  },
+  "excerpts": [
+    {
+      "path": "packages\\pi-agent-server\\package.json",
+      "bytes": 888,
+      "sha256": "6300bbe1f291be36003e6b62b66647bc04b9438264a676c8bb54c71d0c9bab6e"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\index.ts",
+      "bytes": 69310,
+      "sha256": "51e3826c1ea02cf747025ab4048f08d51bfb6faa77c5f56887314e648aae6634"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\session-tool-registration.test.ts",
+      "bytes": 5387,
+      "sha256": "6416a5c8bc76b12172afcbdeda5c2012824fb8beeab6e31bd21dde3f36a50371"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\system-prompt-override.test.ts",
+      "bytes": 2764,
+      "sha256": "dafb9dc513dc42a46560ba8caa8471b2c22380a3ff34ba4a5b178a9c45478c2d"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\system-prompt-override.ts",
+      "bytes": 1282,
+      "sha256": "af2988c6fdf1744357b451b1abe2337cc9c3199eb95a7d66728d60bad906a94a"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\tools\\search\\create-search-tool.test.ts",
+      "bytes": 3474,
+      "sha256": "e515860c71e401c0ca817ca96cb50e7160a78d6f30dbe06744244b7a3cd4b73a"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\tools\\search\\create-search-tool.ts",
+      "bytes": 3737,
+      "sha256": "edd5032d00b225a266cac1fd07a9b9e829ca524f2f254a72e7ee68b1e9e5b4e7"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\tools\\search\\resolve-provider.test.ts",
+      "bytes": 5067,
+      "sha256": "7785b28490d24ee60d67668d3b8ef6d430055b269accb64d154af441255edc86"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\tools\\search\\resolve-provider.ts",
+      "bytes": 3595,
+      "sha256": "f33ebfc97ff4a5b00b33413c6ca883c915cc025a73acd8e0dbe705764bbb7c1d"
+    },
+    {
+      "path": "packages\\pi-agent-server\\src\\tools\\web-fetch.ts",
+      "bytes": 14394,
+      "sha256": "e07b0984625b8718da51b28310c3e3a25671da4c8987ddb966d7b11eead88b13"
+    },
+    {
+      "path": "packages\\server\\src\\__tests__\\smoke.test.ts",
+      "bytes": 4966,
+      "sha256": "5335518513f24da95281d295dabe7203a62597668762a513afcfdc6814fd7ccf"
+    },
+    {
+      "path": "packages\\server-core\\src\\handlers\\rpc\\automations.ts",
+      "bytes": 14234,
+      "sha256": "db9a9feb6777b918950b2d88d8e080a1757d6450e9e3c82221f18e43496debe3"
+    },
+    {
+      "path": "packages\\session-mcp-server\\src\\index.ts",
+      "bytes": 20016,
+      "sha256": "8f88849826bb048148dbca437fc6413d4abecea14ec6e78ec591a12dc8fc41b8"
+    },
+    {
+      "path": "packages\\session-tools-core\\package.json",
+      "bytes": 547,
+      "sha256": "66de92b64a425ff571f96d0ab3186fb4f89649dd997b919fd2053002dd3b7ec3"
+    },
+    {
+      "path": "packages\\session-tools-core\\src\\context.ts",
+      "bytes": 22304,
+      "sha256": "922e2ec0acf3684a0001020ef93b5c20442c2619a154164f98deeb106bd59aab"
+    },
+    {
+      "path": "packages\\session-tools-core\\src\\handlers\\submit-plan.ts",
+      "bytes": 1405,
+      "sha256": "b882d69f9257139197f80e3ec037e77387aeaf5de60a99f2671ed989901f370d"
+    },
+    {
+      "path": "packages\\session-tools-core\\src\\tool-defs.ts",
+      "bytes": 43188,
+      "sha256": "1becd0b9a5f165c7f019376805e7420538558e678d82a5927176a29e46c0b7d2"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\backend\\pi\\session-tool-defs.ts",
+      "bytes": 675,
+      "sha256": "561b97ce3105daec438f1c0a45c69b562add767d9bb9fb7f7cb3ffeef2c86a69"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\backend\\pi\\session-tool-parity.test.ts",
+      "bytes": 500,
+      "sha256": "da29400c99c532b62abd1c74f10d1aeb3ec2215f83e1ebd3c6757faa2dfd0773"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\base-agent.ts",
+      "bytes": 47863,
+      "sha256": "6f21b46d8e79a10d6eb9068727a23546ad35f5cfddace3eb9e1ef1ae44f6ca02"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\browser-tool-names.ts",
+      "bytes": 2429,
+      "sha256": "14c561f9b85741b84fc3fb421049d0ba54314f08b9f3b03a53a4c5589604b5cd"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\browser-tools.ts",
+      "bytes": 10691,
+      "sha256": "598be930678e929958be8c24a7f055012e9d3038a9976daa5cfd984dccfbe5f4"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\claude-agent.ts",
+      "bytes": 146420,
+      "sha256": "c42ce55da41f46b231a6620102ef737bbb044d14d3064a5ef9196d8b842a3a0e"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\core\\permission-manager.ts",
+      "bytes": 11696,
+      "sha256": "7c95fa9f8511f5e60e129c04f1af9f6298a8077ce0583b240c4f5be794e945cf"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\core\\pre-tool-use.ts",
+      "bytes": 40116,
+      "sha256": "1b7fe233df7bc0eca400e77c4f169d0f9afcddc18be757867399e0f8b3122b93"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\core\\prompt-builder.ts",
+      "bytes": 10001,
+      "sha256": "cd8cf504eefa1f03854855a82ea519ee668e47a3f4fe5f12cbbc1d658a5ee0d9"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\core\\__tests__\\pre-tool-use-checks.isolated.ts",
+      "bytes": 41295,
+      "sha256": "f1d925696ac557be9d52e6a80db3274e78c2a8ce447ef6d29e75b9ab0289ec01"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\pi-agent.ts",
+      "bytes": 101246,
+      "sha256": "2312456fbebfa0dbf8b801f14e8ff309f9c7a424fffdb98d3c61d92d4eabd49b"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\__tests__\\browser-tools-permissions.test.ts",
+      "bytes": 1444,
+      "sha256": "77f54c9818d5131e76076f2cb8a424bd4ee1bd63ea1303a32e1dc4de4a5d4356"
+    },
+    {
+      "path": "packages\\shared\\src\\agent\\__tests__\\prompt-builder-context-split.test.ts",
+      "bytes": 3669,
+      "sha256": "71a60ef6b07e3099d2c68c67b7e21baa943dd17af1dc0b8a2ef0a79b01965061"
+    },
+    {
+      "path": "packages\\shared\\src\\automations\\automation-system.test.ts",
+      "bytes": 16683,
+      "sha256": "a91f78ba16bd58f2b264fe2d66b088f61b4f73c61071873bd4bd459a1ffa6f18"
+    },
+    {
+      "path": "packages\\shared\\src\\automations\\automation-system.ts",
+      "bytes": 19322,
+      "sha256": "c08d867c1665f43785972ef67041e670af52d1c7303d3aca8d6f335d3acf882c"
+    },
+    {
+      "path": "packages\\shared\\src\\credentials\\manager.ts",
+      "bytes": 22623,
+      "sha256": "294ddd3274d75208245acdb9186cef2daf10a32357ef258b340b0e1f570d6d7b"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\api-source-pool-client.ts",
+      "bytes": 1642,
+      "sha256": "dff22d74fbc8fbfbe0780bfa6c5c64adc3f9a7190cd120c78fdefe0d6fac55e6"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\client.ts",
+      "bytes": 4627,
+      "sha256": "061a3b5c2e34b86c615be0bc36b57bd4755373cebb238314302f6ac9bca67fe0"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\mcp-pool.ts",
+      "bytes": 17037,
+      "sha256": "e72c94654f050368726d1990e28d3e44f305cdcd8c31e0798e2ded985661fa50"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\pool-server.ts",
+      "bytes": 5679,
+      "sha256": "398fd2eaddeee48285717ebbff94cbf3247400ff49fc9dd56c1603987894386d"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\proxy-tool-name.ts",
+      "bytes": 860,
+      "sha256": "02e47b88ef70a022a6e28bd61fab2b41b5a174e92c72dd08e0726a385b31083e"
+    },
+    {
+      "path": "packages\\shared\\src\\mcp\\__tests__\\proxy-tool-name.test.ts",
+      "bytes": 1079,
+      "sha256": "2d975b6c7022055a0d44f84ebc949612ceccf95aafa3b1688bf3a5dac0e55984"
+    },
+    {
+      "path": "packages\\shared\\src\\prompts\\system.ts",
+      "bytes": 62412,
+      "sha256": "523a8ce30a7a03ab7286f496a67b93b772aa503eac11b14b45f0e1bcb3651fad"
+    },
+    {
+      "path": "packages\\shared\\src\\protocol\\channels.ts",
+      "bytes": 16193,
+      "sha256": "8e4072289643202c0001daea19762b21bc2452ec3b4ca3a5a2b2025c1b5da6d4"
+    },
+    {
+      "path": "packages\\shared\\src\\protocol\\dto.ts",
+      "bytes": 32828,
+      "sha256": "cde8c870026f0db848335a932a9378f91684c1c962ec03270f13ccb4d9ece8ba"
+    },
+    {
+      "path": "packages\\shared\\src\\protocol\\events.ts",
+      "bytes": 3297,
+      "sha256": "e35aa84f7291686079790ec6a7f8334c584485126a4df33c721d1a56d5c518ee"
+    },
+    {
+      "path": "packages\\shared\\src\\protocol\\routing.ts",
+      "bytes": 17077,
+      "sha256": "9fa7cd40079b73e107507172d295bcf6a87e45116b8de3fb653db8540308da73"
+    },
+    {
+      "path": "packages\\shared\\src\\protocol\\__tests__\\routing.test.ts",
+      "bytes": 2280,
+      "sha256": "a28e4f9255fc3da2743853766dc3b12dbf7cd1dc345baee548ab705d9d8e2252"
+    },
+    {
+      "path": "packages\\shared\\src\\sessions\\jsonl.ts",
+      "bytes": 11948,
+      "sha256": "52d697d90ec947d195dc498afeedb4588ac1888fb5645e436c192f1e3377cb1e"
+    },
+    {
+      "path": "packages\\shared\\src\\sessions\\__tests__\\jsonl-permission-mode-normalization.test.ts",
+      "bytes": 2461,
+      "sha256": "00900870bb76a32dac9bebd57abc0e756a7f7203554341049ff8d2f44adedf86"
+    },
+    {
+      "path": "packages\\shared\\src\\sessions\\__tests__\\previous-permission-mode.test.ts",
+      "bytes": 948,
+      "sha256": "a078cd061a143d22c99d9e91b0b6d199f39db07c28ae48c4a3ded4fb82a83a36"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\api-tools.ts",
+      "bytes": 14919,
+      "sha256": "9dc364130f67cae42beedcc6ace10a845c94c0bc9f681150171633f4243dada2"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\credential-manager.ts",
+      "bytes": 47516,
+      "sha256": "823e642e487e9d25685c99c4529ffe2cd8eb629a8d09dcf6446389132ae22ac5"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\server-builder.ts",
+      "bytes": 14988,
+      "sha256": "36e7c1332941acf7be54f7aea8bea3db1493f4a4d4455fc7f1c459658c3e9005"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\types.ts",
+      "bytes": 18704,
+      "sha256": "e741a5359a8882d6f78b9f00427d4f2c019beabccd94a50a5e159b142f0bebdb"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\__tests__\\credential-manager-renew.test.ts",
+      "bytes": 7780,
+      "sha256": "26d975fd249e263c838cb0b4fcda3271a5d240c21740083d83d46351fbe71f09"
+    },
+    {
+      "path": "packages\\shared\\src\\sources\\__tests__\\server-builder-flow.test.ts",
+      "bytes": 7441,
+      "sha256": "bfc9be2f5d4c9f9f7bb90665b88971ef4dd5b4e3489da1d10a7fb472d9aa2991"
+    },
+    {
+      "path": "packages\\shared\\src\\workspaces\\__tests__\\storage-permission-mode-normalization.test.ts",
+      "bytes": 2876,
+      "sha256": "36c67c9e0fa6c229cd98b49e06a076913ca13b91ce095a1ce5e6c127d5c873ca"
+    },
+    {
+      "path": "packages\\shared\\tests\\mcp-pool.test.ts",
+      "bytes": 6564,
+      "sha256": "f5ff9bd10d73c9f1768f88d499117b44a652990921c56abf48523121be135aa8"
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-ci-design-access-source",
+      "basis": "scenario_design",
+      "wording": "**竞品来源 MCP Hub** 设计由 SourceServerBuilder 装配 MCP 与 API 的来源契约，池内发现工具并按原名派发，来源 Adapter 映射为 CompetitorSignal；将协议适配与实体、证据、时间字段归一分层。"
+    },
+    {
+      "id": "claim-ci-design-harness-permission",
+      "basis": "scenario_design",
+      "wording": "**竞品采集 Tool Calling 门禁** 选择执行前裁决承载 ActionPolicy，分析 runPreToolUseChecks 的模式、来源与审批分支，按 pre_tool_use_response 控制调用；为采集、修改和外发定义参数规则及拒绝后无执行的验收。"
+    },
+    {
+      "id": "claim-ci-design-harness-context",
+      "basis": "scenario_design",
+      "wording": "**竞品任务 Context Engineering** 设计 CompetitorTask 的实体、时间窗与来源范围，复用 BaseAgent.chat 的技能前置处理；以 buildStableContextParts 装配稳定块，buildVolatileContextParts 承载当轮任务和来源状态。"
+    },
+    {
+      "id": "claim-ci-design-runtime-cancel",
+      "basis": "scenario_design",
+      "wording": "**竞品采集 Agent Runtime 取消** 针对取消调研时的挂起审批，分析 requestId 关联与 handleAbort 的 block 清理，设计 ExecutionRecord 区分权限等待、执行中和取消状态；采集缺口保留未知，避免误报成功或副作用已回滚。"
+    },
+    {
+      "id": "claim-ci-design-eval-semantic",
+      "basis": "scenario_design",
+      "wording": "**竞品事实 Agent Eval** 以 CompetitorSignal 的官网与转载快照规划 EvalCase，按实体、事实数、证据和双时点设置断言；将归因、去重、时间窗评测与 routing.test.ts 的底座契约回归分开。"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact-a01",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a02",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a03",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a04",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a05",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a06",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a12",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-a15",
+      "status": "Implemented",
+      "ownership": "unknown",
+      "scenario": "base"
+    },
+    {
+      "id": "artifact-ci-access-source",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-access-api",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-access-cli",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-access-memory",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-routing",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-permission",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-context",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-runtime-cancel",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-plan",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-activation",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-harness-sop",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-eval-semantic",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-eval-permission",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-eval-routing",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    },
+    {
+      "id": "artifact-ci-eval-reviewer",
+      "status": "Design-only",
+      "ownership": "unknown",
+      "scenario": "market-competitor-intelligence"
+    }
+  ]
+}

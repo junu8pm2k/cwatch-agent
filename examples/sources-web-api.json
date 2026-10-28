@@ -1,0 +1,24 @@
+[
+  {
+    "slug": "web",
+    "kind": "web",
+    "active": true,
+    "allowedDomains": ["nodejs.org", "github.com"],
+    "webApi": {
+      "search": {
+        "urlEnv": "API_SEARCH_URL",
+        "method": "POST",
+        "queryParam": "query",
+        "limitParam": "limit",
+        "auth": { "tokenEnv": "API_SEARCH_KEY" }
+      },
+      "fetch": {
+        "urlEnv": "API_FETCH_URL",
+        "method": "POST",
+        "urlParam": "url",
+        "auth": { "tokenEnv": "API_FETCH_KEY" }
+      }
+    },
+    "fixture": "fixtures/web-discovery.json"
+  }
+]

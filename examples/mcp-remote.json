@@ -1,0 +1,12 @@
+{
+  "slug": "research",
+  "transport": "auto",
+  "url": "https://your-mcp-server.example/mcp",
+  "tokenEnv": "RESEARCH_MCP_TOKEN",
+  "defaultAction": "modify",
+  "toolSemantics": {
+    "search": "collect",
+    "fetch": "collect"
+  },
+  "resultFormat": "raw"
+}

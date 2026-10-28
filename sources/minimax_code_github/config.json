@@ -1,0 +1,10 @@
+{
+  "slug": "minimax_code_github",
+  "kind": "github_releases",
+  "active": true,
+  "repo": "MiniMax-AI/minimax-code",
+  "entityId": "minimax-code",
+  "entityName": "MiniMax Code",
+  "domain": "agent.minimax.cn",
+  "product": "MiniMax Code"
+}

@@ -1,0 +1,6 @@
+{
+  "status": "success_with_data",
+  "provenance": "fixture",
+  "raw": "<!doctype html><html><title>Node.js v24.0.0</title><script type=\"application/ld+json\">{\"@type\":\"SoftwareApplication\",\"name\":\"Node.js v24.0.0\",\"version\":\"v24.0.0\",\"datePublished\":\"2025-05-06T12:00:00Z\"}</script><p>SYNTHETIC TEST SNAPSHOT, not an archived live page.</p></html>",
+  "signals": [{ "entity": { "id": "nodejs", "name": "Node.js", "domain": "nodejs.org" }, "product": "Node.js", "signalType": "release", "sourceSlug": "official", "url": "https://nodejs.org/en/blog/release/v24.0.0", "eventKey": "release:v24.0.0", "content": { "title": "Node.js v24.0.0", "value": "v24.0.0", "polarity": "supports" }, "published_at": "2025-05-06T12:00:00Z", "retrieved_at": "2026-10-17T10:00:00+08:00", "collectionStatus": "success_with_data" }]
+}

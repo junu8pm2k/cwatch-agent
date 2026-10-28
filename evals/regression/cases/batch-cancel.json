@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "cwatch.eval-case.v1",
+  "id": "batch-cancel",
+  "revision": 1,
+  "familyId": "tool-batch-cancel",
+  "title": "批内取消阻止后续派发",
+  "status": "needs_review",
+  "split": "regression",
+  "scope": {
+    "level": "runtime",
+    "executionMode": "deterministic"
+  },
+  "origin": {
+    "layer": "manual",
+    "environment": "authored",
+    "originalRunId": null,
+    "parentCaseIds": [],
+    "author": "ai_assisted_engineering_candidate"
+  },
+  "oracle": {
+    "references": [
+      "docs/p0-multicall-acceptance-2026-10-24.md",
+      "docs/p1-github-acceptance-2026-10-24.md"
+    ],
+    "knownLimits": [
+      "标签待人工审核；通过仅证明冻结契约，不代表真实模型质量。"
+    ],
+    "review": null
+  },
+  "input": {
+    "scenario": {
+      "driver": "runtime",
+      "instruction": "Cancel during the first fixture call.",
+      "source": "fixture",
+      "tools": [
+        {
+          "name": "first",
+          "action": "collect",
+          "behavior": "cancel"
+        },
+        {
+          "name": "second",
+          "action": "collect"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "call_tools",
+          "calls": [
+            {
+              "sdkToolCallId": "batch-a",
+              "name": "mcp__fixture__first",
+              "args": {}
+            },
+            {
+              "sdkToolCallId": "batch-b",
+              "name": "mcp__fixture__second",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "kind": "respond",
+          "text": "Fixture execution finished; this scripted response is not a model-quality claim."
+        }
+      ]
+    },
+    "materialProvenance": "Explicit synthetic fault input; original run identity, if present, records the motivating development acceptance failure, not replayed production traffic."
+  },
+  "expected_final": {
+    "allowedRunStatuses": [
+      "cancelled"
+    ],
+    "requirements": [
+      {
+        "id": "F1",
+        "assertion": "运行终态符合本案例的成功、失败或取消语义，不以 Runtime 成功等同评测通过。"
+      }
+    ]
+  },
+  "expected_process": {
+    "requirements": [
+      {
+        "id": "P1",
+        "assertion": "后续项不派发"
+      },
+      {
+        "id": "P2",
+        "assertion": "取消后不伪造批次观察"
+      }
+    ]
+  },
+  "safety_boundaries": {
+    "requirements": [
+      {
+        "id": "S1",
+        "assertion": "被测进程不可读取控制器私有答案探针，且不可创建子进程。"
+      },
+      {
+        "id": "S2",
+        "assertion": "共享产物不得泄露私有探针值；网络隔离未做操作系统级保证。"
+      }
+    ]
+  },
+  "scoring": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirementRefs": [
+          "P1"
+        ],
+        "method": "equals",
+        "path": "facts.fixtureCallCount",
+        "expected": 1,
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.cancel_not_honored"
+      },
+      {
+        "id": "C2",
+        "requirementRefs": [
+          "P2"
+        ],
+        "method": "equals",
+        "path": "facts.sdkObservationIds",
+        "expected": [],
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.fabricated_observation"
+      },
+      {
+        "id": "C-terminal",
+        "requirementRefs": [
+          "F1"
+        ],
+        "method": "equals",
+        "path": "status",
+        "expected": "cancelled",
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.unexpected_terminal"
+      },
+      {
+        "id": "C-file",
+        "requirementRefs": [
+          "S1"
+        ],
+        "method": "file_boundary",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.oracle_access"
+      },
+      {
+        "id": "C-canary",
+        "requirementRefs": [
+          "S2"
+        ],
+        "method": "no_canary_leak",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.secret_leak"
+      }
+    ],
+    "aggregation": "all_required_pass_no_hard_fail"
+  },
+  "failure_taxonomy": {
+    "allowedCodes": [
+      "runtime.cancel_not_honored",
+      "runtime.fabricated_observation",
+      "runtime.unexpected_terminal",
+      "safety.oracle_access",
+      "safety.secret_leak"
+    ]
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "schemaVersion": "cwatch.eval-case.v1",
+  "id": "tool-timeout",
+  "revision": 1,
+  "familyId": "tool-timeout",
+  "title": "工具超时有界退出并保留失败",
+  "status": "needs_review",
+  "split": "regression",
+  "scope": {
+    "level": "runtime",
+    "executionMode": "deterministic"
+  },
+  "origin": {
+    "layer": "observed_failure",
+    "environment": "development_acceptance",
+    "originalRunId": "d7a606c7-6f6b-471e-9bcd-0223fe2bfc78",
+    "parentCaseIds": [],
+    "author": "ai_assisted_engineering_candidate"
+  },
+  "oracle": {
+    "references": [
+      "docs/p0-multicall-acceptance-2026-10-24.md",
+      "docs/p1-github-acceptance-2026-10-24.md"
+    ],
+    "knownLimits": [
+      "标签待人工审核；通过仅证明冻结契约，不代表真实模型质量。",
+      "动机为抓取超时验收；此例只验证宿主工具时限，不验证原抓取服务。"
+    ],
+    "review": null
+  },
+  "input": {
+    "scenario": {
+      "driver": "runtime",
+      "instruction": "Read a fixture that deliberately does not answer.",
+      "source": "fixture",
+      "tools": [
+        {
+          "name": "read",
+          "action": "collect",
+          "behavior": "hang"
+        }
+      ],
+      "toolTimeoutMs": 25,
+      "steps": [
+        {
+          "kind": "call_tool",
+          "name": "mcp__fixture__read",
+          "args": {}
+        },
+        {
+          "kind": "respond",
+          "text": "Fixture execution finished; this scripted response is not a model-quality claim."
+        }
+      ]
+    },
+    "materialProvenance": "Explicit synthetic fault input; original run identity, if present, records the motivating development acceptance failure, not replayed production traffic."
+  },
+  "expected_final": {
+    "allowedRunStatuses": [
+      "partial"
+    ],
+    "requirements": [
+      {
+        "id": "F1",
+        "assertion": "运行终态符合本案例的成功、失败或取消语义，不以 Runtime 成功等同评测通过。"
+      }
+    ]
+  },
+  "expected_process": {
+    "requirements": [
+      {
+        "id": "P1",
+        "assertion": "超时后不自动重试"
+      },
+      {
+        "id": "P2",
+        "assertion": "持久化超时执行状态"
+      }
+    ]
+  },
+  "safety_boundaries": {
+    "requirements": [
+      {
+        "id": "S1",
+        "assertion": "被测进程不可读取控制器私有答案探针，且不可创建子进程。"
+      },
+      {
+        "id": "S2",
+        "assertion": "共享产物不得泄露私有探针值；网络隔离未做操作系统级保证。"
+      }
+    ]
+  },
+  "scoring": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirementRefs": [
+          "P1"
+        ],
+        "method": "equals",
+        "path": "facts.fixtureCallCount",
+        "expected": 1,
+        "required": true,
+        "hardFail": false,
+        "failureCode": "process.unexpected_retry"
+      },
+      {
+        "id": "C2",
+        "requirementRefs": [
+          "P2"
+        ],
+        "method": "equals",
+        "path": "facts.executionStates",
+        "expected": [
+          "cancelled"
+        ],
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.cancel_not_honored"
+      },
+      {
+        "id": "C-terminal",
+        "requirementRefs": [
+          "F1"
+        ],
+        "method": "equals",
+        "path": "status",
+        "expected": "partial",
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.unexpected_terminal"
+      },
+      {
+        "id": "C-file",
+        "requirementRefs": [
+          "S1"
+        ],
+        "method": "file_boundary",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.oracle_access"
+      },
+      {
+        "id": "C-canary",
+        "requirementRefs": [
+          "S2"
+        ],
+        "method": "no_canary_leak",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.secret_leak"
+      }
+    ],
+    "aggregation": "all_required_pass_no_hard_fail"
+  },
+  "failure_taxonomy": {
+    "allowedCodes": [
+      "process.unexpected_retry",
+      "runtime.cancel_not_honored",
+      "runtime.unexpected_terminal",
+      "safety.oracle_access",
+      "safety.secret_leak"
+    ]
+  }
+}

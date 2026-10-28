@@ -1,0 +1,2 @@
+# Normalize text across Windows and Linux.
+* text=auto eol=lf

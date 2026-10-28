@@ -1,0 +1,236 @@
+{
+  "at": "2026-10-17T11:12:38.457Z",
+  "feature": "operator-managed-mcp-and-skills",
+  "provider": "stepfun",
+  "model": "step-5-preview",
+  "taskId": "nodejs-release-demo",
+  "runId": "eddda3b5-0e3e-4323-8087-db42e4f439f5",
+  "permissionMode": "explore",
+  "status": "complete",
+  "gaps": [],
+  "report": "reports/eddda3b5-0e3e-4323-8087-db42e4f439f5.md",
+  "endedAt": "2026-10-17T11:12:38.457Z",
+  "command": "npm start -- run --mode live --task artifacts/extensions-demo/task.json --sources artifacts/extensions-demo/sources.json --out artifacts/extensions-demo/run-fixed --workspace artifacts/extensions-demo --mcp custom --skills competitor-review --timeout 180000 --tool-timeout 45000",
+  "hostPid": 62316,
+  "processes": [
+    {
+      "state": "started",
+      "pid": 61248,
+      "sessionId": "d199f9b1-d912-4eb7-8f1d-54a1effb4e64"
+    },
+    {
+      "state": "ready",
+      "pid": 61248,
+      "sessionId": "d199f9b1-d912-4eb7-8f1d-54a1effb4e64"
+    },
+    {
+      "state": "exited",
+      "pid": 61248,
+      "sessionId": "d199f9b1-d912-4eb7-8f1d-54a1effb4e64",
+      "failed": false,
+      "exitCode": 0,
+      "exitSignal": null
+    }
+  ],
+  "skillSelection": [
+    {
+      "name": "competitor-review",
+      "hash": "18ad0ce8d243e34e33d09a223684ac751c5f914f6df63cab85f495e79982114c",
+      "resources": [
+        "references/checklist.md"
+      ]
+    }
+  ],
+  "githubInstall": {
+    "name": "skill-installer",
+    "files": 8,
+    "origin": {
+      "kind": "github",
+      "repo": "openai/skills",
+      "ref": "main",
+      "path": "skills/.system/skill-installer",
+      "commit": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    "executedScripts": false
+  },
+  "decisions": [
+    "workflow__read_skill_resource",
+    "workflow__save_plan",
+    "custom__inspect_environment",
+    "custom__get_release",
+    "custom__get_release",
+    "custom__get_release",
+    "custom__get_release",
+    "workflow__analyze",
+    "workflow__review",
+    "workflow__draft",
+    "respond"
+  ],
+  "executions": [
+    {
+      "requestId": "1cdeacd0-40c7-4077-b81e-744c53fbe3c3",
+      "tool": "custom__get_release",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "238cb411-4aa5-4716-ab23-6ef24f473102",
+      "tool": "custom__inspect_environment",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "450ef77d-9934-470b-8c33-4bc140bb94ca",
+      "tool": "workflow__read_skill_resource",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "475f72dc-e5eb-4198-a58a-f70ff372e39b",
+      "tool": "workflow__draft",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "4a8f3991-5664-4873-a017-41ed5566c321",
+      "tool": "workflow__save_plan",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "80f20c00-f646-4597-a35c-3da089ee9cd8",
+      "tool": "custom__get_release",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "832aeb36-2322-4dbf-b87c-ee44e644e1b8",
+      "tool": "workflow__analyze",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "83d506bf-2eea-4a3e-be1d-267b555f58dd",
+      "tool": "custom__get_release",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "970d0312-0aec-4d74-ab9d-3156bf80d689",
+      "tool": "workflow__review",
+      "state": "completed",
+      "execute_count": 1
+    },
+    {
+      "requestId": "9d22029a-f7d5-4423-9111-631890be2b0b",
+      "tool": "custom__get_release",
+      "state": "completed",
+      "execute_count": 1
+    }
+  ],
+  "preToolRequests": 10,
+  "preToolResponses": 10,
+  "modelUsage": [
+    {
+      "input": 2189,
+      "output": 101,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 2290,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 555,
+      "output": 710,
+      "cacheRead": 2048,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3313,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 812,
+      "output": 88,
+      "cacheRead": 2560,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3460,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 609,
+      "output": 157,
+      "cacheRead": 3072,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3838,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 894,
+      "output": 296,
+      "cacheRead": 3328,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 4518,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 4902,
+      "output": 65,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 4967,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 743,
+      "output": 36,
+      "cacheRead": 4608,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 5387,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 651,
+      "output": 135,
+      "cacheRead": 5120,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 5906,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 739,
+      "output": 92,
+      "cacheRead": 5376,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 6207,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 622,
+      "output": 696,
+      "cacheRead": 5632,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 6950,
+      "costSource": "unavailable_for_custom_endpoint"
+    },
+    {
+      "input": 888,
+      "output": 472,
+      "cacheRead": 6144,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 7504,
+      "costSource": "unavailable_for_custom_endpoint"
+    }
+  ],
+  "traceIssues": [],
+  "limitation": "Real planning model and real local MCP protocol. All collected competitor data is explicitly fixture data. GitHub download verifies installation only; downloaded scripts were not executed."
+}

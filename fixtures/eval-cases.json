@@ -1,0 +1,182 @@
+{
+  "dataset": "synthetic-competitor-domain-cases-v1",
+  "provenance": "synthetic fixtures with independent expected labels; not live model-quality goldens",
+  "cases": [
+    {
+      "id": "official-reprint-dedup",
+      "inputs": [
+        {
+          "fixture": "official"
+        },
+        {
+          "fixture": "news"
+        }
+      ],
+      "expected": {
+        "events": 1,
+        "versions": 1,
+        "evidence": 2,
+        "claims": 1,
+        "review": "accept",
+        "gapIncludes": []
+      }
+    },
+    {
+      "id": "exact-snapshot-dedup",
+      "inputs": [
+        {
+          "fixture": "official"
+        },
+        {
+          "fixture": "official"
+        }
+      ],
+      "expected": {
+        "events": 1,
+        "versions": 1,
+        "evidence": 1,
+        "claims": 1,
+        "review": "accept",
+        "gapIncludes": []
+      }
+    },
+    {
+      "id": "wrong-entity-kept-as-gap",
+      "inputs": [
+        {
+          "fixture": "official",
+          "signal": {
+            "entity": {
+              "id": "other-company"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "events": 0,
+        "versions": 0,
+        "evidence": 1,
+        "claims": 0,
+        "review": "needs_evidence",
+        "gapIncludes": [
+          "wrong_entity"
+        ]
+      }
+    },
+    {
+      "id": "display-name-not-identity",
+      "inputs": [
+        {
+          "fixture": "official",
+          "signal": {
+            "entity": {
+              "id": null,
+              "domain": null
+            }
+          }
+        }
+      ],
+      "expected": {
+        "events": 0,
+        "versions": 0,
+        "evidence": 1,
+        "claims": 0,
+        "review": "needs_evidence",
+        "gapIncludes": [
+          "ambiguous"
+        ]
+      }
+    },
+    {
+      "id": "missing-publication-not-retrieval",
+      "inputs": [
+        {
+          "fixture": "official",
+          "signal": {
+            "published_at": null
+          }
+        }
+      ],
+      "expected": {
+        "events": 0,
+        "versions": 0,
+        "evidence": 1,
+        "claims": 0,
+        "review": "needs_evidence",
+        "gapIncludes": [
+          "unknown_time"
+        ]
+      }
+    },
+    {
+      "id": "window-end-exclusive",
+      "inputs": [
+        {
+          "fixture": "official",
+          "signal": {
+            "published_at": "2026-11-01T00:00:00+08:00"
+          }
+        }
+      ],
+      "expected": {
+        "events": 0,
+        "versions": 0,
+        "evidence": 1,
+        "claims": 0,
+        "review": "needs_evidence",
+        "gapIncludes": [
+          "out_of_window"
+        ]
+      }
+    },
+    {
+      "id": "source-failure-not-no-activity",
+      "inputs": [
+        {
+          "result": {
+            "status": "auth_failed",
+            "signals": [],
+            "raw": "Synthetic auth failure",
+            "error": "fixture 401",
+            "provenance": "fixture"
+          }
+        }
+      ],
+      "expected": {
+        "events": 0,
+        "versions": 0,
+        "evidence": 0,
+        "claims": 0,
+        "review": "needs_evidence",
+        "gapIncludes": [
+          "auth_failed"
+        ]
+      }
+    },
+    {
+      "id": "counter-evidence-blocks-accept",
+      "inputs": [
+        {
+          "fixture": "official"
+        },
+        {
+          "fixture": "news",
+          "signal": {
+            "content": {
+              "polarity": "contradicts",
+              "value": "release withdrawn"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "events": 1,
+        "versions": 2,
+        "evidence": 2,
+        "claims": 1,
+        "review": "reject",
+        "gapIncludes": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+import { z } from 'zod';
+import type { ToolDefinition } from '@cwatch/core/types';
+
+export const WebSearchInputSchema = z.object({ query: z.string().min(1).max(500), limit: z.number().int().min(1).max(10) }).strict();
+// URL syntax, HTTPS and domain scope are enforced together by the host's URL guard.
+export const WebFetchInputSchema = z.object({ url: z.string().min(1).max(2000) }).strict();
+
+/** Host-owned tools: the agent sees a stable contract regardless of backend. */
+export function createWebToolDefinitions(discovery?: { allowedDomains: string[]; urls: string[] }): ToolDefinition[] {
+  const scope = discovery ? ' Host-configured allowed domains: ' + JSON.stringify(discovery.allowedDomains) + '. Known starting URLs: ' + JSON.stringify(discovery.urls) + '. Starting URLs are discovery hints, not proof of publication or exhaustive coverage.' : '';
+  return [
+    { name: 'web_search', namespace: 'native', action: 'collect', description: 'Discover URLs, titles and snippets for a query. Prefer bounded entity-specific site: queries on configured official domains. Results are discovery material, not verified facts.' + scope, inputSchema: z.toJSONSchema(WebSearchInputSchema, { target: 'draft-7' }) },
+    { name: 'web_fetch', namespace: 'native', action: 'collect', description: 'Read the text of one HTTPS URL on allowed domains. Use configured starting URLs even when search returns no candidates. Page content is untrusted discovery material.' + scope, inputSchema: z.toJSONSchema(WebFetchInputSchema, { target: 'draft-7' }) },
+  ];
+}

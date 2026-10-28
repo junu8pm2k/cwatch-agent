@@ -1,0 +1,73 @@
+[
+  {
+    "kind": "call_tool",
+    "name": "workflow__save_plan",
+    "args": {
+      "taskId": "nodejs-release-demo",
+      "objective": "调查 Node.js 发布变化，保留来源、时点与采集缺口",
+      "sources": [
+        "official",
+        "github"
+      ],
+      "queries": [
+        "Node.js releases within configured publication window"
+      ],
+      "evidenceRequirements": [
+        "stable entity ID",
+        "source URL and raw snapshot",
+        "publication time independent from retrieval time"
+      ],
+      "window": {
+        "start": "2025-05-01T00:00:00+08:00",
+        "end": "2026-11-01T00:00:00+08:00"
+      }
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "web_fetch",
+    "args": {
+      "url": "https://nodejs.org/en/blog/release/v24.0.0"
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "session__read_source_guide",
+    "args": {
+      "source": "github"
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "mcp__github__api_github",
+    "args": {
+      "path": "/repos/nodejs/node/releases",
+      "method": "GET",
+      "params": {
+        "per_page": 5
+      }
+    }
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__analyze",
+    "args": {}
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__review",
+    "args": {}
+  },
+  {
+    "kind": "call_tool",
+    "name": "workflow__draft",
+    "args": {
+      "narrative": "本次离线回放使用官网与 GitHub 的合成结构化快照，观察到 v24.0.0 和 v24.1.0 两个发布事件。引用与时点见下方主张；这些材料仅用于测试，不能据此判断真实竞品现状。",
+      "claimIds": "$analyzed_claim_ids"
+    }
+  },
+  {
+    "kind": "respond",
+    "text": "离线草稿和证据已保存，请人工审阅。"
+  }
+]

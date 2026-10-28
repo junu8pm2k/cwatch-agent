@@ -1,0 +1,23 @@
+{
+  "name": "@cwatch/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Task, tool and permission contracts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types/domain": "./src/types/domain.ts",
+    "./types/compaction": "./src/types/compaction.ts",
+    "./types/session-memory": "./src/types/session-memory.ts",
+    "./types/permissions": "./src/types/permissions.ts",
+    "./types/pre-tool-use": "./src/types/pre-tool-use.ts",
+    "./types": "./src/types/domain.ts",
+    "./types/runs": "./src/types/runs.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.1.12"
+  }
+}

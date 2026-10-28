@@ -1,0 +1,358 @@
+{
+  "at": "2026-10-27T11:01:41.2177812Z",
+  "status": "completed",
+  "scope": "仅清理已验证完成后的临时测试、一次性调试、无引用旧日志及浏览器录制文件",
+  "verification": {
+    "command": "npm run verify",
+    "passed": 551,
+    "total": 551,
+    "structuredTracePassed": 10,
+    "structuredTraceTotal": 10
+  },
+  "removedFiles": 20039,
+  "removedBytes": 151186818,
+  "targets": [
+    {
+      "path": "artifacts/cleanup-log-plan.json",
+      "files": 1,
+      "bytes": 2537
+    },
+    {
+      "path": "artifacts/craft-tool-names-browser.log",
+      "files": 1,
+      "bytes": 925
+    },
+    {
+      "path": "artifacts/craft-tool-names-verify.log",
+      "files": 1,
+      "bytes": 37978
+    },
+    {
+      "path": "artifacts/design-preview",
+      "files": 5,
+      "bytes": 278886
+    },
+    {
+      "path": "artifacts/design-web-eval.log",
+      "files": 1,
+      "bytes": 1191
+    },
+    {
+      "path": "artifacts/evaluation-cases.log",
+      "files": 1,
+      "bytes": 5740
+    },
+    {
+      "path": "artifacts/evaluation-model.log",
+      "files": 1,
+      "bytes": 2078
+    },
+    {
+      "path": "artifacts/evaluation-output-contract-cases.log",
+      "files": 1,
+      "bytes": 4364
+    },
+    {
+      "path": "artifacts/evaluation-output-contract-model.log",
+      "files": 1,
+      "bytes": 2056
+    },
+    {
+      "path": "artifacts/evaluation-verify-final.log",
+      "files": 1,
+      "bytes": 48595
+    },
+    {
+      "path": "artifacts/evaluation-verify.log",
+      "files": 1,
+      "bytes": 17150
+    },
+    {
+      "path": "artifacts/generic-focused.log",
+      "files": 1,
+      "bytes": 208
+    },
+    {
+      "path": "artifacts/generic-typecheck.log",
+      "files": 1,
+      "bytes": 79
+    },
+    {
+      "path": "artifacts/model-suite-baseline.log",
+      "files": 1,
+      "bytes": 6753
+    },
+    {
+      "path": "artifacts/model-suite-verify.log",
+      "files": 1,
+      "bytes": 49760
+    },
+    {
+      "path": "artifacts/p0-multicall-service-1792847552914",
+      "files": 23,
+      "bytes": 100963
+    },
+    {
+      "path": "artifacts/p0-multicall-typecheck.log",
+      "files": 1,
+      "bytes": 79
+    },
+    {
+      "path": "artifacts/p1-discovery-github.log",
+      "files": 1,
+      "bytes": 2936
+    },
+    {
+      "path": "artifacts/p1-discovery-web.log",
+      "files": 1,
+      "bytes": 4741
+    },
+    {
+      "path": "artifacts/p1-fetch-baseline.log",
+      "files": 1,
+      "bytes": 1954
+    },
+    {
+      "path": "artifacts/p1-fetch-final45.log",
+      "files": 1,
+      "bytes": 8856
+    },
+    {
+      "path": "artifacts/p1-fetch-fixed.log",
+      "files": 1,
+      "bytes": 8856
+    },
+    {
+      "path": "artifacts/p1-fetch-timeout90.log",
+      "files": 1,
+      "bytes": 1978
+    },
+    {
+      "path": "artifacts/p1-github-final.log",
+      "files": 1,
+      "bytes": 2936
+    },
+    {
+      "path": "artifacts/p1-github-live.log",
+      "files": 1,
+      "bytes": 876
+    },
+    {
+      "path": "artifacts/penalty-demo-final.log",
+      "files": 1,
+      "bytes": 3926
+    },
+    {
+      "path": "artifacts/penalty-demo.log",
+      "files": 1,
+      "bytes": 3887
+    },
+    {
+      "path": "artifacts/penalty-evaluation-tests.log",
+      "files": 1,
+      "bytes": 9041
+    },
+    {
+      "path": "artifacts/pi-builtins-verify.log",
+      "files": 1,
+      "bytes": 38694
+    },
+    {
+      "path": "artifacts/review-workflow-tests.log",
+      "files": 1,
+      "bytes": 3492
+    },
+    {
+      "path": "artifacts/scenario-coverage-inventory.log",
+      "files": 1,
+      "bytes": 2142
+    },
+    {
+      "path": "artifacts/scenario-coverage-tests.log",
+      "files": 1,
+      "bytes": 7195
+    },
+    {
+      "path": "artifacts/scenario-live-activation.log",
+      "files": 1,
+      "bytes": 2267
+    },
+    {
+      "path": "artifacts/scenario-live-core.log",
+      "files": 1,
+      "bytes": 2309
+    },
+    {
+      "path": "artifacts/scenario-live-negated.log",
+      "files": 1,
+      "bytes": 2315
+    },
+    {
+      "path": "artifacts/scenario-live-report-v2.log",
+      "files": 1,
+      "bytes": 2304
+    },
+    {
+      "path": "artifacts/scenario-live-report.log",
+      "files": 1,
+      "bytes": 2285
+    },
+    {
+      "path": "artifacts/skill-normalization-context.log",
+      "files": 1,
+      "bytes": 1643
+    },
+    {
+      "path": "artifacts/skill-normalization-tests.log",
+      "files": 1,
+      "bytes": 5368
+    },
+    {
+      "path": "artifacts/skill-validation",
+      "files": 44,
+      "bytes": 730497
+    },
+    {
+      "path": "artifacts/structured-trace-cli-negative.log",
+      "files": 1,
+      "bytes": 356
+    },
+    {
+      "path": "artifacts/structured-trace-cli.log",
+      "files": 1,
+      "bytes": 39221
+    },
+    {
+      "path": "artifacts/structured-trace-coverage.log",
+      "files": 1,
+      "bytes": 2323
+    },
+    {
+      "path": "artifacts/test-work",
+      "files": 19906,
+      "bytes": 143489150
+    },
+    {
+      "path": "artifacts/three-graders-pi-builtins.log",
+      "files": 1,
+      "bytes": 853
+    },
+    {
+      "path": "artifacts/three-graders-verify-final.log",
+      "files": 1,
+      "bytes": 52756
+    },
+    {
+      "path": "artifacts/three-graders-verify.log",
+      "files": 1,
+      "bytes": 53028
+    },
+    {
+      "path": "artifacts/tool-cleanup-focused.log",
+      "files": 1,
+      "bytes": 7242
+    },
+    {
+      "path": "artifacts/web-eval/approval.png",
+      "files": 1,
+      "bytes": 95069
+    },
+    {
+      "path": "artifacts/web-eval/debug-approval.png",
+      "files": 1,
+      "bytes": 111182
+    },
+    {
+      "path": "artifacts/web-eval/desktop-empty.png",
+      "files": 1,
+      "bytes": 72525
+    },
+    {
+      "path": "artifacts/web-eval/desktop-report.png",
+      "files": 1,
+      "bytes": 87246
+    },
+    {
+      "path": "artifacts/web-eval/final-preview.png",
+      "files": 1,
+      "bytes": 104570
+    },
+    {
+      "path": "artifacts/web-eval/mobile-report.png",
+      "files": 1,
+      "bytes": 70525
+    },
+    {
+      "path": "artifacts/web-eval/trace-approve.zip",
+      "files": 1,
+      "bytes": 458897
+    },
+    {
+      "path": "artifacts/web-eval/trace-cancel-approval.zip",
+      "files": 1,
+      "bytes": 595909
+    },
+    {
+      "path": "artifacts/web-eval/trace-cancel-running.zip",
+      "files": 1,
+      "bytes": 189853
+    },
+    {
+      "path": "artifacts/web-eval/trace-conversation.zip",
+      "files": 1,
+      "bytes": 1013463
+    },
+    {
+      "path": "artifacts/web-eval/trace-deny.zip",
+      "files": 1,
+      "bytes": 533852
+    },
+    {
+      "path": "artifacts/web-eval/trace-generic-agent.zip",
+      "files": 1,
+      "bytes": 1030317
+    },
+    {
+      "path": "artifacts/web-eval/trace-live-sdk.zip",
+      "files": 1,
+      "bytes": 357963
+    },
+    {
+      "path": "artifacts/web-eval/trace-mobile-xss.zip",
+      "files": 1,
+      "bytes": 271670
+    },
+    {
+      "path": "artifacts/web-eval/trace-replay.zip",
+      "files": 1,
+      "bytes": 1048108
+    },
+    {
+      "path": "artifacts/web-tools-verify-final.log",
+      "files": 1,
+      "bytes": 37490
+    },
+    {
+      "path": "artifacts/web-tools-verify.log",
+      "files": 1,
+      "bytes": 53410
+    }
+  ],
+  "preserved": [
+    "源码、配置模板、文档、用例与 fixture",
+    "artifacts/eval 最新回归报告",
+    "artifacts/coverage 场景覆盖清单",
+    "交付、来源和真实模型评测证据",
+    "被文档引用的验收日志与截图",
+    ".env",
+    ".runtime",
+    "node_modules",
+    "examples/structured-trace"
+  ],
+  "previousCleanup": {
+    "historicalTestDirectories": 20907,
+    "cleanInstallCopies": 5,
+    "historicalTestFiles": 190068,
+    "historicalTestMiB": 1384.74
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "cwatch.eval-dataset.v1",
+  "id": "cwatch-frozen-model-diagnostic",
+  "version": "2026-10-25.3",
+  "cases": [
+    {
+      "id": "model-github-rate-limit",
+      "revision": 2,
+      "file": "cases/model-github-rate-limit.json",
+      "sha256": "d01517e2a117699991e52f5c07dbd62ade0ee43a497cb2d08d21dafe6efa3f7b"
+    },
+    {
+      "id": "model-untrusted-document",
+      "revision": 2,
+      "file": "cases/model-untrusted-document.json",
+      "sha256": "9665b318eaea397355524fb2590617a7611a4c7d86eeaa46e487bc2649a85992"
+    },
+    {
+      "id": "model-kimi-window",
+      "revision": 2,
+      "file": "cases/model-kimi-window.json",
+      "sha256": "73d42946f41db8d2c409793e7f7d6a23c7e2b57100e46f37b5146fd3785aa882"
+    }
+  ]
+}

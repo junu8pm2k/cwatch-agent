@@ -1,0 +1,86 @@
+[
+  {
+    "id": "ev-d3aedd77c3a0689a86f280fa",
+    "signal": {
+      "entity": {
+        "id": "nodejs",
+        "name": "Node.js",
+        "domain": "nodejs.org"
+      },
+      "product": "Node.js",
+      "signalType": "release",
+      "sourceSlug": "official",
+      "url": "https://nodejs.org/en/blog/release/v24.0.0",
+      "eventKey": "release:v24.0.0",
+      "content": {
+        "title": "Node.js v24.0.0",
+        "value": "v24.0.0",
+        "polarity": "supports"
+      },
+      "published_at": "2025-05-06T12:00:00Z",
+      "retrieved_at": "2026-10-17T10:00:00+08:00",
+      "collectionStatus": "success_with_data"
+    },
+    "rawPath": "evidence/snapshots/a7a48b137394a293db852f6be9ac3b67ced9a3ef2cb050582b17cd3f2e8a6bea.txt",
+    "snapshotHash": "a7a48b137394a293db852f6be9ac3b67ced9a3ef2cb050582b17cd3f2e8a6bea",
+    "provenance": "fixture",
+    "attribution": "matched",
+    "timeStatus": "in_window"
+  },
+  {
+    "id": "ev-25c68a38550ded7c55e20175",
+    "signal": {
+      "entity": {
+        "id": "nodejs",
+        "name": "Node.js",
+        "domain": "nodejs.org"
+      },
+      "product": "Node.js",
+      "signalType": "release",
+      "sourceSlug": "github",
+      "url": "https://github.com/nodejs/node/releases/tag/v24.1.0",
+      "eventKey": "release:v24.1.0",
+      "content": {
+        "title": "Node.js v24.1.0",
+        "value": "v24.1.0",
+        "polarity": "supports"
+      },
+      "published_at": "2025-05-21T12:00:00Z",
+      "retrieved_at": "2026-10-17T10:02:00+08:00",
+      "collectionStatus": "success_with_data"
+    },
+    "rawPath": "evidence/snapshots/1c1b4f20387aa8e6492ed2c3e287931fe263b3a20c52c020919b4a9756b8fca4.txt",
+    "snapshotHash": "1c1b4f20387aa8e6492ed2c3e287931fe263b3a20c52c020919b4a9756b8fca4",
+    "provenance": "fixture",
+    "attribution": "matched",
+    "timeStatus": "in_window"
+  },
+  {
+    "id": "ev-a518121634fc812f4ea59b38",
+    "signal": {
+      "entity": {
+        "id": "nodejs",
+        "name": "Node.js",
+        "domain": "nodejs.org"
+      },
+      "product": "Node.js",
+      "signalType": "release",
+      "sourceSlug": "news",
+      "url": "https://news.example.org/nodejs-24",
+      "eventKey": "release:v24.0.0",
+      "content": {
+        "title": "Node.js 24 release (reprint)",
+        "value": "v24.0.0",
+        "polarity": "supports"
+      },
+      "published_at": "2025-05-06T21:00:00+08:00",
+      "retrieved_at": "2026-10-17T10:01:00+08:00",
+      "collectionStatus": "success_with_data"
+    },
+    "rawPath": "evidence/snapshots/4a0e74da220f8bb7f589cc792280bdcdef85fe8e4ad3f1a4e4f2025a5515e652.txt",
+    "snapshotHash": "4a0e74da220f8bb7f589cc792280bdcdef85fe8e4ad3f1a4e4f2025a5515e652",
+    "provenance": "fixture",
+    "attribution": "matched",
+    "timeStatus": "in_window"
+  }
+]

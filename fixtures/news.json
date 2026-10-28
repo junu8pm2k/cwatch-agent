@@ -1,0 +1,5 @@
+{
+  "status": "success_with_data", "provenance": "fixture",
+  "raw": "SYNTHETIC TEST NEWS: Node.js v24.0.0 release. This is a deterministic fixture, not actual journalism.",
+  "signals": [{ "entity": { "id": "nodejs", "name": "Node.js", "domain": "nodejs.org" }, "product": "Node.js", "signalType": "release", "sourceSlug": "news", "url": "https://news.example.org/nodejs-24", "eventKey": "release:v24.0.0", "content": { "title": "Node.js 24 release (reprint)", "value": "v24.0.0", "polarity": "supports" }, "published_at": "2025-05-06T21:00:00+08:00", "retrieved_at": "2026-10-17T10:01:00+08:00", "collectionStatus": "success_with_data" }]
+}

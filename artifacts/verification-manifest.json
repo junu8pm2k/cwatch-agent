@@ -1,0 +1,180 @@
+{
+  "at": "2026-10-17T04:48:43.436Z",
+  "runId": "ea93b068-6e32-4cbf-82b0-6c0fe3e04822",
+  "traceEvents": 50,
+  "evidence": 3,
+  "issues": [],
+  "files": [
+    {
+      "path": "src/cli.ts",
+      "sha256": "eda6f85e0540019dcfad06219e3e5df1852ce10aa9b184c71138257396636097"
+    },
+    {
+      "path": "src/context.ts",
+      "sha256": "98d39427a22665c4abe337ac952981c1c977bdb31e98272f5de15f7a213d0fb9"
+    },
+    {
+      "path": "src/domain.ts",
+      "sha256": "35acb256739b3ee529a677955c355d8d22836bd3d5a156030296b3a078552b88"
+    },
+    {
+      "path": "src/evidence.ts",
+      "sha256": "336071c25a93c6e47eb58bff19bba313fd002433b51e0f73216ace3556336867"
+    },
+    {
+      "path": "src/executor.ts",
+      "sha256": "f506d7d0e381e84d09b6176ccf82be54878b74acf0213069f79cc2a3fd955b67"
+    },
+    {
+      "path": "src/models.ts",
+      "sha256": "21422602eb35007883b9bb7151b12b91b80583bb674fc33d0b06e39374574562"
+    },
+    {
+      "path": "src/policy.ts",
+      "sha256": "7cdcf77aa29bda80b85f9a5dec3f07ae9e3cfc95352fe62e3608d50e8edfb0d7"
+    },
+    {
+      "path": "src/registry.ts",
+      "sha256": "f2cc342210a373be03a22aec1cbbea2179734219553220b741ce731c3bcde474"
+    },
+    {
+      "path": "src/runtime.ts",
+      "sha256": "c9b04be82cd3aa5ee31d194b7de332773b8958ee03e7f63df1f2a453045be3c8"
+    },
+    {
+      "path": "src/sources.ts",
+      "sha256": "9eb8b4bbb633bbd4a0e564777da87bf3dddf235c5d3a5fddcccc4cd46ed800e8"
+    },
+    {
+      "path": "src/store.ts",
+      "sha256": "0c2b111befad0965e801b6520ec71987e0524135ad11ea17c83b95691a7f084b"
+    },
+    {
+      "path": "src/trace.ts",
+      "sha256": "b6b5072034d19dbdb569f889ecd32bc52eb3c1de183eb78135927e9641c4e727"
+    },
+    {
+      "path": "tests/contracts.ts",
+      "sha256": "be486d625b137737a49c361734ff2424559bffcc723c132dc0fb524562468dfd"
+    },
+    {
+      "path": "tests/harness.ts",
+      "sha256": "213eb1581c0607a3f3ba27fd2d7ff4bc0a27b7d0f0828e3eb4a1a42b2f23ceee"
+    },
+    {
+      "path": "tests/pi-protocol.ts",
+      "sha256": "c46ca645f2aa5567ae20216fc7926efa03d7dd292075f456c9e18dbfac23fa0d"
+    },
+    {
+      "path": "tests/semantics.ts",
+      "sha256": "5689f647e9f2c22f6ecfd042c89ce96f080d546523acfb93ef730dc0b4a74ddc"
+    },
+    {
+      "path": "scripts/audit-materials.ts",
+      "sha256": "7d7bbaac6410e610a943238b9e8a6dd93139c3049fac0c011fde1e2180a74139"
+    },
+    {
+      "path": "scripts/eval.ts",
+      "sha256": "38eaae4f3b7d8227e8157f852ded8492278d0ef7382029da0b2f82863a004ed3"
+    },
+    {
+      "path": "scripts/probe-model.ts",
+      "sha256": "91a198bbae3a76991fe74d68a580558878da2724337deb60f775ecff32ccf933"
+    },
+    {
+      "path": "scripts/probe.ts",
+      "sha256": "4a994f4a727d2256c6ecc3e5cb9226d3e7c7d72350688679db98aa16bf02be23"
+    },
+    {
+      "path": "scripts/stage-clean.ts",
+      "sha256": "265183bdb45a111b06e840fc8dcd081c997c4602280bf92f182aeeb8c4f6dadb"
+    },
+    {
+      "path": "examples/mcp-server.ts",
+      "sha256": "ac53562e82e1275f31c8bfabe3feed6b37e7392f4d8f7e1a9756eed439d2637e"
+    },
+    {
+      "path": "examples/sources.json",
+      "sha256": "20829c04133fcfc5d25212325b07e8a942ca9acd40f2f0774eb41d347e848df2"
+    },
+    {
+      "path": "examples/task.json",
+      "sha256": "47d6e996688e20a44f7da0b3bb518925b76c2105baf41feebd987b72ed2a6489"
+    },
+    {
+      "path": "fixtures/github.json",
+      "sha256": "314ef3ac1df639acd25c9281af56d485538cce06bafdde390c706637bac064a7"
+    },
+    {
+      "path": "fixtures/labels.json",
+      "sha256": "c552e108daec80c387f12a971fe33599bef3d21ad88d65fdf9053ea98e7d6216"
+    },
+    {
+      "path": "fixtures/model-script.json",
+      "sha256": "6e3b93616c6193a3990bfb989b706c8d1366b85c93e75db1fc3065adb732b4ae"
+    },
+    {
+      "path": "fixtures/news.json",
+      "sha256": "4bdcceda1914690f2c3f9197b63a137ac667fcd9f7f6cc4faa3d39175f9968ed"
+    },
+    {
+      "path": "fixtures/official.json",
+      "sha256": "a6cc1f2e83276808612f396f4ee7b3e81d2c156f364b28adbb5c3260e0571862"
+    },
+    {
+      "path": "skills/investigation.md",
+      "sha256": "7462b9798aa7cf390eaad3d0c07e846322f4697f620ede3b12f70b9b235f392c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "935e66618b0bfc79cc60ba4d4c07e0ebb6e6c46c830f0e9f439789e06b17185b"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "fc4abb9ddbc5c73bebec62c7e9ffa6c93d262978e057b94078a0d73d27a940ca"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "c7b0c45837d5505166a73fdf6f87c8b2c3dea57a3906df397a4b3d8b7c574b0b"
+    }
+  ],
+  "rootEval": {
+    "definition": "passing independently asserted fixed regression cases / all executed cases; not model generation accuracy",
+    "total": 56,
+    "passed": 56,
+    "groups": {
+      "contract": {
+        "total": 35,
+        "passed": 35
+      },
+      "semantic": {
+        "total": 14,
+        "passed": 14
+      },
+      "integration": {
+        "total": 7,
+        "passed": 7
+      }
+    }
+  },
+  "cleanInstall": "artifacts/test-work/clean-install-8GT48b",
+  "cleanEval": {
+    "definition": "passing independently asserted fixed regression cases / all executed cases; not model generation accuracy",
+    "total": 56,
+    "passed": 56,
+    "groups": {
+      "contract": {
+        "total": 35,
+        "passed": 35
+      },
+      "semantic": {
+        "total": 14,
+        "passed": 14
+      },
+      "integration": {
+        "total": 7,
+        "passed": 7
+      }
+    }
+  }
+}

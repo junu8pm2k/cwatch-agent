@@ -1,0 +1,65 @@
+{
+  "name": "cwatch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.5"
+  },
+  "scripts": {
+    "demo:agent": "node --experimental-transform-types apps/cli/src/index.ts run --mode replay --task examples/task-agent.json --out artifacts/agent-demo",
+    "test:agent": "node --experimental-transform-types scripts/eval-agent.ts",
+    "demo": "node --experimental-transform-types apps/cli/src/index.ts run --mode replay --task examples/task.json --sources examples/sources.json --out artifacts/demo",
+    "start": "node --use-env-proxy --experimental-transform-types apps/cli/src/index.ts",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "test": "node --experimental-transform-types scripts/eval.ts",
+    "verify": "npm run check:structure && npm run typecheck && npm test",
+    "eval": "node --experimental-transform-types scripts/eval.ts",
+    "eval:cases": "node --experimental-transform-types scripts/eval-cases.ts",
+    "eval:cases:lint": "node --experimental-transform-types scripts/eval-cases.ts --lint",
+    "eval:model": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types scripts/eval-cases.ts --real-model",
+    "test:evaluation": "node --experimental-transform-types scripts/test-evaluation.ts",
+    "test:trace": "node --experimental-transform-types scripts/test-trace.ts",
+    "eval:evidence": "node --experimental-transform-types scripts/eval-evidence.ts",
+    "eval:review": "node --experimental-transform-types scripts/eval-review.ts",
+    "eval:score": "node --experimental-transform-types scripts/eval-score.ts",
+    "eval:judge": "node --use-env-proxy --experimental-transform-types scripts/eval-score.ts --kind llm",
+    "eval:human": "node --experimental-transform-types scripts/eval-score.ts --kind human",
+    "eval:coverage": "node --experimental-transform-types scripts/eval-coverage.ts",
+    "eval:scenarios": "node --experimental-transform-types scripts/eval-cases.ts --dataset evals/scenario-coverage/dataset.json --out artifacts/scenario-eval",
+    "eval:scenarios:model": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types scripts/eval-cases.ts --dataset evals/scenario-coverage/dataset.json --out artifacts/scenario-eval-model --real-model",
+    "probe:sources": "node --use-env-proxy --experimental-transform-types scripts/probe.ts",
+    "probe:model": "node --use-env-proxy --experimental-transform-types scripts/probe-model.ts",
+    "web:live": "node --use-env-proxy --experimental-transform-types apps/cli/src/index.ts run --mode live --task examples/task-web.json --sources examples/sources-web.json --out artifacts/live-web --timeout 180000 --tool-timeout 45000",
+    "probe:web": "node --use-env-proxy --experimental-transform-types scripts/probe-web.ts",
+    "test:pi-builtins": "node --experimental-transform-types scripts/eval-pi-builtins.ts",
+    "test:web-tools": "node --experimental-transform-types scripts/eval-web-tools.ts",
+    "probe:web-api": "node --use-env-proxy --experimental-transform-types scripts/probe-web.ts --sources examples/sources-web-api-public.json --search-only --query \"Node.js repo:nodejs/node\" --out artifacts/web-api-probe",
+    "probe:api-mcp": "node --use-env-proxy --experimental-transform-types scripts/probe-web.ts --sources examples/sources-web-api-public.json --search-only --query \"Node.js repo:nodejs/node\" --out artifacts/api-mcp-probe",
+    "eval:browser": "node --experimental-transform-types scripts/eval-browser.ts",
+    "verify:browser": "npm run typecheck && npm run eval:browser",
+    "browser:install": "node node_modules/playwright-core/cli.js install chromium",
+    "demo:adapters": "node --experimental-transform-types apps/cli/src/index.ts run --mode replay --task examples/task-adapters.json --sources examples/sources-adapters.json --script fixtures/model-script-adapters.json --out artifacts/adapters-demo",
+    "check:structure": "node --experimental-transform-types scripts/check-structure.ts",
+    "typecheck:workspaces": "npm run typecheck --workspaces --if-present",
+    "web": "node --use-env-proxy --experimental-transform-types apps/web/src/index.ts",
+    "eval:web": "node --experimental-transform-types scripts/eval-web.ts",
+    "verify:web": "npm run typecheck && npm run eval:web"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ajv": "8.20.0",
+    "playwright-core": "1.64.1",
+    "yaml": "2.9.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

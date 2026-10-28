@@ -1,0 +1,13 @@
+{
+  "slug": "custom",
+  "transport": "stdio",
+  "command": "node",
+  "args": ["--experimental-transform-types", "examples/user-mcp-server.ts"],
+  "defaultAction": "modify",
+  "toolSemantics": {
+    "get_release": "collect",
+    "inspect_environment": "analyze"
+  },
+  "resultFormat": "raw",
+  "toolResultFormats": { "get_release": "retrieval" }
+}

@@ -1,0 +1,28 @@
+{
+  "taskId": "nodejs-adapters-demo",
+  "competitor": {
+    "id": "nodejs",
+    "name": "Node.js",
+    "aliases": [
+      "Node"
+    ],
+    "domains": [
+      "nodejs.org"
+    ]
+  },
+  "product": "Node.js",
+  "signalTypes": [
+    "release"
+  ],
+  "window": {
+    "start": "2025-05-01T00:00:00+08:00",
+    "end": "2026-11-01T00:00:00+08:00",
+    "basis": "published_at",
+    "timezone": "Asia/Shanghai"
+  },
+  "allowedSources": [
+    "browser",
+    "github"
+  ],
+  "outputScope": "draft"
+}

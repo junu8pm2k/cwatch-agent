@@ -1,0 +1,41 @@
+{
+  "requestId": "6d9c32d3-da60-4bdf-b4b6-620393b959bf",
+  "taskId": "nodejs-release-demo",
+  "runId": "ea93b068-6e32-4cbf-82b0-6c0fe3e04822",
+  "sourceSlug": "official",
+  "toolBinding": {
+    "name": "web_fetch",
+    "description": "Read configured public official URL; no browser automation.",
+    "action": "collect",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "enum": [
+            "https://nodejs.org/en/blog/release/v24.0.0"
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "id": "603740c37f76875edb5073837bdd3d1c72b39f198b97ec2dd75ece1b52f173ab",
+    "source_slug": "official",
+    "original_name": "web_fetch",
+    "proxy_name": "official__web_fetch",
+    "backendNames": {
+      "pi": "official__web_fetch",
+      "replay": "official__web_fetch"
+    },
+    "channel": "builtin",
+    "revision": 1
+  },
+  "argsHash": "194c6d24e5f62bb741b21a5e077fe3aaac45c9abe46636bd78069d354f21d5e2",
+  "state": "completed",
+  "startedAt": "2026-10-17T04:47:32.442Z",
+  "execute_count": 1,
+  "endedAt": "2026-10-17T04:47:32.445Z"
+}

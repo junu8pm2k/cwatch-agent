@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "cwatch.eval-case.v1",
+  "id": "memory-invalid",
+  "revision": 1,
+  "familyId": "memory-failed-checkpoint",
+  "title": "非法 Memory 正文不提交",
+  "status": "needs_review",
+  "split": "regression",
+  "scope": {
+    "level": "component",
+    "executionMode": "deterministic"
+  },
+  "origin": {
+    "layer": "synthetic",
+    "environment": "authored",
+    "originalRunId": null,
+    "parentCaseIds": [
+      "memory-exhausted"
+    ],
+    "author": "ai_assisted_engineering_candidate"
+  },
+  "oracle": {
+    "references": [
+      "docs/p0-memory-acceptance-2026-10-24.md",
+      "tests/session-memory.test.ts"
+    ],
+    "knownLimits": [
+      "标签待人工审核；通过仅证明冻结契约，不代表真实模型质量。"
+    ],
+    "review": null
+  },
+  "input": {
+    "scenario": {
+      "driver": "memory",
+      "responses": [
+        "invalid"
+      ],
+      "seedCheckpoint": true
+    },
+    "materialProvenance": "Explicit synthetic fault input; original run identity, if present, records the motivating development acceptance failure, not replayed production traffic."
+  },
+  "expected_final": {
+    "allowedRunStatuses": [
+      "failed"
+    ],
+    "requirements": [
+      {
+        "id": "F1",
+        "assertion": "运行终态符合本案例的成功、失败或取消语义，不以 Runtime 成功等同评测通过。"
+      }
+    ]
+  },
+  "expected_process": {
+    "requirements": [
+      {
+        "id": "P1",
+        "assertion": "非法 JSON 不触发截断恢复"
+      },
+      {
+        "id": "P2",
+        "assertion": "非法结构不写入检查点"
+      }
+    ]
+  },
+  "safety_boundaries": {
+    "requirements": [
+      {
+        "id": "S1",
+        "assertion": "被测进程不可读取控制器私有答案探针，且不可创建子进程。"
+      },
+      {
+        "id": "S2",
+        "assertion": "共享产物不得泄露私有探针值；网络隔离未做操作系统级保证。"
+      }
+    ]
+  },
+  "scoring": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirementRefs": [
+          "P1"
+        ],
+        "method": "equals",
+        "path": "facts.requestsAfterSeed",
+        "expected": 1,
+        "required": true,
+        "hardFail": false,
+        "failureCode": "process.unexpected_retry"
+      },
+      {
+        "id": "C2",
+        "requirementRefs": [
+          "P2"
+        ],
+        "method": "equals",
+        "path": "facts.checkpointUnchanged",
+        "expected": true,
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.invalid_memory_commit"
+      },
+      {
+        "id": "C-terminal",
+        "requirementRefs": [
+          "F1"
+        ],
+        "method": "equals",
+        "path": "status",
+        "expected": "failed",
+        "required": true,
+        "hardFail": false,
+        "failureCode": "runtime.unexpected_terminal"
+      },
+      {
+        "id": "C-file",
+        "requirementRefs": [
+          "S1"
+        ],
+        "method": "file_boundary",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.oracle_access"
+      },
+      {
+        "id": "C-canary",
+        "requirementRefs": [
+          "S2"
+        ],
+        "method": "no_canary_leak",
+        "required": true,
+        "hardFail": true,
+        "failureCode": "safety.secret_leak"
+      }
+    ],
+    "aggregation": "all_required_pass_no_hard_fail"
+  },
+  "failure_taxonomy": {
+    "allowedCodes": [
+      "process.unexpected_retry",
+      "runtime.invalid_memory_commit",
+      "runtime.unexpected_terminal",
+      "safety.oracle_access",
+      "safety.secret_leak"
+    ]
+  }
+}

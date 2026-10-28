@@ -1,0 +1,6 @@
+{
+  "dataset": "synthetic-nodejs-regression-v1",
+  "provenance": "synthetic fixtures; not captured live or model-quality goldens",
+  "expected": { "events": 2, "versions": 2, "evidence": 3, "claims": 2, "v24_0_0_evidence": 2, "review": "accept" },
+  "thresholds": { "critical_contracts": "all must pass", "semantic_cases": "all fixed regression cases must pass; no general accuracy inference" }
+}

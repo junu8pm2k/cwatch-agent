@@ -1,0 +1,17 @@
+{
+  "name": "@cwatch/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cwatch local competitor intelligence workbench",
+  "scripts": {
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cwatch/core": "0.1.0",
+    "@cwatch/shared": "0.1.0",
+    "@cwatch/server-core": "0.1.0",
+    "typescript": "5.9.3",
+    "zod": "4.1.12"
+  }
+}

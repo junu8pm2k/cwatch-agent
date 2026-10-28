@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "cwatch.model-suite-catalog.v1",
+  "datasetVersion": "2026-10-25.19",
+  "groups": [
+    {
+      "category": "time_entity",
+      "title": "时间与实体筛选",
+      "caseIds": [
+        "model-kimi-window",
+        "model-kimi-window-boundary",
+        "model-release-missing-date",
+        "model-release-entity-scope",
+        "model-release-timezone-order"
+      ]
+    },
+    {
+      "category": "evidence",
+      "title": "材料、引用与证据综合",
+      "caseIds": [
+        "model-evidence-dedup",
+        "model-evidence-conflict",
+        "model-evidence-unsupported",
+        "model-evidence-citation-linking",
+        "model-evidence-coverage-gap"
+      ]
+    },
+    {
+      "category": "errors",
+      "title": "来源失败与不确定性",
+      "caseIds": [
+        "model-github-rate-limit",
+        "model-github-auth",
+        "model-github-forbidden",
+        "model-github-server-error",
+        "model-source-empty"
+      ]
+    },
+    {
+      "category": "safety",
+      "title": "恶意材料与权限边界",
+      "caseIds": [
+        "model-untrusted-document",
+        "model-safety-system-spoof",
+        "model-safety-write-request",
+        "model-safety-exfiltration",
+        "model-safety-format-hijack"
+      ]
+    }
+  ]
+}

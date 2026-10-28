@@ -1,0 +1,247 @@
+import { mkdirSync, readdirSync, readFileSync, openSync, closeSync, unlinkSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { z } from 'zod';
+import { id, now, parseTask, parseAgentTask, AgentTaskSchema, isInvestigationTask, hash, type AgentTask, type CompetitorTask, type ModelPort, type Decision } from '@cwatch/core/types';
+import type { RunSnapshot, RunProfile, RunActivity, RunStartInput, RunMessageInput, PendingRunApproval } from '@cwatch/core/types/runs';
+import { ActionPolicy, ApprovalManager, type ApprovalRequest } from '@cwatch/shared/agent/core/permission-manager';
+import { SourceServerBuilder, readSourceConfigs, type SourceConfig } from '@cwatch/shared/sources/server-builder';
+import { ReplayModel, PiModel } from '@cwatch/shared/agent/models';
+import { ToolRegistry } from '@cwatch/shared/tools/registry';
+import { proxyToolName, registeredToolName } from '@cwatch/shared/tools/tool-names';
+import { FileStore } from '@cwatch/shared/sessions/storage';
+import { Redactor, Trace, type TraceEvent } from '@cwatch/shared/sessions/trace';
+import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
+import { UserMcpStore, mcpSecrets } from '@cwatch/shared/mcp/storage';
+import { UserMcpSource } from '@cwatch/shared/mcp/source';
+import { SkillStore } from '@cwatch/shared/skills/storage';
+import { reportedTokens } from '@cwatch/shared/agent/core/budgets';
+import { apiSecrets } from '@cwatch/shared/sources/api-tools';
+import { runInvestigation, type RunResult } from './investigation.ts';
+import { runAgent } from './agent.ts';
+import type { Claim, Evidence } from '@cwatch/shared/intelligence/evidence';
+
+const genericTask = () => ({ kind: 'agent' as const, taskId: 'general-agent-task', instruction: '读取 README.md，说明项目能力和运行方法，并说明依据。', allowedSources: [] as string[] });
+const definitions = [
+  { id: 'standard', name: '官网与发布', description: '通用网页读取与 GitHub API', task: 'examples/task.json', sources: 'examples/sources.json' },
+  { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取与 GitHub API；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: 'examples/sources-web.json' },
+  { id: 'adapters', name: '浏览器与 API', description: '只读浏览器与 GitHub API', task: 'examples/task-adapters.json', sources: 'examples/sources-adapters.json' },
+];
+definitions.push({ id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: 'examples/sources.json' });
+const names: Record<string,string> = { official: '官方网站', github: 'GitHub 发布', browser: '浏览器读取', web: '联网搜索与读取' };
+const startSchema = z.object({
+  profile: z.enum(['agent','standard','web','adapters']).default('agent'), mode: z.enum(['live','replay']).default('replay'),
+  permission: z.enum(['explore','ask','allow-all']).default('explore'), task: AgentTaskSchema.optional(),
+  skills: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).max(20).default([]),
+  conversation: z.boolean().default(false),
+  limits: z.object({ timeoutMs: z.number().int().min(1000).max(600000).optional(), toolTimeoutMs: z.number().int().min(1000).max(120000).optional(), maxTokens: z.number().int().min(100).max(2000000).optional() }).strict().default({}),
+}).strict();
+const active = (status: RunSnapshot['status']) => ['preparing','running','awaiting_approval','awaiting_user','cancelling'].includes(status);
+const messageSchema = z.object({ messageId: z.string().uuid(), text: z.string().trim().min(1).max(24000) }).strict();
+interface Pending { request: PendingRunApproval; resolve: (allowed:boolean)=>void; signal:AbortSignal }
+interface Managed { view:RunSnapshot; data:FileStore; controller:AbortController; pending:Map<string,Pending>; listeners:Set<(view:RunSnapshot)=>void>; job?:Promise<void>; reportPath?:string; tools:Map<string,string>; redactor:Redactor; input?: { signal: AbortSignal; resolve: (message: string | null) => void }; acceptedMessages?: Map<string,string> }
+export interface RunServiceOptions {
+  root: string; outputRoot?:string;
+  /** Trusted host seams for deterministic integration tests; never accepted through HTTP. */
+  modelFactory?: (mode:'live'|'replay', task:AgentTask, configs:SourceConfig[])=>ModelPort;
+  configureRegistry?: (registry:ToolRegistry, signal:AbortSignal)=>Promise<void>;
+}
+export class RunService {
+  readonly root:string; readonly outputRoot:string;
+  private readonly runs=new Map<string,Managed>();
+  private readonly lock:number;
+  private closed=false;
+  constructor(readonly options:RunServiceOptions) {
+    this.root=resolve(options.root);this.outputRoot=resolve(options.outputRoot??resolve(this.root,'.runtime','web'));
+    mkdirSync(this.outputRoot,{recursive:true});
+    this.lock=openSync(resolve(this.outputRoot,'.host.lock'),'wx');
+    try {
+      for(const entry of readdirSync(this.outputRoot,{withFileTypes:true}).filter(e=>e.isDirectory()&&/^[a-f0-9-]{36}$/.test(e.name))) {
+        const data=new FileStore(resolve(this.outputRoot,entry.name)),saved=data.read<{view:RunSnapshot;reportPath?:string}>('summary.json',null!);
+        if(!saved)continue;
+        const view=saved.view;
+        if(active(view.status)){data.recover();view.status='unknown';view.error='服务重启，之前的运行已中断；未自动重放工具。';view.endedAt=now();view.updatedAt=now();}
+        view.approvals=[];view.activities=data.lines<RunActivity>('activity.jsonl').slice(-150);
+        const run:Managed={view,data,reportPath:saved.reportPath,controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor()};
+        this.runs.set(view.id,run);this.persist(run);
+      }
+    } catch(error){closeSync(this.lock);unlinkSync(resolve(this.outputRoot,'.host.lock'));throw error;}
+  }
+  private redactor():Redactor {return new Redactor(Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''));}
+  profiles():RunProfile[] {
+    return definitions.map(profile=>({id:profile.id,name:profile.name,description:profile.description,
+      task:profile.id==='agent'?genericTask():parseTask(JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))),
+      sources:[...readSourceConfigs(resolve(this.root,profile.sources)).map(source=>({slug:source.slug,name:names[source.slug]??source.slug,channel:['api','github_releases','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active})),...new UserMcpStore(this.root).list().map(source=>({slug:source.slug,name:'自定义 · '+source.slug,channel:'mcp',active:source.enabled}))],
+    }));
+  }
+  skills(){return new SkillStore(this.root).list().map(item=>({name:item.name,description:item.description,enabled:item.enabled}));}
+  list():RunSnapshot[] {return [...this.runs.values()].sort((a,b)=>b.view.createdAt.localeCompare(a.view.createdAt)).map(run=>this.snapshot(run));}
+  get(runId:string):RunSnapshot {return this.snapshot(this.require(runId));}
+  private require(runId:string):Managed {const run=this.runs.get(runId);if(!run)throw Error('run_not_found');return run;}
+  private snapshot(run:Managed):RunSnapshot {return structuredClone({...run.view,approvals:[...run.pending.values()].map(p=>p.request)});}
+  private persist(run:Managed):void {run.data.write('summary.json',{view:{...run.view,activities:[],approvals:[]},reportPath:run.reportPath});}
+  private changed(run:Managed):void {
+    run.view.updatedAt=now();run.view.revision=(run.view.revision??0)+1;this.persist(run);const snapshot=this.snapshot(run);
+    for(const listener of run.listeners)try{listener(snapshot);}catch{/* A disconnected UI cannot stop the investigation. */}
+  }
+  private activity(run:Managed,kind:RunActivity['kind'],message:string,extra:Partial<RunActivity>={}):void {
+    const event=run.redactor.clean({sequence:(run.view.activities.at(-1)?.sequence??0)+1,timestamp:now(),kind,message:message.slice(0,600),...extra});
+    run.view.activities.push(event);run.view.activities=run.view.activities.slice(-150);run.data.append('activity.jsonl',event);this.changed(run);
+  }
+  subscribe(runId:string,listener:(snapshot:RunSnapshot)=>void):()=>void {const run=this.require(runId);run.listeners.add(listener);return()=>{run.listeners.delete(listener);};}
+  start(raw:RunStartInput):RunSnapshot {
+    if(this.closed)throw Error('service_closed');
+    if([...this.runs.values()].filter(r=>active(r.view.status)).length>=2)throw Error('run_capacity:最多同时运行两项调查');
+    const input=startSchema.parse(raw),profile=definitions.find(p=>p.id===input.profile)!;
+    const task=parseAgentTask(input.task??(profile.id==='agent'?genericTask():JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))));
+    if((profile.id==='agent')===isInvestigationTask(task))throw Error('task_template_mismatch');
+    if(input.conversation&&isInvestigationTask(task))throw Error('conversation_requires_generic_agent');
+    const configs=readSourceConfigs(resolve(this.root,profile.sources)).filter(c=>task.allowedSources.includes(c.slug));
+    const customStore=new UserMcpStore(this.root),custom=customStore.select(task.allowedSources.filter(slug=>customStore.list().some(c=>c.slug===slug)));
+    if(custom.some(c=>configs.some(config=>config.slug===c.slug)))throw Error('mcp_source_slug_collision');
+    if(input.mode==='replay'&&custom.length)throw Error('custom_mcp_requires_live_mode');
+    for(const slug of task.allowedSources)if(!configs.some(c=>c.slug===slug)&&!custom.some(c=>c.slug===slug))throw Error('source_not_configured:'+slug);
+    const userSkills=new SkillStore(this.root).select(input.skills);
+    const model=this.options.modelFactory?.(input.mode,task,configs)??(input.mode==='live'?PiModel.fromEnvironment():this.replayModel(task,configs));
+    const runId=id(),createdAt=now(),run:Managed={
+      view:{id:runId,task,profile:input.profile,mode:input.mode,permission:input.permission,status:'preparing',createdAt,updatedAt:createdAt,activities:[],approvals:[],gaps:[],claims:[],toolCalls:0,modelTurns:0,totalTokens:0,reportReady:false,stage:0},
+      data:new FileStore(resolve(this.outputRoot,runId)),controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor(),
+    };
+    if(input.conversation&&!isInvestigationTask(task)){
+      run.view.conversation=true;run.view.messages=[{id:id(),role:'user',content:run.redactor.clean(task.instruction),createdAt}];run.acceptedMessages=new Map();
+    }
+    this.runs.set(runId,run);this.activity(run,'system',input.mode==='replay'?'离线演示已启动，所有业务数据均为合成快照。':'调查已启动，正在准备来源。');
+    run.job=(async()=>{
+      const registry=new ToolRegistry(),builder=new SourceServerBuilder(this.root);
+      const timeout=setTimeout(()=>run.controller.abort(new DOMException('run preparation timeout','TimeoutError')),input.limits.timeoutMs??180000);
+      try {
+        const signal=run.controller.signal,initialGaps=await builder.register(configs,input.mode,registry,AbortSignal.any([signal,AbortSignal.timeout(25000)]));
+        const secrets=[...custom.flatMap(c=>mcpSecrets(c,process.env)),...configs.flatMap(c=>c.active&&c.api?apiSecrets(c.api):[]),...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??'')];
+        for(const config of custom){const client=builder.mcpPool.acquire('custom:'+hash(config),()=>new UserMcpSource(config,this.root));try{await registry.register(config.slug,'mcp',client,signal);}catch(error){await client.close();initialGaps.push('source_unavailable:'+config.slug+':'+String(error));}}
+        await this.options.configureRegistry?.(registry,signal);signal.throwIfAborted();
+        clearTimeout(timeout); // Runtime owns active execution time; preparation must not time out an idle conversation.
+        run.view.status='running';this.changed(run);
+        const approvals=new ApprovalManager((request,approvalSignal)=>this.awaitApproval(run,request,approvalSignal),Math.min(60000,input.limits.toolTimeoutMs??45000));
+        const result=await (isInvestigationTask(task)?runInvestigation:runAgent)(task,model,registry,run.data,input.mode,{
+          timeoutMs:input.limits.timeoutMs??180000,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens:input.limits.maxTokens??100000,
+          workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
+          ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
+          onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});},
+        },signal,new ActionPolicy(input.permission),approvals);
+        this.finish(run,result);
+      }catch(error){run.view.status=run.controller.signal.aborted?'cancelled':'failed';run.view.error=run.redactor.clean(String(error));this.activity(run,'error',run.view.error);}
+      finally {
+        clearTimeout(timeout);await registry.close();await builder.mcpPool.close();
+        run.view.endedAt=now();this.activity(run,'system',run.view.status==='cancelled'?'调查已取消。':run.view.status==='complete'?'调查已完成，报告已保存。':run.view.status==='partial'?'调查已结束，报告保留了来源缺口。':'运行已结束，请检查错误或来源缺口。');
+      }
+    })();
+    // Jobs never become unhandled rejections if filesystem cleanup itself fails.
+    run.job=run.job.catch(error=>{run.view.status='failed';run.view.error=run.redactor.clean(String(error));run.view.endedAt=now();try{this.changed(run);}catch{}});
+    return this.snapshot(run);
+  }
+  private replayModel(task:AgentTask,configs:SourceConfig[]):ModelPort {
+    if(!isInvestigationTask(task))return new ReplayModel([{kind:'call_tool',name:'read',args:{path:'README.md',offset:1,limit:40}},{kind:'respond',text:'本次通用 Agent 演示通过 read 读取 README.md。执行由预设脚本驱动，展示通用任务入口和工具调用，不代表真实模型总结。真实模式将按你的任务和选中 Skill 执行。'}]);
+    const steps:Decision[]=[{kind:'call_tool',name:'workflow__save_plan',args:{taskId:task.taskId,objective:'核验 '+task.competitor.name+' 的动态，保留来源与时间缺口',sources:task.allowedSources,queries:[task.competitor.name+' '+task.product+' releases'],evidenceRequirements:['source URL and snapshot','independent publication time','entity attribution'],window:{start:task.window.start,end:task.window.end}}}];
+    for(const config of configs.filter(c=>c.active)){
+      if(config.kind==='github_releases'){steps.push({kind:'call_tool',name:'session__read_source_guide',args:{source:config.slug}},{kind:'call_tool',name:proxyToolName(config.slug,'api_'+config.slug),args:{path:'/repos/'+config.repo+'/releases',method:'GET',params:{per_page:5}}});}
+      else if(config.kind==='browser')steps.push({kind:'call_tool',name:registeredToolName(config.slug,'builtin',{name:'browser_tool',namespace:'session',description:'Replay source read',action:'collect',inputSchema:{}}),args:{url:config.urls![0]}});
+      else if(config.kind==='web')steps.push(config.urls?.length?{kind:'call_tool',name:'web_fetch',args:{url:config.urls[0]}}:{kind:'call_tool',name:'web_search',args:{query:task.competitor.name+' releases',limit:5}});
+      else if(config.kind==='mcp')steps.push({kind:'call_tool',name:proxyToolName(config.slug,'search.news'),args:{query:task.competitor.name+' releases'}});
+    }
+    steps.push({kind:'call_tool',name:'workflow__analyze',args:{}},{kind:'call_tool',name:'workflow__review',args:{}},{kind:'call_tool',name:'workflow__draft',args:{narrative:'本报告来自明确标注的合成测试快照，仅用于演示调查、证据引用与规则审查。不能据此判断现实市场情况。',claimIds:'$analyzed_claim_ids'}},{kind:'respond',text:'演示报告已保存。'});
+    return new ReplayModel(steps);
+  }
+  private onTrace(run:Managed,event:TraceEvent):void {
+    run.view.traceRunId=event.runId;
+    const data=event.data,detail=(value:unknown)=>JSON.stringify(value).slice(0,2200);
+    if(event.type==='pre_tool_use_request'){run.tools.set(String(data.requestId),String(data.toolName));return;}
+    if(event.type==='model_usage'){run.view.modelTurns++;run.view.totalTokens+=reportedTokens(data.usage)??0;return;}
+    if(event.type==='plan_submitted'){run.view.stage=1;this.activity(run,'plan','调查计划已保存并提交。');}
+    else if(event.type==='decision_made'){
+      const decision=data.decision as Decision;
+      if(decision.kind!=='respond'){
+        for(const call of decision.kind==='call_tools'?decision.calls:[decision]){
+          if(call.name==='workflow__analyze')run.view.stage=2;
+          if(call.name==='workflow__review')run.view.stage=3;
+          if(call.name==='workflow__draft')run.view.stage=4;
+          this.activity(run,/^(workflow|session)__/.test(call.name)?'analysis':'tool','准备调用 '+call.name,{tool:call.name,detail:detail(call.args)});
+        }
+      }
+    }else if(event.type==='execution_finished'){
+      const tool=run.tools.get(String(data.requestId))??'工具';
+      if(data.state==='completed')run.view.toolCalls++;
+      this.activity(run,data.state==='completed'?'tool':'error',tool+(data.state==='completed'?' 已完成':' 未完成'),{tool,state:String(data.state),...(data.error?{detail:String(data.error).slice(0,2200)}:{})});
+    }else if(event.type==='agent_process')this.activity(run,'system',data.state==='ready'?'Agent 子进程已就绪。':data.state==='exited'?'Agent 子进程已退出。':'Agent 进程：'+String(data.state));
+    else if(event.type==='run_failed'||event.type==='run_cancelled')this.activity(run,'error',String(data.error??event.type));
+  }
+  private finish(run:Managed,result:RunResult):void {
+    run.view.status=result.status;run.view.gaps=run.redactor.clean(result.gaps);run.view.error=result.error?run.redactor.clean(result.error):undefined;run.reportPath=result.report;run.view.reportReady=Boolean(result.report);
+    if(result.status==='complete'||result.status==='partial')run.view.stage=5;
+    if(result.report&&isInvestigationTask(run.view.task)){
+      const claims=run.data.read<Claim[]>('claims/'+result.runId+'.json',[]),evidence=run.data.read<Evidence[]>('evidence/index.json',[]);
+      run.view.claims=run.redactor.clean(claims.map(claim=>({id:claim.id,text:claim.text,evidence:claim.evidenceIds.flatMap(key=>{const item=evidence.find(e=>e.id===key);return item?[{source:item.signal.sourceSlug,url:item.signal.url,title:item.signal.content.title,publishedAt:item.signal.published_at,provenance:item.provenance}]:[];})})));
+    }
+  }
+  private awaitApproval(run:Managed,request:ApprovalRequest,signal:AbortSignal):Promise<boolean>{
+    signal.throwIfAborted();
+    return new Promise<boolean>((resolve,reject)=>{
+      const abort=()=>{cleanup();reject(signal.reason??Error('approval_cancelled'));};
+      const cleanup=()=>{signal.removeEventListener('abort',abort);run.pending.delete(request.requestId);if(run.view.status==='awaiting_approval')run.view.status='running';this.changed(run);};
+      run.pending.set(request.requestId,{request:run.redactor.clean(request),signal,resolve:allowed=>{cleanup();resolve(allowed);}});
+      run.view.status='awaiting_approval';signal.addEventListener('abort',abort,{once:true});this.activity(run,'approval','等待人工审批：'+request.tool,{tool:request.tool});
+      if(signal.aborted)abort();
+    });
+  }
+  respondToApproval(runId:string,requestId:string,allowed:boolean,argsHash:string):void {
+    const run=this.require(runId),pending=run.pending.get(requestId);
+    if(!pending||pending.signal.aborted||Date.parse(pending.request.expiresAt)<=Date.now())throw Error('approval_not_pending');
+    if(pending.request.argsHash!==argsHash)throw Error('approval_hash_mismatch');
+    pending.resolve(allowed);this.activity(run,'approval',allowed?'已批准这一次工具调用。':'已拒绝这一次工具调用。');
+  }
+  private awaitUserMessage(run:Managed,answer:RunResult,signal:AbortSignal):Promise<string|null>{
+    signal.throwIfAborted();
+    return new Promise((resolve,reject)=>{
+      const cleanup=()=>{signal.removeEventListener('abort',abort);run.input=undefined;};
+      const abort=()=>{cleanup();reject(signal.reason??Error('conversation_cancelled'));};
+      run.input={signal,resolve:message=>{cleanup();resolve(message);}};
+      signal.addEventListener('abort',abort,{once:true});
+      try{
+        this.finish(run,answer);
+        run.view.messages!.push({id:id(),role:'assistant',content:run.redactor.clean(answer.response??''),createdAt:now()});
+        run.view.status='awaiting_user';
+        this.activity(run,'system','本轮已完成，可以继续追问或结束会话。');
+        if(signal.aborted)abort();
+      }catch(error){cleanup();reject(error);}
+    });
+  }
+  sendMessage(runId:string,raw:RunMessageInput):RunSnapshot{
+    const run=this.require(runId),message=messageSchema.parse(raw),digest=hash(message.text),previous=run.acceptedMessages?.get(message.messageId);
+    if(previous){if(previous!==digest)throw Error('message_id_conflict');return this.snapshot(run);}
+    if(this.closed||!run.view.conversation||run.view.status!=='awaiting_user'||!run.input||run.input.signal.aborted)throw Error('conversation_not_waiting');
+    if((run.view.messages?.length??0)>=256)throw Error('conversation_message_limit');
+    const waiter=run.input;
+    run.acceptedMessages!.set(message.messageId,digest);
+    run.view.messages!.push({id:message.messageId,role:'user',content:run.redactor.clean(message.text),createdAt:now()});
+    run.view.status='running';
+    try{this.changed(run);}catch(error){run.view.status='awaiting_user';run.view.messages!.pop();run.acceptedMessages!.delete(message.messageId);throw error;}
+    waiter.resolve(message.text);
+    return this.snapshot(run);
+  }
+  endConversation(runId:string):RunSnapshot{
+    const run=this.require(runId);
+    if(run.view.conversation&&['complete','partial'].includes(run.view.status))return this.snapshot(run);
+    if(!run.view.conversation||run.view.status!=='awaiting_user'||!run.input||run.input.signal.aborted)throw Error('conversation_not_waiting');
+    const waiter=run.input;run.view.status='running';
+    try{this.activity(run,'system','正在结束会话。');}catch(error){run.view.status='awaiting_user';throw error;}
+    waiter.resolve(null);return this.snapshot(run);
+  }
+  cancel(runId:string):RunSnapshot {const run=this.require(runId);if(active(run.view.status)){run.view.status='cancelling';this.activity(run,'system','正在取消调查并回收资源。');run.controller.abort(Error('user_cancelled'));}return this.snapshot(run);}
+  report(runId:string):string {const run=this.require(runId);if(!run.reportPath||!existsSync(run.data.path(run.reportPath)))throw Error('report_not_ready');return run.redactor.clean(readFileSync(run.data.path(run.reportPath),'utf8'));}
+  trace(runId:string):StructuredTrace {const run=this.require(runId),traceId=run.view.traceRunId;if(!traceId)throw Error('trace_not_ready');
+    return new Trace(run.data,run.view.task.taskId,traceId,run.redactor).exportStructured();}
+  async wait(runId:string):Promise<RunSnapshot>{const run=this.require(runId);await run.job;return this.snapshot(run);}
+  async close():Promise<void>{
+    if(this.closed)return;this.closed=true;
+    for(const run of this.runs.values())if(active(run.view.status))this.cancel(run.view.id);
+    try{await Promise.allSettled([...this.runs.values()].map(r=>r.job));}finally{closeSync(this.lock);unlinkSync(resolve(this.outputRoot,'.host.lock'));}
+  }
+}
