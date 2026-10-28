@@ -1,0 +1,12 @@
+name: 测试 Runner
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查运行环境
+        run: |
+          echo "Runner 运行成功"
+          node --version
