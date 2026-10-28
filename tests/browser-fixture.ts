@@ -39,7 +39,8 @@ export async function browserHarness(mode:'render'|'redirect'|'hold'|'limit'|'ov
     },
 
     launch:async options=>{
-      const browser=await chromium.launch({...options,executablePath});
+      // Explicit opt-out for synthetic fixtures in root CI containers only.
+      const browser=await chromium.launch({...options,executablePath,...(process.env.EVAL_BROWSER_NO_SANDBOX==='1'?{chromiumSandbox:false}:{})});
       browserVersions.push(browser.version());
       const close=browser.close.bind(browser);let closing:Promise<void>|undefined;
       browser.close=()=>closing??=(async()=>{await browserContext?.tracing.stop({path:data.path('browser-trace.zip')}).catch(()=>{});await close();closed=true;})();

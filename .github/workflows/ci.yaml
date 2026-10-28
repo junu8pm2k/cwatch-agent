@@ -1,0 +1,61 @@
+name: verify
+on: [push, pull_request]
+
+# Gitea uses registered runner labels; ubuntu-latest is not a hosted VM.
+# Use the same Node 24 / Debian environment regardless of the label's image.
+# Trixie's fd supports the SDK's --no-require-git; Bookworm's fd 8.6 does not.
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-trixie
+    steps:
+      # Absolute URLs also work when DEFAULT_ACTIONS_URL is set to self.
+      - uses: https://github.com/actions/checkout@v4
+      # Pi's grep/find tools need native binaries, absent from the Node image.
+      # Debian calls fd "fdfind"; the SDK recognizes that name on PATH.
+      - name: Install Pi tool dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ripgrep fd-find
+          rg --version
+          fdfind --version
+          fdfind --help | grep -q -- '--no-require-git'
+      # No actions/cache dependency: act_runner's cache network is optional.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run verify
+      - run: npm run eval:cases:lint
+      - run: npm run eval:cases
+      - run: npm run demo
+      # The v3 protocol avoids v4's GHES check on older Gitea runners.
+      - uses: https://github.com/actions/upload-artifact@v3-node20
+        if: always()
+        with:
+          name: evidence-linux
+          path: artifacts/
+
+  browser-regression:
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-trixie
+    steps:
+      - uses: https://github.com/actions/checkout@v4
+      - name: Install Pi tool dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ripgrep fd-find
+          rg --version
+          fdfind --version
+          fdfind --help | grep -q -- '--no-require-git'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - run: npm run verify:browser
+        env:
+          # Only synthetic fixtures opt out of Chromium's sandbox in root CI.
+          EVAL_BROWSER_NO_SANDBOX: '1'
+      - run: npm run verify:web
+      - uses: https://github.com/actions/upload-artifact@v3-node20
+        if: always()
+        with:
+          name: browser-evidence
+          path: artifacts/
