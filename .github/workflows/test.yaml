@@ -5,8 +5,11 @@ on: [push]
 jobs:
   test:
     runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm
     steps:
       - name: 检查运行环境
         run: |
           echo "Runner 运行成功"
           node --version
+          npm --version

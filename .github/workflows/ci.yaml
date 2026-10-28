@@ -1,41 +1,40 @@
 name: verify
 on: [push, pull_request]
+
+# Gitea uses registered runner labels; ubuntu-latest is not a hosted VM.
+# Use the same Node 24 / Debian environment regardless of the label's image.
 jobs:
   regression:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
+      # Absolute URLs also work when DEFAULT_ACTIONS_URL is set to self.
+      - uses: https://github.com/actions/checkout@v4
+      # No actions/cache dependency: act_runner's cache network is optional.
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run verify
       - run: npm run eval:cases:lint
       - run: npm run eval:cases
       - run: npm run demo
-      - uses: actions/upload-artifact@v4
+      # The v3 protocol avoids v4's GHES check on older Gitea runners.
+      - uses: https://github.com/actions/upload-artifact@v3-node20
         if: always()
         with:
-          name: evidence-${{ matrix.os }}
+          name: evidence-linux
           path: artifacts/
 
   browser-regression:
     runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
+      - uses: https://github.com/actions/checkout@v4
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: npm run verify:browser
       - run: npm run verify:web
-      - uses: actions/upload-artifact@v4
+      - uses: https://github.com/actions/upload-artifact@v3-node20
         if: always()
         with:
           name: browser-evidence
