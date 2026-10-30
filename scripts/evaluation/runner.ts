@@ -9,6 +9,7 @@ import { summarizePenalty, PENALTY_PROFILE, AGENT_TYPES, type AgentType } from '
 import type { WorkerObservation } from './contracts.ts';
 import { readModelConfig, type ModelConfig } from '@cwatch/shared/config/models';
 import { buildExecutionInput } from './execution-input.ts';
+import { EVAL_DIMENSIONS, summarizeDimensions } from './dimensions.ts';
 
 const workspace=resolve(fileURLToPath(new URL('../../',import.meta.url)));
 const save=(path:string,value:unknown)=>writeFileSync(path,JSON.stringify(value,null,2)+'\n',{flag:'wx'});
@@ -57,11 +58,11 @@ export function summarize(results:EvalResult[],penaltyOptions:{expectedTrials?:n
     const rows=results.filter(r=>r[key]===value);return[value,{total:rows.length,executionPassed:rows.filter(r=>r.executionPassed).length,pass:rows.filter(r=>r.verdict==='pass').length,fail:rows.filter(r=>r.verdict==='fail').length,needsReview:rows.filter(r=>r.verdict==='needs_review').length,invalid:rows.filter(r=>r.verdict==='invalid').length}];}));
   const families=group('familyId');
   const caseStability=Object.fromEntries([...new Set(results.map(r=>r.caseId))].map(id=>{const rows=results.filter(r=>r.caseId===id);return[id,{attempts:rows.length,executionPassed:rows.filter(r=>r.executionPassed).length,allAttemptsPassed:rows.every(r=>r.executionPassed)}];}));
-  const scenarioCoverage = Object.fromEntries(['activation','core_logic','artifact_quality','resilience'].map(category => [category,
+  const dimensionCoverage = Object.fromEntries(EVAL_DIMENSIONS.map(d=>d.id).map(category => [category,
     Object.fromEntries(['positive','negative'].map(polarity => { const rows = results.filter(r => r.coverage?.category === category && r.coverage.polarity === polarity);
       return [polarity, { planned:rows.length, executionPassed:rows.filter(r => r.executionPassed).length, fail:rows.filter(r => r.verdict === 'fail').length, needsReview:rows.filter(r => r.verdict === 'needs_review').length, invalid:rows.filter(r => r.verdict === 'invalid').length }]; }))]));
   return{...totals,valid,explicitPassRate:valid?totals.pass/valid:null,explicitFailureRate:valid?totals.fail/valid:null,
-    effectiveCoverage:totals.planned?valid/totals.planned:null,layers:group('layer'),families,caseStability,scenarioCoverage,unclassifiedScenarioAttempts:results.filter(r => !r.coverage).length,
+    effectiveCoverage:totals.planned?valid/totals.planned:null,layers:group('layer'),families,caseStability,dimensionCoverage,unclassifiedDimensionAttempts:results.filter(r => !r.coverage).length,
     durationMsByRun:results.map(r=>({caseId:r.caseId,attempt:r.attempt,durationMs:r.durationMs})),
     familyMacroExecutionRate:Object.keys(families).length?Object.values(families).reduce((sum,g)=>sum+g.executionPassed/g.total,0)/Object.keys(families).length:null,
     knownFixtureMaintenanceTokens:results.filter(r=>r.usage?.mode==='fixture').reduce((sum,r)=>sum+(r.usage?.maintenanceTokens??0),0),
@@ -69,12 +70,14 @@ export function summarize(results:EvalResult[],penaltyOptions:{expectedTrials?:n
     knownLiveModelTokens:results.filter(r=>r.usage?.mode==='live_model').reduce((sum,r)=>sum+(r.usage?.mainTaskTokens??0)+(r.usage?.maintenanceTokens??0),0),
     physicalLiveModelRequests:results.filter(r=>r.usage?.mode==='live_model').reduce((sum,r)=>sum+(r.usage?.physicalModelRequests??0),0),
     incompleteLiveUsageRuns:results.filter(r=>r.usage?.mode==='live_model'&&r.usage.completeness!=='known').length,
-    measuredLiveModelAccuracy:null,actualLiveModelCost:null,penalty:summarizePenalty(results,penaltyOptions),
+    measuredLiveModelAccuracy:null,actualLiveModelCost:null,dimensions:summarizeDimensions(results,penaltyOptions.expectedTrials),penalty:summarizePenalty(results,penaltyOptions),
     executionGate:results.length>0&&results.every(r=>r.executionPassed),releaseGate:results.length>0&&results.every(r=>r.releaseEligible)};
 }
 export interface BatchOptions{dataset?:string;out?:string;caseId?:string;repeat?:number;requireApproved?:boolean;signal?:AbortSignal;realModel?:boolean;split?:'regression'|'holdout';agentType?:AgentType;scoreGate?:boolean}
 export async function runBatch(options:BatchOptions={}){
-  const data=loadDataset(options.dataset??resolve(workspace,'evals/regression/dataset.json'),workspace);
+  if(!options.dataset)throw Error('evaluation_dataset_required: bundled eval cases have been removed; provide an explicit dataset');
+  if(options.scoreGate)throw Error('unified_score_gate_requires_completed_reviews: run the Case without --score-gate, then eval:judge, eval:human and eval:score');
+  const data=loadDataset(options.dataset,workspace);
   const split=options.split??'regression';
   const entries=data.entries.filter(e=>e.value.split===split&&e.value.status!=='retired'&&
     (e.value.scope.executionMode==='frozen_tools_live_model')===Boolean(options.realModel)&&(!options.caseId||e.value.id===options.caseId));
@@ -144,8 +147,8 @@ export async function runBatch(options:BatchOptions={}){
     artifacts.push({caseId:entry.value.id,attempt,directory:relative(out,directory).replaceAll('\\','/'),manifestSha256:sha256(readFileSync(join(directory,'manifest.json')))});
     if(split!=='holdout')console.log(`${result.executionPassed?'CHECKS_PASS':result.verdict.toUpperCase()} ${entry.value.id} attempt=${attempt} verdict=${result.verdict}`);
   }
-  const report={schemaVersion:'cwatch.eval-report.v1',batchId,startedAt,endedAt:new Date().toISOString(),datasetId:data.manifest.id,datasetVersion:data.manifest.version,datasetSha256:data.sha256,
-    executionMode:options.realModel?'frozen_tools_live_model':'deterministic',split,version,plannedTrialsPerCase:repeat,
+  const report={schemaVersion:'cwatch.eval-report.v2',batchId,startedAt,endedAt:new Date().toISOString(),datasetId:data.manifest.id,datasetVersion:data.manifest.version,datasetSha256:data.sha256,
+    executionMode:options.realModel?'frozen_tools_live_model':'deterministic',split,version,evaluationDimensions:EVAL_DIMENSIONS,plannedTrialsPerCase:repeat,
     scorePolicy:{penaltyProfile:PENALTY_PROFILE,agentType,gate:options.scoreGate?'penalty':'required_checks',requireApproved:Boolean(options.requireApproved)},metrics:summarize(results,{expectedTrials:repeat,agentType}),results,artifacts,
     limits:['Candidate labels require human review.','Fixture tools are explicitly simulated; they do not establish live source availability.','Node file/process permission checks do not prove OS network isolation.','No independent holdout or production traffic is claimed.',
       options.realModel?'Actual SDK session in a permission-restricted eval worker; production IPC transport is covered separately by engineering tests.':'Scripted decisions and fixture usage do not measure live model quality or actual monetary cost.']};
@@ -154,12 +157,13 @@ export async function runBatch(options:BatchOptions={}){
   const show=(value:boolean|null)=>value===null?'未完成':value?'是':'否';
   const penaltyTable=['| Case / revision | Trials | pass@k | pass^k | 类型容忍度满足 | 用例分 |','|---|---:|---|---|---|---:|',...report.metrics.penalty.cases.map(c=>
     `| ${c.caseId} / ${c.caseRevision} | ${c.trialCount}/${c.expectedTrials} | ${show(c.passAtK)} | ${show(c.passPowK)} | ${show(c.toleranceSatisfied)} | ${c.caseScore.toFixed(2)} |`)].join('\n');
-  const coverageTable = ['| 场景 | 正例 执行通过/计划 | 负例 执行通过/计划 |','|---|---:|---:|',...Object.entries(report.metrics.scenarioCoverage).map(([category, rows]) =>
+  const coverageTable = ['| 场景 | 正例 执行通过/计划 | 负例 执行通过/计划 |','|---|---:|---:|',...Object.entries(report.metrics.dimensionCoverage).map(([category, rows]) =>
     `| ${category} | ${rows.positive.executionPassed}/${rows.positive.planned} | ${rows.negative.executionPassed}/${rows.negative.planned} |`)].join('\n');
-  const markdown=['# Agent 契约评测',`批次：${batchId}`,`执行检查 ${report.metrics.executionPassed}/${report.metrics.planned}；人工批准后正式通过 ${report.metrics.pass}；待复核 ${report.metrics.needs_review}；失败 ${report.metrics.fail}；无效 ${report.metrics.invalid}。`,
-    `执行门禁 ${report.metrics.executionGate?'PASS':'FAIL'}；发布门禁 ${report.metrics.releaseGate?'PASS':'BLOCKED'}。真实模型准确率与实际费用未评估。`,table,
-    `负分制：100 分起，80 分达标，超过 5 分钟每开始 1 分钟扣 10 分。所有 Trial 达标才取平均，否则用例分为 0。Agent 类型 ${agentType}；容忍失败率 ${report.metrics.penalty.allowedFailureRate*100}%，容忍度仅作独立观测，不改用例计分。`,
-    penaltyTable,'单次分数达标与原有必过项/人工审核门禁分别展示；数据不足记未知，不视为满分。',coverageTable,`未标记四类场景的历史用例尝试：${report.metrics.unclassifiedScenarioAttempts}。`,report.limits.map(s=>'- '+s).join('\n')].join('\n\n');
+  const dimensionTable=['| 维度 | 优先级 | 通过 | 失败 | 未知 | 未设置检查 |','|---|---|---:|---:|---:|---:|',...EVAL_DIMENSIONS.map(d=>{const r=report.metrics.dimensions[d.id];return `| ${d.name} | ${d.priority} | ${r.pass} | ${r.fail} | ${r.unknown} | ${r.notApplicable} |`;})].join('\n');
+  const markdown=['# Agent 五维契约评测',`批次：${batchId}`,`规则检查 ${report.metrics.executionPassed}/${report.metrics.planned}；标准已审核且规则通过 ${report.metrics.pass}；待复核 ${report.metrics.needs_review}；失败 ${report.metrics.fail}；无效 ${report.metrics.invalid}。完整综合判分以完成评委记录后的质量报告为准。`,
+    `规则执行门禁 ${report.metrics.executionGate?'PASS':'FAIL'}；规则及标准审核门禁 ${report.metrics.releaseGate?'PASS':'BLOCKED'}。此处不是完成三类评分器后的综合发布门禁。真实模型准确率与实际费用未评估。`,table,
+    `统一负分制：100 分起，80 分达标；过程三项每个不符步骤/调用项扣 10，超过 5 分钟每开始 1 分钟扣 10，任务结果不符扣 100。此处尚未执行 Rubric 与人工评分，分数保持待评分；完成评委记录后用 eval:score 汇总。所有 Trial 达标才取平均，否则用例分为 0。Agent 类型 ${agentType}；容忍度仅作独立观测，不改用例计分。`,
+    dimensionTable,'评分分工：结果/证据=代码+Rubric，过程=Rubric+人工，安全=代码+人工，成本=代码。Rubric 指参考量表的 LLM-as-a-Judge。代码不对过程下结论。P0 为 Outcome / Evidence / Safety；P1 为 Trajectory / Cost。安全一致性使用维度统计中的 pass^k；缺少可比 Trial 时为未知。Cost 的失败重试率未记录时为 null，不用重复调用次数猜测。',penaltyTable,'单次分数达标与原有必过项/人工审核门禁分别展示；数据不足记未知，不视为满分。',coverageTable,`未标记五维覆盖分类的用例尝试：${report.metrics.unclassifiedDimensionAttempts}。`,report.limits.map(s=>'- '+s).join('\n')].join('\n\n');
   writeFileSync(join(batch,'report.md'),markdown,{flag:'wx'});
   // Convenience pointer only; immutable per-batch evidence is never replaced.
   writeFileSync(join(out,'latest.json'),JSON.stringify({batchId,report:relative(out,join(batch,'report.json')).replaceAll('\\','/'),metrics:report.metrics},null,2)+'\n');

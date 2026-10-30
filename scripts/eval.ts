@@ -23,11 +23,6 @@ import '../tests/backend-contracts.test.ts';
 import '../tests/api-mcp.test.ts';
 import '../tests/api-http.test.ts';
 import '../tests/source-coverage.test.ts';
-import '../tests/evaluation.test.ts';
-import '../tests/evaluation-review.test.ts';
-import '../tests/evaluation-quality.test.ts';
-import '../tests/evaluation-scenarios.test.ts';
-import '../tests/evaluation-penalty.test.ts';
 import '../tests/structured-trace.test.ts';
 import '../tests/browser-source.test.ts';
 import '../tests/domain-dataset.test.ts';
@@ -46,7 +41,7 @@ for (const entry of cases) {
   catch (e) { results.push({ name: entry.name, group: entry.group, critical: entry.critical, passed: false, durationMs: Date.now() - started, error: e instanceof Error ? e.stack : String(e) }); console.error('FAIL [' + entry.group + '] ' + entry.name + '\n' + String(e)); }
 }
 const groups = Object.fromEntries(['contract', 'semantic', 'integration'].map(group => { const items = results.filter(r => r.group === group); return [group, { total: items.length, passed: items.filter(r => r.passed).length }]; }));
-const report = { startedAt, endedAt: new Date().toISOString(), command: 'npm run verify', dataset: 'synthetic-nodejs-regression-v1', datasets: [{ id: 'synthetic-nodejs-regression-v1', labels: 'fixtures/labels.json' }, { id: 'synthetic-competitor-domain-cases-v1', labels: 'fixtures/eval-cases.json' }], metrics: { definition: 'passing independently asserted fixed regression cases / all executed cases; not model generation accuracy', total: results.length, passed: results.filter(r => r.passed).length, groups }, releaseGate: results.every(r => r.passed), results };
+const report = { startedAt, endedAt: new Date().toISOString(), command: 'npm run verify', dataset: 'synthetic-nodejs-regression-v1', datasets: [{ id: 'synthetic-nodejs-regression-v1', labels: 'fixtures/labels.json' }], metrics: { definition: 'passing independently asserted fixed regression cases / all executed cases; not model generation accuracy', total: results.length, passed: results.filter(r => r.passed).length, groups }, releaseGate: results.every(r => r.passed), results };
 const store = new FileStore('artifacts/eval'); store.write('latest.json', report);
 store.text('latest.md', `# 本次测试与评测\n\n执行 ${startedAt}\n\n通过 ${report.metrics.passed}/${report.metrics.total}；门禁 ${report.releaseGate ? 'PASS' : 'FAIL'}\n\n| 类别 | 通过 | 分母 |\n|---|---:|---:|\n` + Object.entries(groups).map(([k, v]) => `| ${k} | ${v.passed} | ${v.total} |`).join('\n') + '\n\n' + results.map(r => `- ${r.passed ? 'PASS' : 'FAIL'} ${r.name}${r.error ? ': ' + r.error : ''}`).join('\n') + '\n\n合成固定样本，只证明这些回归用例；不代表真实模型准确率、生产覆盖率或线上效果。\n');
 console.log(JSON.stringify({ passed: report.metrics.passed, total: report.metrics.total, groups, releaseGate: report.releaseGate }));

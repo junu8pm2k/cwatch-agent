@@ -19,6 +19,7 @@ import { SessionMemoryStore } from '@cwatch/shared/sessions/memory';
 import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
 import { summarizeDiscovery } from '@cwatch/shared/intelligence/source-coverage';
 import { InputSchema, type EvalInput, type WorkerObservation } from './contracts.ts';
+import { frozenSkillBundle } from './skill-snapshots.ts';
 
 type Scenario=EvalInput['scenario'];
 const usage={input:100,output:20,cacheRead:0,cacheWrite:0,totalTokens:120,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
@@ -45,7 +46,7 @@ async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:File
       resolveAction:source.resolveAction.bind(source),checkPrerequisites:source.checkPrerequisites.bind(source),
       validateScope:source.validateScope.bind(source),close:()=>source.close()};
     await registry.register(slug,'mcp',controlled,controller.signal);
-  }else{
+  }else if(s.source==='fixture'){
     const completed = new Set<string>();
     const client:SourceClient={listTools:async()=>s.tools.map(t=>({name:t.name,description:t.description ?? 'Controlled evaluation fixture '+t.name,action:t.action,inputSchema:t.inputSchema ?? emptySchema}) satisfies ToolDefinition),
       checkPrerequisites: name => { const required = s.tools.find(t => t.name === name)?.requires; return required && !completed.has(required) ? 'required_step_missing:' + required : undefined; },
@@ -68,8 +69,9 @@ async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:File
       runSession:async(input,hooks,signal)=>{const configured=await createPiRuntime(config!.provider,config!.modelId,config,signal);
         try{await runPiSession(configured.runtime,configured.model,input,hooks,signal);}catch(error){
           const e=error as Error&{code?:string;resource?:string};store.write('adapter.error.json',new Redactor([config!.apiKey]).clean({message:e.message,code:e.code,resource:e.resource,stack:e.stack}));throw error;}}}:new ReplayModel(s.steps);
-    const result=await runAgent({kind:'agent',taskId:'eval-'+id(),instruction:s.instruction,allowedSources:[slug]},model,registry,store,real?'live':'replay',
-      {builtinTools:false,skillPath:fileURLToPath(new URL('../../skills/general-agent/SKILL.md',import.meta.url)),timeoutMs:real?180000:15000,modelTimeoutMs:real?60000:5000,toolTimeoutMs:s.toolTimeoutMs,maxToolCalls:s.maxToolCalls,maxSameToolCalls:16,maxSteps:real?8:16,
+    const userSkills=frozenSkillBundle(s.selectedSkills);
+    const result=await runAgent({kind:'agent',taskId:'eval-'+id(),instruction:s.instruction,allowedSources:s.source==='none'?[]:[slug]},model,registry,store,real?'live':'replay',
+      {builtinTools:false,userSkills,skillPath:fileURLToPath(new URL('../../skills/general-agent/SKILL.md',import.meta.url)),timeoutMs:real?180000:15000,modelTimeoutMs:real?60000:5000,toolTimeoutMs:s.toolTimeoutMs,maxToolCalls:s.maxToolCalls,maxSameToolCalls:16,maxSteps:real?8:16,
         maxTokens:s.maxTokens,maxOutputTokens:s.maxOutputTokens,...(config?{secrets:[config.apiKey]}:{})},controller.signal,
       new ActionPolicy(s.permission),new ApprovalManager(async request=>{const answer=s.approvalAnswers[approvalRequests.length]??false;
         approvalRequests.push({requestId:request.requestId,tool:request.tool,argsHash:request.argsHash,answer});store.append('approvals.jsonl',approvalRequests.at(-1));return answer;}));
@@ -78,12 +80,20 @@ async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:File
     const events=store.lines<{type:string;data:Record<string,unknown>}>('traces/'+result.runId+'.jsonl');
     const apiResults=events.filter(e=>e.type==='execution_finished'&&e.data.result).map(e=>e.data.result as Record<string,unknown>);
     const usages=events.filter(e=>e.type==='model_usage');
+    const toolRequests=events.filter(e=>e.type==='pre_tool_use_request');
+    const skillReads=toolRequests.filter(e=>e.data.toolName==='session__read_skill_resource').map(e=>({sequence:(e as {sequence?:number}).sequence,requestId:e.data.requestId,args:e.data.input,
+      completed:events.some(end=>end.type==='execution_finished'&&end.data.requestId===e.data.requestId&&end.data.state==='completed')}));
+    const loadedSkills=events.filter(e=>e.type==='skills_loaded').flatMap(e=>e.data.skills as Array<{name:string;hash:string}>);
+    const disclosedTools=events.filter(e=>e.type==='context_prepared').flatMap(e=>e.data.tools as Array<{proxyName:string}>).map(t=>t.proxyName);
     const main=usages.filter(e=>e.data.purpose!=='memory'),maintenance=usages.filter(e=>e.data.purpose==='memory');
     const total=(rows:typeof usages)=>{const values=rows.map(e=>reportedTokens(e.data.usage)).filter((v):v is number=>v!==undefined);return values.length?values.reduce((sum,n)=>sum+n,0):null;};
     const transcript=real?store.lines<{type:string;customType?:string}>('sessions/'+result.runId+'.jsonl'):[];
     const requests=transcript.filter(e=>e.type==='custom'&&['cwatch.model_request','cwatch.summary_request','cwatch.memory_request'].includes(e.customType??'')).length;
     return{runId:result.runId,status:result.status,tracePath:'traces/'+result.runId+'.jsonl',structuredTracePath:'traces/'+result.runId+'.json',facts:{driver:'runtime',fixtureCalls,fixtureCallCount:fixtureCalls.length,
       fixtureEscapes:fixtureCalls.filter(c=>!c.matched).length,guideRead,approvalRequests,approvalCount:approvalRequests.length,
+      selectedSkills:s.selectedSkills.map(s=>({name:s.name,sha256:s.sha256,resources:s.resources.map(r=>({path:r.path,sha256:r.sha256}))})),
+      skillSetupValid:s.selectedSkills.every(s=>loadedSkills.some(l=>l.name===s.name&&l.hash===s.sha256))&&(!s.selectedSkills.length||disclosedTools.includes('session__read_skill_resource')),
+      skillReads,toolRequestCount:toolRequests.length,externalSourceCallCount:fixtureCalls.length,
       executionCount:execution.reduce((sum,e)=>sum+e.execute_count,0),executionStates:execution.map(e=>e.state),
       apiStatus:apiResults.find(r=>typeof r.status==='string')?.status??null,
       sdkExecutionIds:execution.flatMap(e=>e.sdkToolCallId?[e.sdkToolCallId]:[]),

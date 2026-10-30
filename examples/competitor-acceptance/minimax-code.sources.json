@@ -5,24 +5,14 @@
     "active": true,
     "allowedDomains": [
       "agent.minimax.cn",
-      "agent.minimax.io",
-      "github.com"
+      "agent.minimax.io"
     ],
     "urls": [
       "https://agent.minimax.cn/about",
-      "https://agent.minimax.cn/docs/changelog",
-      "https://github.com/MiniMax-AI/minimax-code"
+      "https://agent.minimax.cn/docs/changelog"
     ],
-    "searchMcp": { "requestTimeoutMs": 60000 }
-  },
-  {
-    "slug": "minimax_code_github",
-    "kind": "github_releases",
-    "active": true,
-    "repo": "MiniMax-AI/minimax-code",
-    "entityId": "minimax-code",
-    "entityName": "MiniMax Code",
-    "domain": "agent.minimax.cn",
-    "product": "MiniMax Code"
+    "searchMcp": {
+      "requestTimeoutMs": 60000
+    }
   }
 ]

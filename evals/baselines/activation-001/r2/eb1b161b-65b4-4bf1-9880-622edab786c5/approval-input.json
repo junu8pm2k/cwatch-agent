@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cwatch.baseline-approval-input.v1",
+  "snapshotSha256": "344022e0771432749da7e44fdcfd738df8da7dce8ff1cdb5e00729e83888e881",
+  "reviewer": "",
+  "process": {
+    "verdict": "unknown",
+    "reason": ""
+  },
+  "outcome": {
+    "verdict": "unknown",
+    "reason": ""
+  },
+  "evidence": [],
+  "notes": ""
+}

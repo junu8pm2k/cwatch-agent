@@ -15,16 +15,5 @@
       "nodejs.org"
     ],
     "searchMcp": {}
-  },
-  {
-    "slug": "github",
-    "kind": "github_releases",
-    "active": true,
-    "repo": "nodejs/node",
-    "entityId": "nodejs",
-    "entityName": "Node.js",
-    "domain": "nodejs.org",
-    "product": "Node.js",
-    "fixture": "fixtures/github.json"
   }
 ]

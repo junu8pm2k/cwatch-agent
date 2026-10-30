@@ -6,24 +6,14 @@
     "allowedDomains": [
       "www.kimi.com",
       "www.kimi.ai",
-      "code.kimi.com",
-      "github.com"
+      "code.kimi.com"
     ],
     "urls": [
       "https://www.kimi.com/code",
-      "https://www.kimi.com/resources/kimi-code-introduction",
-      "https://github.com/MoonshotAI/kimi-code"
+      "https://www.kimi.com/resources/kimi-code-introduction"
     ],
-    "searchMcp": { "requestTimeoutMs": 60000 }
-  },
-  {
-    "slug": "kimi_code_github",
-    "kind": "github_releases",
-    "active": true,
-    "repo": "MoonshotAI/kimi-code",
-    "entityId": "kimi-code",
-    "entityName": "Kimi Code",
-    "domain": "www.kimi.com",
-    "product": "Kimi Code"
+    "searchMcp": {
+      "requestTimeoutMs": 60000
+    }
   }
 ]

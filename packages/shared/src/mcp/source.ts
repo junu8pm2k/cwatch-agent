@@ -6,6 +6,7 @@ import { abortable, RetrievalSchema, hash, type SourceClient, type ToolDefinitio
 import { Redactor } from "../sessions/trace.ts";
 import { McpSchemaValidator } from "../sources/web-mcp.ts";
 import { mcpSecrets, UserMcpSchema, validateMcpUrl, type UserMcpConfig } from "./storage.ts";
+import { assertNetworkUrlAllowed } from '../sources/network-policy.ts';
 
 const CAP = 2_000_000;
 export class UserMcpSource implements SourceClient {
@@ -26,6 +27,7 @@ export class UserMcpSource implements SourceClient {
   }
   private network = async (target: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const endpoint = validateMcpUrl(this.config.url!), url = new URL(target instanceof Request ? target.url : String(target));
+    assertNetworkUrlAllowed(url);
     if (url.origin !== endpoint.origin || url.username || url.password || (this.config.transport === 'streamable-http' && url.toString() !== endpoint.toString())) throw new Error('mcp_endpoint_changed');
     const headers = new Headers(init?.headers);
     if (this.config.tokenEnv) headers.set(this.config.authHeader, (this.config.authScheme === 'raw' ? '' : 'Bearer ') + this.requiredEnv(this.config.tokenEnv));

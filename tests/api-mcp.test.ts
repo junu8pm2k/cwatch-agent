@@ -14,12 +14,30 @@ import { ReplayModel } from '@cwatch/shared/agent/models';
 import { runInvestigation } from '@cwatch/server-core/runtime/investigation';
 import { id, type ToolExecutionContext } from '@cwatch/core/types';
 import { EvidenceStore } from '@cwatch/shared/intelligence/evidence';
+import { apiEndpoint } from '@cwatch/shared/sources/web-api-config';
+import { allowedUrl } from '@cwatch/shared/sources/web';
+import { validateMcpUrl, UserMcpSchema } from '@cwatch/shared/mcp/storage';
+import { processEnvironment } from '@cwatch/shared/utils/process-environment';
 
 const signal=new AbortController().signal;
 const input={baseUrl:'https://platform.example/v1',auth:{tokenEnv:'PLATFORM_API_TOKEN'},fixedParams:{limit:5}};
 const request=(method='GET',path='/releases',params:Record<string,unknown>={q:'Node.js'})=>({method,path,params});
 const proxy='mcp__official__api_official';
 const direct:ToolExecutionContext={stage:async(_name,run)=>run(),event:()=>{}};
+check('contract','Disabled GitHub integrations are rejected before using the built-in network transport',()=>{
+  for(const baseUrl of ['https://api.github.com','https://api.github.com./graphql','https://enterprise.example/api/v3','https://enterprise.example/api/graphql']){
+    const config=PlatformApiConfigSchema.parse({baseUrl});
+    assert.throws(()=>new PlatformApiAdapter('platform',config),/github_api_disabled/);
+    assert.equal(SourceConfigsSchema.safeParse([{slug:'platform',kind:'api',api:{baseUrl}}]).success,false);
+    assert.throws(()=>apiEndpoint(baseUrl),/github_api_disabled/);
+    assert.throws(()=>allowedUrl(baseUrl,[new URL(baseUrl).hostname]),/github_api_disabled/);
+  }
+  assert.throws(()=>validateMcpUrl('https://api.githubcopilot.com/mcp/'),/github_api_disabled/);
+  assert.equal(SourceConfigsSchema.safeParse([{slug:'old',kind:'github_releases',repo:'nodejs/node'}]).success,false);
+  assert.equal(UserMcpSchema.safeParse({slug:'github',transport:'stdio',command:'github-mcp-server'}).success,false);
+  assert.equal(UserMcpSchema.safeParse({slug:'custom',transport:'stdio',command:'node',env:{TOKEN:'GITHUB_TOKEN'}}).success,false);
+  assert.throws(()=>processEnvironment({TOKEN:'GITHUB_TOKEN'},{},{GITHUB_TOKEN:'fixture-only'}),/github_credentials_disabled/);
+});
 async function harness(fetcher:typeof fetch,options:{mode?:Mode;autoRead?:boolean;api?:Record<string,unknown>;responder?:ApprovalResponder}={}){
   const config=PlatformApiConfigSchema.parse({...input,...options.api}),env:NodeJS.ProcessEnv={PLATFORM_API_TOKEN:'private-platform-key'},data=store(),registry=new ToolRegistry(),trace=new Trace(data,task().taskId,id());
   const folder=join(data.root,'sources','official');mkdirSync(folder,{recursive:true});const guidePath=join(folder,'guide.md');
@@ -171,15 +189,15 @@ check('contract','MCP handler enforces its schema and forwards host-stage policy
     assert.equal(requests,0);h.finish();
   }finally{await h.registry.close();}
 });
-check('integration','GitHub replay uses one pooled generic API tool and the same guide prerequisite',async()=>{
-  const builder=new SourceServerBuilder(process.cwd()),config=SourceConfigsSchema.parse(JSON.parse(readFileSync('examples/sources.json','utf8'))).find(s=>s.kind==='github_releases')!,stages:string[]=[];
+check('integration','Platform replay uses one pooled generic API tool and the same guide prerequisite',async()=>{
+  const builder=new SourceServerBuilder(process.cwd()),config=SourceConfigsSchema.parse([JSON.parse(readFileSync('tests/fixtures/platform-source.json','utf8'))])[0],stages:string[]=[];
   const a=await builder.build(config,'replay',signal),b=await builder.build(config,'replay',signal);
   try{
-    assert.equal(a.channel,'mcp');assert.equal(builder.mcpPool.size,1);assert.deepEqual((await a.client.listTools(signal)).map(t=>t.name),['api_github']);
-    await assert.rejects(a.client.callTool('api_github',request('GET','/repos/nodejs/node/releases',{per_page:5}),signal,direct),/source_guide_required/);
+    assert.equal(a.channel,'mcp');assert.equal(builder.mcpPool.size,1);assert.deepEqual((await a.client.listTools(signal)).map(t=>t.name),['api_platform']);
+    await assert.rejects(a.client.callTool('api_platform',request('GET','/releases',{}),signal,direct),/source_guide_required/);
     await a.client.guide!.read(signal);
-    const result:any=await a.client.callTool('api_github',request('GET','/repos/nodejs/node/releases',{per_page:5}),signal,{stage:async(name,run)=>{stages.push(name);return run();},event:()=>{}});
-    assert.equal(result.backend,'mcp.api');assert.equal(result.provenance,'fixture');assert.equal(result.signals[0].sourceSlug,'github');
+    const result:any=await a.client.callTool('api_platform',request('GET','/releases',{}),signal,{stage:async(name,run)=>{stages.push(name);return run();},event:()=>{}});
+    assert.equal(result.backend,'mcp.api');assert.equal(result.provenance,'fixture');assert.equal(result.signals[0].sourceSlug,'platform');
     assert.deepEqual(stages,['mcp.api.connect','mcp.api.tools_call']);await a.client.close();assert.equal(builder.mcpPool.size,1);
   }finally{await a.client.close();await b.client.close();await builder.mcpPool.close();}
 });
@@ -232,17 +250,17 @@ check('contract','Generic API mode downgrade is rechecked before an upstream HTT
   }finally{await h.registry.close();}
 });
 check('contract','Source catalog accepts arrays, single configs and per-source config directories',()=>{
-  const data=store(),config=JSON.parse(readFileSync('sources/github/config.json','utf8')),folder=join(data.root,'catalog');mkdirSync(join(folder,'github'),{recursive:true});
-  writeFileSync(join(data.root,'single.json'),JSON.stringify(config));writeFileSync(join(data.root,'array.json'),JSON.stringify([config]));writeFileSync(join(folder,'github','config.json'),JSON.stringify(config));
+  const data=store(),config=JSON.parse(readFileSync('tests/fixtures/platform-source.json','utf8')),folder=join(data.root,'catalog');mkdirSync(join(folder,'platform'),{recursive:true});
+  writeFileSync(join(data.root,'single.json'),JSON.stringify(config));writeFileSync(join(data.root,'array.json'),JSON.stringify([config]));writeFileSync(join(folder,'platform','config.json'),JSON.stringify(config));
   const expected=SourceConfigsSchema.parse([config]);for(const file of [join(data.root,'single.json'),join(data.root,'array.json'),folder])assert.deepEqual(readSourceConfigs(file),expected);
-  writeFileSync(join(folder,'github','config.json'),JSON.stringify({...config,slug:'other'}));assert.throws(()=>readSourceConfigs(folder),/source_directory_slug_mismatch/);
+  writeFileSync(join(folder,'platform','config.json'),JSON.stringify({...config,slug:'other'}));assert.throws(()=>readSourceConfigs(folder),/source_directory_slug_mismatch/);
 });
 check('contract','Generic API GET retains the investigation plan and analysis prerequisites',async()=>{
-  const config=SourceConfigsSchema.parse([JSON.parse(readFileSync('sources/github/config.json','utf8'))])[0],registry=new ToolRegistry(),data=store();
+  const config=SourceConfigsSchema.parse([JSON.parse(readFileSync('tests/fixtures/platform-source.json','utf8'))])[0],registry=new ToolRegistry(),data=store();
   await new SourceServerBuilder(process.cwd()).register([config],'replay',registry,signal);
-  const selected=task();selected.allowedSources=['github'];const plan=structuredClone(JSON.parse(readFileSync('fixtures/model-script.json','utf8'))[0]);plan.args.sources=['github'];
-  const get={kind:'call_tool',name:'mcp__github__api_github',args:{path:'/repos/nodejs/node/releases',method:'GET',params:{per_page:5}}};
-  const steps=[{kind:'call_tool',name:'session__read_source_guide',args:{source:'github'}},get,plan,get,{kind:'call_tool',name:'workflow__analyze',args:{}},get,{kind:'call_tool',name:'workflow__review',args:{}},{kind:'call_tool',name:'workflow__draft',args:{narrative:'Synthetic release fixture only.',claimIds:'$analyzed_claim_ids'}},{kind:'respond',text:'Done'}];
-  try{const result=await runInvestigation(selected,new ReplayModel(steps),registry,data,'replay');assert.equal(result.status,'partial');const records=data.executions().filter(r=>r.sourceSlug==='github');assert.equal(records.length,3);assert.deepEqual(records.map(r=>r.execute_count).sort(),[0,0,1]);assert.ok(records.some(r=>r.execute_count===0&&/plan_required_before_collection/.test(r.error??'')));assert.ok(records.some(r=>r.execute_count===0&&/collection_after_analysis/.test(r.error??'')));assert.deepEqual(validateTrace(data.lines<TraceEvent>('traces/'+result.runId+'.jsonl')),[]);}
+  const selected=task();selected.allowedSources=['platform'];const plan=structuredClone(JSON.parse(readFileSync('fixtures/model-script.json','utf8'))[0]);plan.args.sources=['platform'];
+  const get={kind:'call_tool',name:'mcp__platform__api_platform',args:{path:'/releases',method:'GET',params:{}}};
+  const steps=[{kind:'call_tool',name:'session__read_source_guide',args:{source:'platform'}},get,plan,get,{kind:'call_tool',name:'workflow__analyze',args:{}},get,{kind:'call_tool',name:'workflow__review',args:{}},{kind:'call_tool',name:'workflow__draft',args:{narrative:'Synthetic release fixture only.',claimIds:'$analyzed_claim_ids'}},{kind:'respond',text:'Done'}];
+  try{const result=await runInvestigation(selected,new ReplayModel(steps),registry,data,'replay');assert.equal(result.status,'partial');const records=data.executions().filter(r=>r.sourceSlug==='platform');assert.equal(records.length,3);assert.deepEqual(records.map(r=>r.execute_count).sort(),[0,0,1]);assert.ok(records.some(r=>r.execute_count===0&&/plan_required_before_collection/.test(r.error??'')));assert.ok(records.some(r=>r.execute_count===0&&/collection_after_analysis/.test(r.error??'')));assert.deepEqual(validateTrace(data.lines<TraceEvent>('traces/'+result.runId+'.jsonl')),[]);}
   finally{await registry.close();}
 });

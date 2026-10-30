@@ -10,6 +10,7 @@ import { abortable, RetrievalSchema, now, type Action, type SourceClient, type S
 import { Redactor } from '../sessions/trace.ts';
 import { PrerequisiteManager } from '../agent/core/prerequisite-manager.ts';
 import { classifyApiResponse } from './api-http.ts';
+import { assertNetworkUrlAllowed } from './network-policy.ts';
 
 const Ajv = AjvModule as unknown as typeof import('ajv').default;
 const tokenName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
@@ -86,6 +87,8 @@ export class PlatformApiAdapter implements SourceClient{
   readonly guide:SourceGuidePort;
   private readonly validators=new Map<string,(value:unknown)=>boolean>();
   constructor(readonly slug:string,readonly config:PlatformApiConfig,readonly entityId?:string,readonly product?:string,readonly fetcher:typeof fetch=fetch,readonly env:NodeJS.ProcessEnv=process.env,readonly options:AdapterOptions={}){
+    // Injected transports serve frozen offline evidence; the built-in network transport is blocked.
+    if (fetcher === fetch) assertNetworkUrlAllowed(config.baseUrl);
     this.guide=options.guide??new PrerequisiteManager(process.cwd(),slug);
     for(const rule of config.requestRules)if(rule.paramsSchema){
       const Validator=/2020-12/.test(String(rule.paramsSchema.$schema??''))?Ajv2020Module as unknown as typeof import('ajv').default:Ajv;
@@ -95,7 +98,8 @@ export class PlatformApiAdapter implements SourceClient{
   async listTools():Promise<ToolDefinition[]>{return[createApiTool(this.slug,this.config,this.guide.path)];}
   private request(name:string,args:Record<string,unknown>):ApiRequest{
     if(name!=='api_'+this.slug)throw Error('unknown_api_tool');
-    const input=ApiRequestSchema.parse(args);apiToolUrl(this.config.baseUrl,input.path);
+    const input=ApiRequestSchema.parse(args);const url=apiToolUrl(this.config.baseUrl,input.path);
+    if (this.fetcher === fetch) assertNetworkUrlAllowed(url);
     if(!this.config.allowedPaths.some(p=>matchesApiPath(input.path,p))||this.config.blockedPaths.some(p=>matchesApiPath(input.path,p)))throw Error('api_path_not_allowed');
     const rule=this.rule(input);
     if(rule){const validate=this.validators.get(rule.method+':'+rule.path);if(validate&&!validate(input.params))throw Error('invalid_api_params');}
@@ -129,7 +133,7 @@ export class PlatformApiAdapter implements SourceClient{
     context.event('provider_tool_event',{provider:'mcp',protocol:'mcp',bridge:'platform-api',phase:'http_request',sourceSlug:this.slug,path:input.path,httpMethod:input.method,effectiveAction:this.resolveAction(name,args),params:clean.clean(input.params)});
     try{
       const{response,raw}=await context.stage('mcp.api.http.'+input.method.toLowerCase(),async()=>{
-        try{const prerequisite=this.guide.check();if(prerequisite)throw Error(prerequisite);const response=await this.fetcher(url,{method:input.method,headers,body,signal,redirect:'error'});return{response,raw:clean.clean(await boundedText(response,signal))};}
+        try{const prerequisite=this.guide.check();if(prerequisite)throw Error(prerequisite);if(this.fetcher===fetch)assertNetworkUrlAllowed(url);const response=await this.fetcher(url,{method:input.method,headers,body,signal,redirect:'error'});return{response,raw:clean.clean(await boundedText(response,signal))};}
         catch(error){if(signal.aborted)throw signal.reason;throw Error(clean.clean(String(error)));}
       });
       const { status, http } = classifyApiResponse(this.config.baseUrl, response, raw);

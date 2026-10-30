@@ -26,8 +26,7 @@
     "timezone": "Asia/Shanghai"
   },
   "allowedSources": [
-    "web",
-    "zcode_github"
+    "web"
   ],
   "outputScope": "draft"
 }

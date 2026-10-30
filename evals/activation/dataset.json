@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "cwatch.eval-dataset.v5",
+  "id": "activation-first-trial",
+  "version": "2026-10-30.2",
+  "cases": [
+    {
+      "id": "activation-001",
+      "revision": 2,
+      "file": "cases/activation-001.json",
+      "sha256": "9ca3602f5ae2dee6c661a6506af029fb7581f80c8657e5209f3d5318f5a37c43"
+    }
+  ]
+}

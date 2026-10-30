@@ -1,1 +1,0 @@
-SYNTHETIC TEST NEWS: Node.js v24.0.0 release. This is a deterministic fixture, not actual journalism.

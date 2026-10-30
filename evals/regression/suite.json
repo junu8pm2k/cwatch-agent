@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "cwatch.regression-suite.v1",
+  "id": "agent-capability-regression",
+  "version": 2,
+  "policy": {
+    "trials": 5,
+    "minimumScore": 100,
+    "requireAllRubricPass": true,
+    "requireConfirmedBaseline": true
+  },
+  "cases": [
+    {
+      "id": "activation-001",
+      "revision": 2,
+      "dataset": "../activation/dataset.json",
+      "caseSha256": "9ca3602f5ae2dee6c661a6506af029fb7581f80c8657e5209f3d5318f5a37c43",
+      "baselineRoot": "../baselines",
+      "baselineId": "eb1b161b-65b4-4bf1-9880-622edab786c5",
+      "baselineManifestSha256": "344022e0771432749da7e44fdcfd738df8da7dce8ff1cdb5e00729e83888e881",
+      "model": {
+        "provider": "stepfun",
+        "id": "step-5-preview",
+        "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+      },
+      "judge": {
+        "provider": "stepfun",
+        "id": "step-5-preview",
+        "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+      },
+      "admission": {
+        "path": "admissions/activation-001.r2.1949f32f-e1df-4463-bb45-464c07e06323.json",
+        "sha256": "94b481a644426bb951a265fc01e57ed3853a230c94fdad58e1161ba1df55bd2c"
+      }
+    }
+  ]
+}

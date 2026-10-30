@@ -4,6 +4,7 @@ import { WebFailure } from './web-errors.ts';
 import { RemoteSearchMcp, type SearchMcpOptions } from './web-mcp.ts';
 import type { WebApiOptions } from './web-api-config.ts';
 import { createWebToolDefinitions } from './web-tools.ts';
+import { assertNetworkUrlAllowed } from './network-policy.ts';
 export { WebFailure } from './web-errors.ts';
 
 export interface WebOptions {
@@ -17,6 +18,7 @@ export interface WebOptions {
 function instant(value: unknown): string | null { if (typeof value !== 'string' || !/(?:Z|[+-]\d{2}:?\d{2}|\bGMT|\bUTC)$/i.test(value.trim()) || !Number.isFinite(Date.parse(value))) return null; return new Date(value).toISOString(); }
 export function allowedUrl(value: string, domains: string[]): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('web_scope: invalid URL'); }
+  assertNetworkUrlAllowed(url);
   const host = url.hostname.toLowerCase();
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !domains.includes(host) || host === 'localhost' || host.endsWith('.localhost') || isIP(host.replace(/[\[\]]/g, ''))) throw new Error('web_scope: URL must be HTTPS on an explicitly allowed public hostname');
   if ([...url.searchParams.keys()].some(key => /^(api[_-]?key|access[_-]?token|password|secret)$/i.test(key))) throw new Error('web_scope: credentials forbidden in URL');
@@ -24,6 +26,7 @@ export function allowedUrl(value: string, domains: string[]): URL {
 }
 export interface WebDependencies { fetcher?: typeof fetch }
 async function textResponse(url: string, options: RequestInit, fetcher: typeof fetch): Promise<{ response: Response; raw: string }> {
+  assertNetworkUrlAllowed(url);
   const response = await fetcher(url, { ...options, redirect: 'error' }); const cap = 2_000_000;
   if (Number(response.headers.get('content-length')) > cap) throw new WebFailure('parse_failed', 'web_response_too_large');
   const reader = response.body?.getReader(), chunks: Uint8Array[] = []; let length = 0;

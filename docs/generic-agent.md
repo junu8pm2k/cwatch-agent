@@ -21,7 +21,7 @@ npm start -- run --mode live --instruction "阅读 README.md 和 docs/tools.md�
 联网任务须选中配置过的来源；来源可以是本地 Web 工具、API MCP 适配器或用户 MCP：
 
 ```powershell
-npm start -- run --mode live --instruction "研究 Node.js 发布记录，给出依据及未确认的问题" --source official,github --skills research-brief --out artifacts/research
+npm start -- run --mode live --instruction "研究 Node.js 发布记录，给出依据及未确认的问题" --source official --skills research-brief --out artifacts/research
 npm start -- mcp add custom --config examples/mcp-custom.json
 npm start -- run --mode live --instruction "读取 custom 服务提供的发布材料并总结，注明这是测试数据" --mcp custom --skills research-brief --out artifacts/custom-task
 ```

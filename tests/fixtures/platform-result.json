@@ -1,0 +1,27 @@
+{
+  "status": "success_with_data",
+  "provenance": "fixture",
+  "raw": "Synthetic platform release fixture: v24.1.0",
+  "signals": [
+    {
+      "entity": {
+        "id": "nodejs",
+        "name": "Node.js",
+        "domain": "nodejs.org"
+      },
+      "product": "Node.js",
+      "signalType": "release",
+      "sourceSlug": "platform",
+      "url": "https://platform.example/releases/v24.1.0",
+      "eventKey": "release:v24.1.0",
+      "content": {
+        "title": "Node.js v24.1.0",
+        "value": "v24.1.0",
+        "polarity": "supports"
+      },
+      "published_at": "2025-05-21T12:00:00Z",
+      "retrieved_at": "2026-10-17T10:02:00+08:00",
+      "collectionStatus": "success_with_data"
+    }
+  ]
+}

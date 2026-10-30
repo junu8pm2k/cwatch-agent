@@ -1,0 +1,22 @@
+{
+  "slug": "platform",
+  "kind": "api",
+  "active": true,
+  "entityId": "nodejs",
+  "entityName": "Node.js",
+  "domain": "nodejs.org",
+  "product": "Node.js",
+  "fixture": "tests/fixtures/platform-result.json",
+  "fixtureRequest": {
+    "path": "/releases",
+    "method": "GET",
+    "params": {}
+  },
+  "api": {
+    "baseUrl": "https://platform.example",
+    "allowedPaths": [
+      "/releases"
+    ],
+    "resultFormat": "retrieval"
+  }
+}

@@ -9,6 +9,8 @@ description: >-
 
 # Competitor Investigation
 
+Project policy (2026-10-29): GitHub API access is disabled. Do not call GitHub REST/GraphQL APIs, GitHub MCP servers, gh CLI, or use GitHub account credentials. Do not use local commands or another service to bypass this policy. Use the configured official-site sources and preserve missing evidence.
+
 Produce a scoped local intelligence draft whose claims can be traced to retrieved evidence and whose gaps remain explicit.
 
 ## Confirm scope and save the plan

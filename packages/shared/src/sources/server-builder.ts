@@ -12,12 +12,13 @@ import { ApiMcpSource, PlatformApiAdapter, PlatformApiConfigSchema, ApiRequestSc
 import { McpConnectionPool } from "../mcp/client-pool.ts";
 import { BrowserConfigSchema } from './browser-config.ts';
 import { processEnvironment } from "../utils/process-environment.ts";
+import { assertNetworkUrlAllowed, assertMcpIntegrationAllowed } from './network-policy.ts';
 
 const sourceSchema = z.object({
   slug: z.string().regex(/^[a-zA-Z0-9_-]+$/), active: z.boolean().default(true),
-  kind: z.enum(['github_releases', 'mcp', 'web', 'browser', 'api']),
+  kind: z.enum(['mcp', 'web', 'browser', 'api']),
   browser: BrowserConfigSchema.optional(), api: PlatformApiConfigSchema.optional(),
-  urls: z.array(z.string().url()).optional(), repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),
+  urls: z.array(z.string().url()).optional(),
   entityId: z.string().optional(), entityName: z.string().optional(), domain: z.string().optional(), product: z.string().optional(),
   fixture: z.string().optional(), fixtureRequest: ApiRequestSchema.optional(), command: z.string().optional(), args: z.array(z.string()).optional(),
   toolSemantics: z.record(z.string(), z.enum(['collect', 'analyze', 'modify', 'send', 'publish'])).optional(),
@@ -25,6 +26,12 @@ const sourceSchema = z.object({
   searchMcp: SearchMcpConfigSchema.optional(),
   webApi: WebApiConfigSchema.optional(),
 }).strict().superRefine((value,ctx)=>{
+  if (value.kind === 'mcp') {
+    try { assertMcpIntegrationAllowed(value.slug, value.command, value.args); } catch { ctx.addIssue({code:'custom',message:'github_api_disabled_by_project_policy'}); }
+  }
+  for (const url of [...(value.urls ?? []), ...(value.api ? [value.api.baseUrl] : [])]) {
+    try { assertNetworkUrlAllowed(url); } catch { ctx.addIssue({code:'custom',message:'github_api_disabled_by_project_policy'}); }
+  }
   if (value.webApi && value.kind !== 'web') ctx.addIssue({code:'custom',message:'webApi configuration only belongs to web sources'});
   if (value.webApi && value.searchMcp) ctx.addIssue({code:'custom',message:'choose webApi or searchMcp, not both'});
   if (value.kind === 'api' && !value.api) ctx.addIssue({code:'custom',message:'API source requires api configuration'});
@@ -42,14 +49,6 @@ const querySchema = { type: 'object', properties: { query: { type: 'string', min
 export type Fetcher = typeof fetch;
 function resultError(error: unknown, signal: AbortSignal, provenance: 'live' | 'fixture' = 'live'): RetrievalResult {
   return { status: signal.aborted ? (signal.reason?.name === 'TimeoutError' ? 'timeout' : 'cancelled') : 'unknown', signals: [], raw: '', error: String(error), provenance };
-}
-export function mapGitHub(config: SourceConfig, body: unknown, retrievedAt = now()): RetrievalResult['signals'] {
-  const releases = z.array(z.object({ tag_name: z.string(), name: z.string().nullable(), html_url: z.string().url(), published_at: z.string().nullable(), body: z.string().nullable().optional(), draft: z.boolean().optional() })).parse(body);
-  return releases.filter(r => !r.draft).map(r => SignalSchema.parse({
-    entity: { id: config.entityId ?? null, name: config.entityName ?? config.repo!, domain: config.domain ?? null }, product: config.product ?? '',
-    signalType: 'release', sourceSlug: config.slug, url: r.html_url, eventKey: 'release:' + r.tag_name,
-    content: { title: r.name || r.tag_name, value: r.tag_name, polarity: 'supports' }, published_at: r.published_at, retrieved_at: retrievedAt, collectionStatus: 'success_with_data',
-  }));
 }
 export function parseOfficial(config: SourceConfig, url: string, raw: string, retrievedAt = now()): RetrievalResult['signals'] {
   const blocks = [...raw.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
@@ -74,27 +73,6 @@ export function parseOfficial(config: SourceConfig, url: string, raw: string, re
   if (!signals.length) throw new Error('no_supported_structured_signal: configure a site-specific parser');
   return signals;
 }
-export class GithubSource extends PlatformApiAdapter {
-  constructor(config: SourceConfig, fetcher: Fetcher = fetch, token?: string, root = process.cwd()) {
-    const env = token === undefined ? process.env : { GITHUB_TOKEN: token };
-    const path = '/repos/' + config.repo + '/releases';
-    const api = PlatformApiConfigSchema.parse({
-      baseUrl: 'https://api.github.com',
-      headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'cwatch/0.1' },
-      auth: { tokenEnv: 'GITHUB_TOKEN', required: false },
-      allowedPaths: ['/repos/' + config.repo + '/**'],
-      requestRules: [{ path, method: 'GET', action: 'collect', paramsSchema: { type: 'object', properties: { per_page: { type: 'integer', minimum: 1, maximum: 10 } }, required: ['per_page'], additionalProperties: false } }],
-    });
-    super(config.slug, api, config.entityId, config.product, fetcher, env, {
-      guide: new PrerequisiteManager(root, config.slug),
-      mapResult: (request, body, raw) => {
-        if (request.method !== 'GET' || request.path !== path) return undefined;
-        const signals = mapGitHub(config, body);
-        return { status: signals.length ? 'success_with_data' : 'success_empty', signals, raw, provenance: 'live' };
-      },
-    });
-  }
-}
 export class FixtureSource implements SourceClient {
   constructor(readonly config: SourceConfig, readonly definitions: ToolDefinition[], readonly root: string, readonly adapter?: SourceClient) {}
   get guide(): SourceGuidePort | undefined { return this.adapter?.guide; }
@@ -102,7 +80,7 @@ export class FixtureSource implements SourceClient {
   checkPrerequisites(name: string, args: Record<string, unknown>) { return this.adapter?.checkPrerequisites?.(name,args); }
   validateScope(name: string, args: Record<string, unknown>, task: AgentTask) { return this.adapter?.validateScope?.(name,args,task); }
   async listTools(): Promise<ToolDefinition[]> { return this.definitions; }
-  async callTool(_name: string, _args: Record<string, unknown>, signal: AbortSignal): Promise<RetrievalResult> { signal.throwIfAborted(); if (this.guide?.check()) throw new Error(this.guide.check()); if (this.config.kind === 'github_releases' && (_args.method !== 'GET' || _args.path !== '/repos/' + this.config.repo + '/releases')) throw new Error('fixture_request_mismatch'); if (this.config.kind === 'api' && (!this.config.fixtureRequest || hash((({ _intent, ...request }) => request)(ApiRequestSchema.parse(_args))) !== hash((({ _intent, ...request }) => request)(this.config.fixtureRequest)))) throw new Error('fixture_request_mismatch'); const result = RetrievalSchema.parse(JSON.parse(readFileSync(resolve(this.root, this.config.fixture!), 'utf8'))); if (result.provenance !== 'fixture' || result.signals.some(s => s.sourceSlug !== this.config.slug)) throw new Error('fixture_source_mismatch'); return result; }
+  async callTool(_name: string, _args: Record<string, unknown>, signal: AbortSignal): Promise<RetrievalResult> { signal.throwIfAborted(); if (this.guide?.check()) throw new Error(this.guide.check()); if (this.config.kind === 'api' && (!this.config.fixtureRequest || hash((({ _intent, ...request }) => request)(ApiRequestSchema.parse(_args))) !== hash((({ _intent, ...request }) => request)(this.config.fixtureRequest)))) throw new Error('fixture_request_mismatch'); const result = RetrievalSchema.parse(JSON.parse(readFileSync(resolve(this.root, this.config.fixture!), 'utf8'))); if (result.provenance !== 'fixture' || result.signals.some(s => s.sourceSlug !== this.config.slug)) throw new Error('fixture_source_mismatch'); return result; }
   async close(): Promise<void> {}
 }
 export class McpSource implements SourceClient {
@@ -112,6 +90,7 @@ export class McpSource implements SourceClient {
   constructor(readonly config: SourceConfig, readonly cwd: string) {}
   async listTools(signal: AbortSignal): Promise<ToolDefinition[]> {
     if (!this.connected) {
+      assertMcpIntegrationAllowed(this.config.slug, this.config.command, this.config.args);
       if (!this.config.command || !this.config.args) throw new Error('mcp_missing_command');
       // Only operator-authored configuration launches a server; no shell or model-supplied argv.
       const env = processEnvironment().env;
@@ -141,7 +120,8 @@ export class McpSource implements SourceClient {
 export class SourceServerBuilder {
   constructor(readonly root: string, readonly mcpPool = new McpConnectionPool()) {}
   async build(config: SourceConfig, mode: 'live' | 'replay', signal: AbortSignal): Promise<{ client: SourceClient; channel: 'builtin' | 'mcp' }> {
-    let client: SourceClient; const channel = ['mcp','github_releases','api'].includes(config.kind) ? 'mcp' : 'builtin';
+    config = sourceSchema.parse(config);
+    let client: SourceClient; const channel = ['mcp','api'].includes(config.kind) ? 'mcp' : 'builtin';
     if (config.kind === 'web') {
       if (!config.allowedDomains?.length) throw new Error('web_allowed_domains_required');
       const { PreferredWebSource, readWebOptions } = await import('./web.ts');
@@ -152,7 +132,6 @@ export class SourceServerBuilder {
       options.urls = config.urls;
       client = new PreferredWebSource(options);
     }
-    else if (config.kind === 'github_releases') { if (!config.repo) throw new Error('github_repo_required'); client = new GithubSource(config, fetch, undefined, this.root); }
     else if (config.kind === 'browser') { const { BrowserSource } = await import("./browser.ts"); client = new BrowserSource(config); }
     else if (config.kind === 'api') { if (!config.api) throw new Error('api_config_required'); client = new PlatformApiAdapter(config.slug, config.api, config.entityId, config.product, fetch, process.env, {guide:new PrerequisiteManager(this.root,config.slug)}); }
     else client = this.mcpPool.acquire('source:' + hash(config), () => new McpSource(config, this.root));
@@ -160,11 +139,11 @@ export class SourceServerBuilder {
       if (!config.fixture) throw new Error('fixture_required:' + config.slug);
       const definitions = config.kind === 'mcp' ? [{ name: 'search.news', description: 'Replay third party news snapshot', inputSchema: querySchema, action: 'collect' as const }] : await client.listTools(signal);
       await client.close();
-      client = new FixtureSource(config, definitions, this.root, ['api','github_releases'].includes(config.kind) ? client : undefined);
+      client = new FixtureSource(config, definitions, this.root, config.kind === 'api' ? client : undefined);
     }
-    if (config.kind === 'github_releases' || config.kind === 'api') {
+    if (config.kind === 'api') {
       const adapter = client;
-      client = this.mcpPool.acquire('api:' + mode + ':' + hash(config), () => new ApiMcpSource(config.slug, adapter, () => config.api ? apiSecrets(config.api) : process.env.GITHUB_TOKEN ? [process.env.GITHUB_TOKEN] : []));
+      client = this.mcpPool.acquire('api:' + mode + ':' + hash(config), () => new ApiMcpSource(config.slug, adapter, () => config.api ? apiSecrets(config.api) : []));
     }
     return { client, channel };
   }
@@ -174,7 +153,7 @@ export class SourceServerBuilder {
       let client: SourceClient | undefined;
       try {
         if (!config.active) {
-          const channel = ['mcp','github_releases','api'].includes(config.kind) ? 'mcp' : 'builtin';
+          const channel = ['mcp','api'].includes(config.kind) ? 'mcp' : 'builtin';
           await registry.register(config.slug, channel, { listTools: async () => [], callTool: async () => { throw new Error('inactive_source'); }, close: async () => {} }, signal);
           registry.setActive(config.slug, false); continue;
         }

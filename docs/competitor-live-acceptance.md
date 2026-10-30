@@ -1,5 +1,7 @@
 # 真实竞品调查验收
 
+2026-10-29：项目已移除 GitHub API 接入、来源配置和联网探测入口，并拦截内建网络通道的 GitHub API 地址。旧离线 fixture 与历史验收记录仅用于审计，不代表当前可用能力。详见 [停用说明](github-api-disabled.md)。
+
 首轮目标：ZCode、Kimi Code、MiniMax Code。配置冻结于 2026-10-24，采用 Asia/Shanghai 时间。
 
 ## 本轮范围

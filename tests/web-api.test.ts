@@ -179,7 +179,7 @@ check('contract', 'local API adapter refuses unknown operations and malformed in
   assert.equal(calls, 0);
 });
 check('contract', 'API source examples validate and replay without reading real service credentials', async () => {
-  for (const name of ['sources-web-api.json', 'sources-web-api-google.json', 'sources-web-api-tavily.json', 'sources-web-api-public.json']) {
+  for (const name of ['sources-web-api.json', 'sources-web-api-google.json', 'sources-web-api-tavily.json']) {
     const configs = SourceConfigsSchema.parse(JSON.parse(readFileSync('examples/' + name, 'utf8')));
     for (const config of configs) { const { client } = await new SourceServerBuilder(process.cwd()).build(config, 'replay', live); assert.equal((await client.listTools(live)).length, 2); await client.close(); }
   }

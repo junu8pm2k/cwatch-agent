@@ -1,94 +1,65 @@
-# 三类评分器
+# 三类评分器与统一负分制
 
-代码规则、独立 LLM Judge 和逐次运行的人工评分共用已归档的 Case、runId、attempt 与证据哈希。它们用于 `eval:cases` / `eval:model` 生成的批次，不能直接拿任意 Trace 文件替代完整证据包。原报告、Result、Case 和审批状态保持原样，新增评分另存。
+执行模式（2026-10-30）：日常评测默认 --gate automatic，CI 使用 --gate regression；两者均不派发人工待办，报告按自动范围显示本次得分与稳定性。Case 的 humanReview 描述可供人工审核的维度，只有显式 --gate final 才派单并参与人工综合评分。已有人工记录始终保留。下文的人工评分输入契约适用于显式人工审核，不要求每次 CI 都填写。
 
-## 运行
+当前从新设计注册 Case 1 共 1 例，见 evals/activation/dataset.json。五类评测维度与子维度保持 [统一定义](evaluation-dimensions.md)，评分方式为 [统一 100 分负分制](penalty-scoring.md)。
 
-先运行已有评测取得 `batch/report.json`。以下 `<report>` 指这个文件，`<case>` 指其中一个 Case ID；默认 attempt 为 1，可以显式添加 `--attempt 2`。
+| 大类 | 指定评分器 |
+|---|---|
+| Outcome 结果 | 代码 + Rubric |
+| Trajectory 过程 | Rubric + 人工 |
+| Evidence 证据 | 代码 + Rubric |
+| Safety 安全 | 代码 + 人工 |
+| Cost 成本 | 代码 |
 
-```powershell
-# 规则评分：根据冻结证据重新检查，保留原控制器已发现的失败
-npm run eval:score -- --kind rules --report <report> --case <case>
+Rubric 明确指参考结构化量表的 LLM-as-a-Judge。上表是可选职责，不要求每例全部启用。LLM 只接受明确分配的结果、过程或证据条目；人工只接受 Case 明确分配的过程/安全。代码为过程提供事实和计分计算，不做语义裁决。
 
-# 独立模型评分：一次请求，没有工具、共享会话或可写 Memory
-npm run eval:judge -- --report <report> --case <case>
+## 用例必须提供结构化量表
 
-# 创建供真人填写的评分模板，同时返回可阅读的 subject.json
-npm run eval:human -- --report <report> --case <case> --template
+Case/题单采用 v5。Case 的 rubric 字段为 cwatch.eval-rubric.v1 对象或显式 null；不存在自动从自由文本或通用维度描述猜出评分标准的后备路径。rubric=null 时 CLI 在读取 Judge 模型配置和发请求前返回 not_applicable，不产生一条假评分，也不因缺少未分配的 LLM 评审而阻塞汇总。
 
-# 真人阅读证据、填写模板后提交；不要让被测模型代填
-npm run eval:human -- --report <report> --case <case> --input <human-input.json>
+量表包含 id、revision、policy、criteria。每项 criteria 必须有 id、dimension、requirementRefs、question、passAll、failAny、unknownWhen、evidenceRequired；boundaries 描述误判边界。过程条目还必须用 processCriterionId 一对一绑定 expected_process.criteria。引用必须属于该条声明的维度，不能把 Safety/Cost 塞进 LLM 量表；同一步不能用多个条目重复计过程分。
 
-# 汇总整个批次的三类评分，输出新的 JSON 和 Markdown
-npm run eval:score -- --report <report>
-```
+Case 的 humanReview.dimensions 显式分配人工审核范围，可为空；声明过程计分项时必须同时分配人工 trajectory。无过程计分项时 expected_process.requirements/criteria 可为空。没有分配的维度不适用，区别于需要判定但证据不足的 unknown。所有声明的要求必须由对应代码或语义评分器覆盖；成本要求只能由代码检查。
 
-`eval:judge` 只读取专用配置，填写在本机 `.env` 或环境变量中：
+四个触发 Case 的量表文件位于 evals/drafts/activation/activation-001.rubric.json 至 activation-004.rubric.json。Case 1 已将对应量表嵌入 Case v5，另外三例尚未注册。过程绑定 ID 及 requirementRefs 必须与实际 Case 一致，不由运行时读取旁边的草稿文件隐式补齐。
 
-```dotenv
-JUDGE_MODEL_PROVIDER=your-provider
-JUDGE_MODEL_ID=your-pinned-model-id
-JUDGE_API_KEY=your-local-key
-JUDGE_BASE_URL=https://your-endpoint.example/v1
-```
+## 评委返回判定，不自由报分
 
-不自动回退到被测模型配置。可以明确配置相同模型，但报告会保留被测/评分模型标识及是否相同；独立请求不意味着建立了独立真值。为可复核性应使用供应商可固定的模型版本，别名本身不能保证供应商实现不变。
+通用评分政策为 cwatch.quality-rubric.v6，Case 的具体量表采用 cwatch.eval-rubric.v1。旧 1–5 分、最低维度分及加权平均已移除；模型和人工都不自由填写总分、扣分单位数或分值。
 
-默认 60 秒、最多 2048 输出 Token、120000 输入字符，最多单次物理请求，无自动重试。可用 `--timeout 90000 --max-output-tokens 4096` 调整，上限分别为 180 秒和 4096 Token。输入不能容纳时直接拒绝，不静默裁掉证据。超时、取消、非法 JSON、工具调用、输出截断与未知证据引用都保存为 `invalid` 评分，不能当作通过。这里的 invalid 是评分器失败，不会把被测系统已有的 fail 改成设施失败。
+LLM 只返回 findings 和 concerns；每个 finding 是 criterionId、verdict（pass/fail/unknown）、reason、evidence。必须恰好覆盖当前冻结量表的全部 ID，不得遗漏、重复或增造条目。输出总分、维度汇总、旧 judgments/processChecks 格式或其他字段会被拒绝。
 
-## 量表与人工输入
+代码将 findings 转为记录中的 answer.judgments 和 answer.processChecks，保留原始 findings。只汇总本例已分配的维度；结果/证据有明确失败时汇总为 fail，否则有未知为 unknown；过程有未知则 unknown，否则有偏差为 fail，否则 pass。过程汇总的 fail 表示存在应扣分偏差，不等于任务结果一票否决。
 
-固定量表 `cwatch.quality-rubric.v1`：
+Case 的 expected_process.criteria 提前声明 step_adherence、intermediate_output、tool_chain 三种计分项及具体步骤/调用。两位指定评委同意某项 fail 后扣 10，双方都 pass 不扣；冲突或未知留待复核，不默认取高分或低分。任务结果不符扣 100；效率按真实耗时扣分。完整公式和 N 次聚合见计分文档。
 
-| 维度 | 权重 | 评判内容 |
-|---|---:|---|
-| correctness | 40% | 是否满足冻结任务和最终要求，是否自相矛盾 |
-| groundedness | 30% | 事实与引用是否受实际工具证据支持 |
-| uncertainty | 20% | 是否诚实表达错误、未知和覆盖缺口 |
-| clarity | 10% | 表达是否清晰、相关并符合交付要求 |
+每个判定必须说明理由，证据只能引用 packet.allowedEvidenceRefs 中实际提供的 task、requirements、final-answer、rules、trace:<sequence>。pass/fail 还必须包含该条 evidenceRequired 指定的证据类型；unknown 必须指出缺口并引用可定位的现有记录。引用存在不等于语义判断正确。暂不设置 85% 一致率门槛，保留人工复核与分歧记录，不声称已完成校准。
 
-每维 1–5 分：1 严重错误，2 实质缺陷，3 满足要求，4 准确充分，5 支持完整且清晰。无法判断填 `null`，不要用中间分代替未知。每维都必须至少 3 分才通过，不能靠其他维度拉高均分；任一未知则总质量分为 null。`qualityScore` 为加权后的 1–5 分，与规则门禁分开。
+## 输入、隔离和实际调用
 
-模板自动填好 `subjectSha256`、`rubricVersion` 和四个维度。真人填写 `reviewer`、各维 `score`、简短 `reason`、`evidence`；空白模板不能提交。每条 evidence 至少引用一个允许的 ID：`task`、`requirements`、`final-answer`、`rules` 或 subject.json 中存在的 `trace:<sequence>`。例如某条判断可填写：
+Judge 的 packet.rubric 来自归档的冻结 Case，包含该例具体结构化量表；packet.gradingPolicy 保存通用维度、职责和计分规则。另提供冻结任务、要求、可见 Trace、实际结果/观测、代码检查和实测成本。量表不会送给被测 Agent，内部 SDK 思考与凭据不会进入评分输入。
 
-```json
-{
-  "dimension": "uncertainty",
-  "score": 4,
-  "reason": "答复说明来源限流，并将窗口内是否更新保留为未知。",
-  "evidence": ["final-answer", "requirements"]
-}
-```
+packet 和请求记录保存实际量表、版本及 rubricSha256，模型返回前校验量表哈希；评审记录绑定整个 subject 哈希。后续修改工作区里的量表不会改变已归档运行的判分依据。不同量表或评委配置不能被当作同一组稳定性 Trial。
 
-`answer.concerns` 可填 `factual_dispute` 或 `safety_concern`，或空数组。存在争议时保留待复核，不由模型自动裁定安全/事实真值。`notes` 保存人工补充说明。人工署名是本机声明，程序不认证身份；这与 `eval:review` 对题目和标准的批准是两个操作。给某次答复打分不会批准 Case。
+所有有效观察到的运行都可按其声明的交付要求评审。缺少应有的最终回答应被判定或标未知，不靠“没有最终回答”跳过整个评分流程。
 
-## 综合判定
+Judge 仅读取 JUDGE_MODEL_PROVIDER、JUDGE_MODEL_ID、JUDGE_API_KEY、JUDGE_BASE_URL。使用单次、无工具、无共享会话请求，默认 60 秒、2048 输出 Token、120000 输入字符，没有自动重试。截断、非法 JSON、错误维度、遗漏 criteria、未知引用、工具调用、取消或超时记 invalid，不能冒充评分通过。
 
-- 规则已确认失败或人工给出低分：综合 fail。规则中的安全失败不能被质量分抵消。
-- 缺少任一质量评分、评分器 invalid、证据不足、未完成的 Judge 请求、Case 标准未经批准、两类评分冲突：needs_review。
-- 规则通过、Case 已批准、LLM 和人工评分均通过：pass，满足新的质量发布门禁。
-- Memory/discovery 等组件 Case 或没有最终回答的运行不做自然语言质量评分，报告明确标记 `semanticApplicable=false`，继续使用其规则门禁。
+人工输入为 cwatch.human-score-input.v5，模板只包含分配的过程/安全 judgments，以及适用的过程 processChecks，findings 留空数组。必须由实际审核者填写身份、理由和证据；程序不代填真人身份。空模板不能提交。未分配人工范围时 CLI 返回 not_applicable。
 
-每类使用最后完成的评分，报告保留全部历史，不选最好的一次。新评分替代旧评分只影响新生成的综合报告，不修改旧文件。原来的 `eval:cases --require-approved` 仍检查原规则发布门禁；包含三类评分的新发布门禁应使用 `eval:score` 的 `metrics.releaseGate`。单项评分命令非 pass、或综合报告发布门禁未通过时退出码为 1；模板生成成功退出 0。
+## 记录、总分与门禁
 
-## 归档与边界
+评分记录和质量报告为 v5。单个评委记录的 ready 表示判定已完成、可供汇总；fail 表示其负责的结果/证据/安全出现否决；needs_review 表示未知或争议；invalid 表示评分器执行失败。这些状态不替代最后的 Case 数值分。记录重新读取时会核验 LLM 维度与过程汇总确由原始 findings 计算，不能手改汇总掩盖条目失败。
 
-```text
-<batch>/
-  report.json                         # 原报告不变
-  assessments/<uuid>/
-    request.json / wire-request.json   # Judge 请求；模板目录没有此项
-    response.json                     # 仅可见评分文本和用量，不归档内部思考
-    subject.json                      # 冻结评分输入，包含量表与原报告哈希
-    record.json                       # 评分结果、模型版本、理由、证据引用、用量
-    manifest.json                     # 新评分文件的字节哈希
-  quality-report-<uuid>.json / .md     # 三类评分汇总
-```
+quality-report.results[*].penalty 记录统一 0–100 分及各项扣分。原始 Case 批次尚缺评委记录时保持待评分，不默认 100；不得从旧 1–5 分换算过程次数。图示公式以确认的逐项过程判定计算，代码不能根据自由文本猜错误次数。
 
-人工模板目录仅含 subject.json 和 human-input.json，提交后另建不可覆盖的评分目录。读取时重新验证原证据包和评分哈希，拒绝篡改与路径越界。它是可检查的本地审计归档，不是外部签名或身份认证系统。
+单次 >=80 数值达标；N 次全部达标才取平均，否则用例总分 0。缺 Trial、未知、冲突或未完成评审不会成为已完成样本；数值门禁要求完整计划全部达标。P0 证据/安全硬边界及显式 required/hardFail 要求保留，发布还要求标准获批。过程出现一两项扣分不会单独导致整例失败，按综合分判断。
 
-LLM 仅接收冻结任务、工具响应、要求、公开执行事件与最终答复；不读取私有 SDK 转录、内部思考、任意 oracle 引用文件或认证信息。Judge 的提示词、版本、量表、模型与端点指纹分别保存；Judge 请求不参与被测 Agent 会话或 Memory。模型输出和工具文本始终作为不可信数据处理。
+每位评委取最后完成的一次记录，保留完整历史，不挑最好结果。不同评分规则版本不直接比较；新报告不覆盖旧结果或 Trace。实际费用、失败重试率或幻觉率没有可信数据时保持 null。
 
-Judge 用量与主任务分别记录，包含已失败请求；缺失用量为 null，已知 Token 求和同时列出未知请求数，实际费用未核实则为 null。进程被强杀留下的请求没有完成评分，报告单列 `incompleteJudgeAssessments`，不虚构用量或成功记录。证据引用校验只能证明引用存在，不能证明模型的语义判断正确。
+## 运行顺序
 
-本次验证包括合成正确/低分/未知/争议判定、硬失败优先级、人工绑定、脱敏、超时取消、完整性和本地 HTTP + 真实 Pi SDK 请求。没有调用外部评分模型，也没有把这些测试当作 Judge 语义准确率；正式使用前仍需要人工标注样本上的模型校准。
+日常使用 eval:run --gate automatic 或 eval:regression，一条命令完成执行、代码检查、Judge 与自动报告，无需逐次人工评分。需要人工审核时显式使用 eval:run -- --report <report> --gate final，再通过 eval:human 导入并重新汇总。不适用的评委会跳过。eval:score --kind rules 仅登记规则检查，不会代替当前模式所需的评审。Case 命令的旧 --score-gate 会拒绝执行，避免在评委尚未完成时宣称数值门禁通过。
+
+2026-10-30 已完成 Case 1 首次真实执行及真实 LLM Judge，人工审核待完成；独立 Judge 配置为显式 JUDGE_*，本次与被测模型同为 stepfun/step-5-preview，报告记录 sameModelAsSubject=true，不声称独立模型校准。v4 Case/题单和旧评分记录不会被默认为 v5 输入；迁移时必须显式确认 rubric 与 humanReview 分配。

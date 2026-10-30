@@ -1,5 +1,7 @@
 # 本地 Search / Fetch 与统一工具执行
 
+2026-10-29：项目已移除 GitHub API 接入、来源配置和联网探测入口，并拦截内建网络通道的 GitHub API 地址。旧离线 fixture 与历史验收记录仅用于审计，不代表当前可用能力。详见 [停用说明](github-api-disabled.md)。
+
 Search 和 Fetch 是宿主定义的本地 Agent 工具，底层调用用户配置的第三方 API。它们不创建 MCP Client / Server，也不执行 initialize、tools/list 或 tools/call。远程 MCP 仍通过独立 Adapter 接入，所有来源共用 ToolRegistry、PreToolUse 和 ToolExecutor。
 
 ```text
@@ -24,7 +26,7 @@ Pi AgentSession / ReplayModel
 {
   "slug": "web",
   "kind": "web",
-  "allowedDomains": ["nodejs.org", "github.com"],
+  "allowedDomains": ["nodejs.org"],
   "webApi": {
     "search": {
       "urlEnv": "API_SEARCH_URL",
@@ -81,11 +83,10 @@ Pi AgentSession / ReplayModel
 ```powershell
 npm run test:web-tools
 npm run verify
-npm run probe:web-api
 npm start -- run --mode live --task examples/task-web.json --sources examples/sources-web-api.json --out artifacts/live-web-api --timeout 180000 --tool-timeout 45000
 ```
 
-`probe:web-api` 用无需密钥的公开 GitHub issue 搜索 API 验证真实 HTTP 搜索路径；它只验证 search，不等于通用网页搜索质量或 fetch 服务实测。Google / Tavily 示例只表示参数映射模板；实际账户能力需要对应凭据验证。`probe:api-mcp` 是保留的旧命令名，目前同样执行本地 API 搜索。
+公开 GitHub 搜索示例及 probe:web-api / probe:api-mcp 命令现已移除。Google / Tavily 仅保留参数映射模板。
 
 固定回归覆盖直接 GET/POST、鉴权与脱敏、结果映射、错误、撤权复查、取消与迟到响应、API/MCP 共用执行器，以及 search → fetch → analyze → review → draft 的合成闭环。
 

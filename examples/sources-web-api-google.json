@@ -1,14 +1,32 @@
 [
   {
-    "slug": "web", "kind": "web", "active": true,
-    "allowedDomains": ["nodejs.org", "github.com"],
+    "slug": "web",
+    "kind": "web",
+    "active": true,
+    "allowedDomains": [
+      "nodejs.org"
+    ],
     "webApi": {
       "search": {
         "url": "https://www.googleapis.com/customsearch/v1",
-        "method": "GET", "queryParam": "q", "limitParam": "num",
-        "auth": { "tokenEnv": "API_SEARCH_KEY", "location": "query", "name": "key" },
-        "paramsFromEnv": { "cx": "GOOGLE_SEARCH_ENGINE_ID" },
-        "response": { "resultsPath": "items", "urlField": "link", "titleField": "title", "snippetField": "snippet", "emptyResultsWhenMissing": true }
+        "method": "GET",
+        "queryParam": "q",
+        "limitParam": "num",
+        "auth": {
+          "tokenEnv": "API_SEARCH_KEY",
+          "location": "query",
+          "name": "key"
+        },
+        "paramsFromEnv": {
+          "cx": "GOOGLE_SEARCH_ENGINE_ID"
+        },
+        "response": {
+          "resultsPath": "items",
+          "urlField": "link",
+          "titleField": "title",
+          "snippetField": "snippet",
+          "emptyResultsWhenMissing": true
+        }
       }
     },
     "fixture": "fixtures/web-discovery.json"

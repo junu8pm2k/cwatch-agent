@@ -18,14 +18,14 @@ check('integration','RunService streams the real replay pipeline, persists its r
   const data=store(),service=new RunService({root:process.cwd(),outputRoot:resolve(data.root,'runs')});let runId='';
   try{
     const run=service.start(start);runId=run.id;const updates:RunSnapshot[]=[];const off=service.subscribe(run.id,value=>updates.push(value));
-    const finished=await service.wait(run.id);off();assert.equal(finished.status,'complete');assert.equal(finished.claims.length,2);assert.equal(finished.toolCalls,7);assert.equal(finished.approvals.length,0);assert.match(service.report(run.id),/合成测试快照/);
+    const finished=await service.wait(run.id);off();assert.equal(finished.status,'complete');assert.equal(finished.claims.length,1);assert.equal(finished.toolCalls,5);assert.equal(finished.approvals.length,0);assert.match(service.report(run.id),/合成测试快照/);
     assert.ok(updates.some(r=>r.activities.some(a=>a.kind==='plan')));const trace=new FileStore(resolve(data.root,'runs',run.id)).lines<import('@cwatch/shared/sessions/trace').TraceEvent>('traces/'+finished.traceRunId+'.jsonl');assert.deepEqual(validateTrace(trace),[]);
     assert.ok(finished.activities.some(a=>a.kind==='analysis'&&a.tool==='workflow__analyze'));
     assert.ok(finished.activities.some(a=>a.kind==='tool'&&a.tool==='web_fetch'));
     assert.ok(isInvestigationTask(finished.task));finished.task.competitor.name='mutated';const restoredTask=service.get(run.id).task;assert.ok(isInvestigationTask(restoredTask));assert.equal(restoredTask.competitor.name,'Node.js');
   }finally{await service.close();}
   const restored=new RunService({root:process.cwd(),outputRoot:resolve(data.root,'runs')});
-  try{assert.equal(restored.get(runId).status,'complete');assert.equal(restored.get(runId).claims.length,2);assert.ok(restored.get(runId).activities.length>0);assert.match(restored.report(runId),/合成测试快照/);}finally{await restored.close();}
+  try{assert.equal(restored.get(runId).status,'complete');assert.equal(restored.get(runId).claims.length,1);assert.ok(restored.get(runId).activities.length>0);assert.match(restored.report(runId),/合成测试快照/);}finally{await restored.close();}
 });
 for(const allowed of [true,false])check('integration','RunService '+(allowed?'approves':'denies')+' exactly one host write with its immutable argument hash',async()=>{
   const data=store(),fixture=approvalFixture(),service=new RunService({root:process.cwd(),outputRoot:data.root,...fixture});

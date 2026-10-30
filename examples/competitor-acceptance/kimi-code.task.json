@@ -25,8 +25,7 @@
     "timezone": "Asia/Shanghai"
   },
   "allowedSources": [
-    "web",
-    "kimi_code_github"
+    "web"
   ],
   "outputScope": "draft"
 }
