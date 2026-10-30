@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertNetworkUrlAllowed } from './network-policy.ts';
 
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
 const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,80}$/).refine(v => !['__proto__', 'prototype', 'constructor'].includes(v));
@@ -25,6 +26,7 @@ export type ApiMcpOptions = WebApiOptions;
 export function apiEndpoint(value: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('invalid_search_API_endpoint'); }
   if (url.protocol !== 'https:' || url.username || url.password || url.hash || [...url.searchParams.keys()].some(k => /key|token|secret|password|credential|auth/i.test(k))) throw new Error('search_API_endpoint_requires_HTTPS_without_embedded_credentials');
+  assertNetworkUrlAllowed(url);
   return url;
 }
 export function readWebApi(config: WebApiConfig, env: NodeJS.ProcessEnv): WebApiOptions {

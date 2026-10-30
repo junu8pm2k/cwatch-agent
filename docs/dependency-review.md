@@ -1,6 +1,6 @@
 # 本次依赖审计
 
-2026-10-17 实际运行 `npm audit --json`，结果保存 `artifacts/dependency-audit.json`。这是已知漏洞清单，不替代工程行为测试。
+2026-10-17 实际运行 `npm audit --json`，历史摘要现保存于 [dependency-audit-20261017.json](../artifacts/history-summary/dependency-audit-20261017.json)。这是当日已知漏洞清单，不代表当前依赖状态，也不替代工程行为测试。
 
 初次安装报告 5 项。已将本工程直接依赖 MCP SDK 从 1.29.0 修复为 **1.32.1**，Ajv 从 8.17.1 修复为 **8.20.0**，锁文件已更新并重新通过完整测试。
 

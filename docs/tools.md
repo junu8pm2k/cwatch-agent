@@ -26,7 +26,7 @@
 | 会话与宿主 | `session__read_source_guide` | 读取来源指南并完成前置阅读检查 |
 | 会话与宿主 | `session__read_skill_resource` | 读取选中 Skill 的受控资源 |
 | 会话与宿主 | `session__browser_tool` | 读取需要 JavaScript 渲染的配置页面 |
-| MCP 包装的 API | `mcp__github__api_github` | 调用范围受限的 GitHub API |
+| MCP 包装的 API | `mcp__platform__api_platform` | 调用操作者配置的通用平台 API；GitHub API 已停用 |
 
 通用 API 来源注册成 `mcp__<slug>__api_<slug>`，外部 MCP 注册成 `mcp__<slug>__<原名清洗后>`。这类配置相关的动态工具无法用固定清单穷举。所有工具均保存内存绑定，进入同一权限、执行和审计流程；只有实际经过 MCP 的工具使用 `mcp__` 前缀。命名细节见 [tool-registration.md](tool-registration.md)。
 

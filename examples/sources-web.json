@@ -4,21 +4,9 @@
     "kind": "web",
     "active": true,
     "allowedDomains": [
-      "nodejs.org",
-      "github.com"
+      "nodejs.org"
     ],
     "searchMcp": {},
     "fixture": "fixtures/web-discovery.json"
-  },
-  {
-    "slug": "github",
-    "kind": "github_releases",
-    "active": true,
-    "repo": "nodejs/node",
-    "entityId": "nodejs",
-    "entityName": "Node.js",
-    "domain": "nodejs.org",
-    "product": "Node.js",
-    "fixture": "fixtures/github.json"
   }
 ]

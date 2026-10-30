@@ -1,1 +1,0 @@
-<!doctype html><html><title>Node.js v24.0.0</title><script type="application/ld+json">{"@type":"SoftwareApplication","name":"Node.js v24.0.0","version":"v24.0.0","datePublished":"2025-05-06T12:00:00Z"}</script><p>SYNTHETIC TEST SNAPSHOT, not an archived live page.</p></html>

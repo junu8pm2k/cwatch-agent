@@ -1,5 +1,7 @@
 # Cwatch
 
+2026-10-29：GitHub API 接入已移除并停用，默认来源只使用官网与网页工具。eval case 及其归档已随后清空；详见 [停用说明](docs/github-api-disabled.md)。
+
 当前自带工具的完整清单、用途和清理记录见 [工具清单](docs/tools.md)。
 
 工具注册按实际类型命名：原生工具保留原名，本地工作流使用 `workflow__<tool>`，会话与宿主工具使用 `session__<tool>`，直接调用的来源使用 `<slug>__<tool>`；只有 MCP 工具及经过 MCP 包装的 API 工具使用 `mcp__<slug>__<tool>`。宿主按完整名称查内存绑定再分发，原始工具名不变；命名与迁移见 [工具注册说明](docs/tool-registration.md)。
@@ -71,7 +73,7 @@ npm start -- run --mode live --task examples/task.json --sources examples/source
 
 `npm start`、来源/模型探测启用 Node 环境代理支持，遵循系统 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`。本机 Codex 沙箱默认禁止网络；真实公开来源和本地 HTTP 模型协议测试需要运行环境允许网络/回环访问，不能将沙箱拒绝误报成实现通过。
 
-官网读取现统一使用 web_search / web_fetch，真实运行需配置 Web API 或受支持的后端。GitHub 与通用平台 API 经过实际 MCP 包装；每个来源只提供一个通用 API 工具，模型先经 session__read_source_guide 读取指南，宿主再校验 path/method/params 和权限。只读浏览器、API MCP 与真实 Pi 子进程的本机集成已使用合成页面验证。新闻 MCP 固定数据已移到独立测试夹具，不再作为产品来源。历史真实调查曾生成保留来源缺口的 partial 草稿，详见 [历史验收记录](docs/acceptance-report.md)；不据此声称全部真实来源已完成验收。
+官网读取现统一使用 web_search / web_fetch，真实运行需配置 Web API 或受支持的后端。通用平台 API 经过实际 MCP 包装；每个来源只提供一个通用 API 工具，模型先经 session__read_source_guide 读取指南，宿主再校验 path/method/params 和权限。只读浏览器、API MCP 与真实 Pi 子进程的本机集成已使用合成页面验证。新闻 MCP 固定数据已移到独立测试夹具，不再作为产品来源。历史真实调查曾生成保留来源缺口的 partial 草稿，详见 [历史验收记录](docs/acceptance-report.md)；不据此声称全部真实来源已完成验收。
 
 ## 任务与来源
 
@@ -86,7 +88,7 @@ SEARCH_MCP_TOKEN=your-token
 
 自建 RSS/Brave 搜索和 HTTP fetch 保底已移除；Anthropic 内置协议尚无真实凭据验证，StepFun 模型原生内置联网尚未接入。`web:live` 单工具预算为 45 秒，普通 CLI 默认 15 秒，可用 `--tool-timeout` 调整。配置与限制见 [web-tools.md](docs/web-tools.md)。
 
-普通 REST 搜索/抓取 API 使用独立的 `webApi: { search, fetch }` 配置：宿主自建工具直接调用配置端点，不再创建进程内 MCP Client/Server。它们与外部 MCP 共用 ToolRegistry、PreToolUse、ToolExecutor、Observation 与 Trace。支持 GET/POST、header/query/body 鉴权和结果字段映射；搜索与抓取可分别用不同厂商，密钥只放本机 .env。旧 `searchMcp.type=api` 仍兼容，但也执行本地 API 路径，backend 为 `web.api`。模板见 `examples/sources-web-api.json`，实现与调用链见 [本地 Search / Fetch](docs/web-api.md)。`npm run test:web-tools` 验证专用回归，`npm run probe:web-api` 探测公开搜索 API。
+普通 REST 搜索/抓取 API 使用独立的 `webApi: { search, fetch }` 配置：宿主自建工具直接调用配置端点，不再创建进程内 MCP Client/Server。它们与外部 MCP 共用 ToolRegistry、PreToolUse、ToolExecutor、Observation 与 Trace。支持 GET/POST、header/query/body 鉴权和结果字段映射；搜索与抓取可分别用不同厂商，密钥只放本机 .env。旧 `searchMcp.type=api` 仍兼容，但也执行本地 API 路径，backend 为 `web.api`。模板见 `examples/sources-web-api.json`，实现与调用链见 [本地 Search / Fetch](docs/web-api.md)。`npm run test:web-tools` 为专用回归入口。
 
 修改 `examples/task.json`：任务 ID、稳定竞品 ID、名称/域名、产品、信号类型、带时区的 `[start,end)` 窗口、时间依据、IANA 时区、允许来源及 `outputScope: draft`。缺实体、时间、时区时返回 `needs_clarification`，不猜测。未知/未激活来源写入报告缺口。
 
@@ -96,7 +98,6 @@ SEARCH_MCP_TOKEN=your-token
 |---|---|---|
 | browser | 内建只读浏览器 | 配置 URL 的 JavaScript 渲染、匿名文本/HTML 采集；HTTP 请求由宿主中介并拒绝重定向 |
 | api | 平台 API 包装 MCP | guide.md + 每来源一个通用 API 工具；固定 origin、动态请求权限、环境变量鉴权与 MCP 门禁 |
-| github_releases | 平台 API 包装 MCP | 通用 mcp__github__api_github；固定仓库范围，Releases GET 保留结构化映射 |
 | mcp | MCP stdio 连接池 | 真实 tools/list、tools/call；操作者声明每个原名的业务语义，未声明拒绝 |
 | web | 本地统一 Web 工具 | web_search / web_fetch；配置的直接 API、受控原生后端或远程 MCP |
 
@@ -175,15 +176,19 @@ npm run eval
 
 测试用例统一命名为 `tests/*.test.ts`，`harness.ts` 等辅助文件和夹具保持原名；仍由 `scripts/eval.ts` 显式导入运行。
 
-六要素 Case、Trace 证据包、确定性评分和分层报告已接入初版执行器：`npm run eval:cases`；真实模型＋固定工具响应使用 `npm run eval:model`。重评分、失败入库、人工审核和 Holdout 边界见 [运行评测](docs/evaluation.md)，完整原则见 [评测设计](docs/evaluation-design.md)。新增候选需人工批准，已有案例以实际审核记录为准；执行检查通过不代表正式 Golden 或真实三站完整调查通过。
+2026-10-29：所有内置 eval case、题单、材料、候选、历史副本和对应评测归档已清理，当前内置 Case 为 0。普通工程测试与通用评测框架保留；Case 执行/审核需显式提供 `--dataset`，覆盖清单需显式提供 `--index`。说明见 [评测状态](docs/evaluation.md)。
 
-三类评分已提供独立入口：`eval:score` 汇总规则、LLM 与人工结果，`eval:judge` 使用专用模型配置评分，`eval:human` 创建/提交逐次运行的人工评分。质量分不能覆盖规则失败，缺失评分保留待复核，原证据与报告不改写。配置、量表与命令见 [三类评分器](docs/quality-grading.md)。
+评测维度统一为 Outcome（结果）、Trajectory（过程）、Evidence（证据）、Safety（安全）、Cost（成本）；结果、证据、安全为 P0，过程、成本为 P1。体验要求归入结果和交互过程。定义见 [五类评测维度](docs/evaluation-dimensions.md)。
 
-四类场景现有 57 个注册 Eval 用例，覆盖触发、核心逻辑、产物质量和异常容错的正负输入；新增 25 题含 18 个模型模式和 7 个脚本宿主契约。`npm run eval:coverage` 生成设计覆盖矩阵，`eval:scenarios` / `eval:scenarios:model` 分别执行新增题；完整报告检查实际落盘文件与事实/引用配对。工具触发、自动 Skill 路由及工程回归的边界见 [场景覆盖](docs/scenario-coverage.md)。
+评分器分工固定为：结果/证据=代码+Rubric，过程=Rubric+人工，安全=代码+人工，成本=代码。Rubric 指参考结构化量表的 LLM-as-a-Judge，人工不再对结果和证据打分，代码只记录过程事实。
 
-评测结果已附带负分制：100 分起、80 分达标，结果/安全硬失败归零，过程逐项扣 10，超过 5 分钟按开始的分钟扣 10；同一 Case 所有 Trial 达标才取平均，否则用例分为 0。`--repeat 5 --score-gate --agent-type assisted_analysis` 可执行数值门禁，同时报告 pass@k、pass^k 和类型容忍度。原必过项与人工审核状态单列，见 [负分制与稳定性](docs/penalty-scoring.md)。
+三类评分已提供独立入口：`eval:score` 汇总规则、LLM 与人工结果，`eval:judge` 使用专用模型配置评分，`eval:human` 创建/提交逐次运行的人工评分。指定评委逐项判定后统一按 100 分负分制计算，P0 硬失败不能被其他分数抵消，缺失评分保留待复核，原证据与报告不改写。配置、量表与命令见 [三类评分器](docs/quality-grading.md)。
 
-`verify` 一条命令执行 TypeScript 检查和全部固定回归。结果写入 `artifacts/eval/latest.json` 与 `latest.md`，逐例列出通过/失败、分母、原因和组别；任何失败退出非零。CI 提供 Windows/Linux 矩阵配置，远端 CI 本次未实际触发。
+原四类场景题库及自动生成脚本已删除，`eval:scenarios` / `eval:scenarios:model` 不再提供。
+
+统一负分制：100 分起、80 分达标，结果不符扣 100；过程由 Rubric 与人工确认，步骤遵循性、中间输出、工具/知识库调用各按不符步骤/项扣 10；分析耗时超过 5 分钟后每开始 1 分钟扣 10。所有计划 Trial 全部达标才取平均，否则用例分为 0。建议显式提供题单并运行 `--repeat 5`，逐次完成评委记录后用 `eval:score` 汇总；原始 Case 命令不再接受 `--score-gate`。报告保留 pass@k、pass^k 和类型容忍度。原必过项与人工审核状态单列，见 [负分制与稳定性](docs/penalty-scoring.md)。
+
+`verify` 一条命令执行项目结构、TypeScript、工程及评测流水线离线检查。工程结果写入 `artifacts/eval/latest.json` 与 `latest.md`，任何失败退出非零。GitHub Actions 在每次 push 和 PR 时运行工程检查、浏览器检查和真实 Agent 自动回归三条独立任务，使用 Ubuntu runner 与 Node 24 / Debian 容器。自动回归集见 [正式清单](evals/regression/suite.json)，每例五次、全部 100 分及代码/Rubric 全通过才通过，本轮不创建人工待办。远程需要配置 `EVAL_API_KEY`、`JUDGE_API_KEY`；本次未触发远程 CI。
 
 1. 来源 Hub：运行 demo，查看 Trace 中唯一 binding、original_name、builtin/mcp/workflow 三类 channel；实际本地 MCP 协议测试及 probe:sources 独立验证。
 2. 执行门禁：eval 的权限/审批用例逐项断言真实执行次数；拒绝为零。
@@ -195,4 +200,4 @@ npm run eval
 
 依赖审计已修复 MCP/Ajv 直接依赖问题；锁定 Pi SDK 自带 shrinkwrap 中仍有 3 个已知受影响包，详见 `docs/dependency-review.md`。工程回归通过不等于依赖安全或生产发布放行。
 
-常见故障：未配置 provider → 填写 .env；fetch failed → 核对代理与网络权限；rate_limited → 降低频率或配置 GITHUB_TOKEN；parse_failed → 保留原始内容并补站点解析器；context_budget_exceeded → 收窄任务；tool collision → 修正来源命名。不要把这些失败手工改成成功。
+常见故障：未配置 provider → 填写 .env；fetch failed → 核对代理与网络权限；rate_limited → 保留来源缺口，不自动重试；parse_failed → 保留原始内容并补站点解析器；context_budget_exceeded → 收窄任务；tool collision → 修正来源命名。不要把这些失败手工改成成功。

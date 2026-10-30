@@ -4,10 +4,9 @@
     "name": "workflow__save_plan",
     "args": {
       "taskId": "nodejs-adapters-demo",
-      "objective": "Inspect browser and API MCP adapters with explicit synthetic data.",
+      "objective": "Inspect browser adapter with explicit synthetic data.",
       "sources": [
-        "browser",
-        "github"
+        "browser"
       ],
       "queries": [
         "Node.js releases within configured publication window"
@@ -28,24 +27,6 @@
     "name": "session__browser_tool",
     "args": {
       "url": "https://nodejs.org/en/blog/release/v24.0.0"
-    }
-  },
-  {
-    "kind": "call_tool",
-    "name": "session__read_source_guide",
-    "args": {
-      "source": "github"
-    }
-  },
-  {
-    "kind": "call_tool",
-    "name": "mcp__github__api_github",
-    "args": {
-      "path": "/repos/nodejs/node/releases",
-      "method": "GET",
-      "params": {
-        "per_page": 5
-      }
     }
   },
   {

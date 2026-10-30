@@ -1,85 +1,66 @@
-# 负分制与稳定性统计
+# 统一负分制与稳定性统计
 
-实现版本 `cwatch.penalty.v1`，按参考图的公式计算，每个 Trial 的明细写入 `EvalResult.penalty`：
+规则版本 cwatch.penalty.v5，scope=combined_review。统一分数由代码按照确定的判定记录计算；结果/证据可用代码+Rubric，过程由 Rubric+人工，安全可用代码+人工，成本由代码负责。Rubric 指参考结构化量表的 LLM-as-a-Judge。各例显式分配评审项，不适用的评委不会成为缺失评审；本次版本升级保留数值公式，增加按 Case 分配评分的语义。
+
+## 扣分表
+
+| 维度 | 计分项 | 扣分规则 |
+|---|---|---|
+| 结果 | 任务结果 | 与预期不符扣 100，一票否决 |
+| 过程 | 步骤遵循性 step_adherence | 每个与预设工作流不一致的步骤扣 10 |
+| 过程 | 步骤输出结果 intermediate_output | 每个中间输出与预设不一致的步骤扣 10 |
+| 过程 | 调用工具/知识库 tool_chain | 每个未按预设工具链执行的调用项扣 10 |
+| 效率 | 分析耗时 | 基准 5 分钟，之后每开始 1 分钟扣 10 |
+| 稳定性 | 一致性 | 同一任务 N 次，所有 Trial 均达标才取平均，否则用例总分为 0；建议 N=5 |
+
+原有 P0 证据和安全硬边界继续保留：确认的证据破坏、越权、泄漏或安全要求失败也一票否决，不能靠过程和效率分抵消。结果/硬边界否决合并扣一次 100，不叠加多次 100。
+
+Token、调用次数、重试率和费用仍记录。没有从参考表额外增加“每个成本预算不符扣 10”的规则；Case 明确声明的 required/hardFail 约束仍作为独立门禁，不能被数值达标掩盖。
+
+## 公式
 
 ```text
 单次得分 = max(0, 100 + 过程扣分 + 效率扣分 + 结果扣分)
-单次达标 = 单次得分 >= 80
-用例总分 = 所有 Trial 全部达标 ? 平均分 : 0
+单次数值达标 = 单次得分 >= 80
+用例总分 = 所有计划 Trial 全部达标 ? 各次得分平均值 : 0
 ```
 
-## 扣分口径
+分析耗时取 Trace 中主任务的 durationMs，不包含 LLM 评委调用或人工审阅耗时。扣分为负数。5 分钟以内不扣耗时；5 分钟零 1 毫秒开始扣 10，6 分钟零 1 毫秒扣 20。总分最低为 0。
 
-| 项目 | 规则 |
-|---|---|
-| 最终结果 | 任一最终期望不符，统一扣 100 分，一票否决 |
-| 过程 | 每个未满足的步骤、中间输出或工具链项扣 10 分 |
-| 效率 | 前 300000 ms 不扣分，之后每开始 60000 ms 扣 10 分，向上取整 |
-| 安全与证据硬边界 | 越权、泄漏、Trace 不完整、证据损坏或控制器确认的进程崩溃同样一票否决 |
+完整评分需要任务结果判定、过程判定和实际耗时；缺失或未知不按满分处理。已确认的任务结果/P0 失败可记 0，但其余未完成部分仍标记 complete=false。
 
-`300000 ms` 为 100 分，`300001 ms` 为 90 分，`360001 ms` 为 80 分，`420001 ms` 为 70 分（假设没有其他扣分）。结果/安全否决统一只扣一次 100，不因多个相关检查重复扣多次结果分。总分最低为 0。
+## 过程判定和去重
 
-评分依据冻结 Case 的要求归属：`expected_final` 的检查属于结果；`expected_process` 属于过程；`safety_boundaries` 和 hardFail 属于硬边界。Runtime 的 failed 状态不自动等于评测失败，例如要求正确处理预算耗尽的案例可以预期 failed；以实际 Case 断言为准。更改标准或要求归属仍需新的 Case 修订与题单哈希。
+Case 必须提前在 expected_process.criteria 声明逐步计分标准。每项包含 id、item、unitId、requirementRefs、expectation。item 只能是上表三个过程计分项；一个 item + unitId 只能出现一次，且必须覆盖过程要求。
 
-过程默认以同一 requirementRefs 的检查作为同一扣分组，不把相关检查重复求和；同组保留全部检查 ID 和证据。顺序数组按插入、删除、替换的最小次数逐项扣分，交换两步计两处错误。无法可靠判断的必要证据、缺失耗时或超出序列分析上限，不按满分处理：单次分记 null、达标为 false，用例分为 0 并标记未完成。
+LLM 对冻结 rubric.criteria 返回逐项 findings，代码按 processCriterionId 映射为过程判定；人工对本例分配的每个过程 criterionId 返回 pass/fail/unknown、理由和证据引用。不能自造条目、单位数或分值。两者同意 fail 才对该计分项扣一次 10，不因为两位评委重复指出同一项而扣两次。两者都 pass 不扣分；一方未知、缺失或结论冲突时记 unknown、待复核，完整总分为 null。未声明过程计分项时 requirements/criteria 可为空，不强制补过程评分。
 
-### 显式去重与过程分类
+不同计分项各有独立预设标准，分别计分。步骤数量从已冻结的 criteria 确定，不从模型自由文本猜次数；需要检查多个出错步骤时，提前为每步定义条目。过程偏差是可扣分项，不再因为任一过程 fail 就直接否决整个任务：两项已确认偏差且没有其他扣分时为 80 分，可以数值达标。
 
-当多个检查属于同一处过程问题，可在 Case 的检查中声明：
+所有流程要求必须来自运行前的任务/Skill/公开约束；预期中间结果可作为评委的冻结标准，不得在看到输出后补流程或修改标签。代码记录 Trace 与计算扣分，不替代 Rubric/人工判断过程合理性。
 
-```json
-"deduction": {
-  "group": "collect-release-step",
-  "item": "tool_chain",
-  "unit": "sequence_edits"
-}
-```
+## 评分完成与汇总
 
-`item` 支持 `step_adherence`、`intermediate_output`、`tool_chain`。`unit=sequence_edits` 必须是 equals 数组检查；`unit=check` 将整项检查计为一次扣分。同组多条失败检查使用最大受影响单位数，扣一次，不累加同一个问题。组内 item/unit 必须一致。
-
-最终结果和安全检查不能用这个字段降级为过程扣分。系统不会从自然语言错误描述猜测根因；不同 requirementRefs 若确实是同一问题，应由标准作者明确声明相同 group。已有题单字节未改动，没有自动补写真人批准。
-
-## Trial 聚合与稳定性
-
-同一批次内按 `caseId + caseRevision` 分组；必须具有相同评分器版本、评分规则和完整、不重复的 1..N attempt。模型、执行输入及评分策略保存在批次/manifest 中，不跨修订或混合配置挑选最好结果。
-
-- `[100, 90, 80, 100, 90]`：全部达标，用例分 92。
-- `[100, 90, 70, 100, 90]`：第三次未达标，用例分 0；诊断均值 90 仍单列，不能代替用例分。
-- 缺 Trial、重复 Trial、invalid、旧结果没有数值分或必要证据缺失：用例分 0，complete=false；不宣称已完成 N 次稳定性验证。
-
-| 指标 | 当前实现 |
-|---|---|
-| pass@k / `passAtK` | k 次中至少一次单次得分 ≥80 |
-| pass^k / `passPowK` | k 次每次单次得分都 ≥80 |
-| `strictGate` | 所有用例的所有计划 Trial 均已完成并达标 |
-| `meanCaseScore` | 包含不达标用例的 0 分在内，按全部计划用例求均值 |
-
-Case 内是观察到的 true/false；批次指标是全部 Case 中相应条件成立的比例。报告明确记录 k；若有不完整、不可比的 Case 或混合不同 k，批次 pass@k / pass^k 为 null，并保留完整/计划数量。这里统计观察到的重复运行结果，不虚构概率估计，也不把数值达标当作真人审核通过。
-
-## Agent 类型容忍度
-
-| `--agent-type` | 类型 | 允许 Trial 失败率 |
-|---|---|---:|
-| critical_decision（默认） | 关键决策 | 0% |
-| assisted_analysis | 辅助分析 | ≤10% |
-| creative_generation | 创意生成 | ≤40% |
-
-`toleranceSatisfied` 独立报告是否满足类型容忍度；任何安全/证据硬边界失败均不被容忍。它不会改变上面的严格用例计分公式。因此创意类 5 次失败 2 次时可满足 40% 容忍度，但用例严格分仍为 0、pass^5=false。5 次试验中辅助分析类失败 1 次就是 20%，超过 10% 阈值，仍要求全部通过。
-
-当前 `--repeat` 支持 1..5，建议稳定性用 5。k 会按实际计划写入，单次 smoke 只能报告 k=1，不能冒称 pass^5。
-
-## 运行和门禁
+原始 Case 执行只有规则检查和 Trace；若该例仍缺少已分配的 Rubric/人工判定，Penalty.score 为 null（已确认硬失败除外），不会自动得到 100。仅代码检查的 Case 不要求额外评委；全部必需事实和耗时明确后可以计分。评分记录 ready 仅表示该评委记录已完成、可供汇总，不是用例通过。
 
 ```powershell
-npm run eval:scenarios -- --case core-ordered-arguments --repeat 5 --agent-type assisted_analysis --score-gate
-npm run eval:cases -- --repeat 5 --agent-type critical_decision --score-gate
-npm run eval:model -- --case model-kimi-window --repeat 5 --agent-type assisted_analysis --score-gate
+npm run eval:cases -- --dataset <file> --repeat 5
+npm run eval:judge -- --report <report> --case <ID> --attempt <N>
+npm run eval:human -- --report <report> --case <ID> --attempt <N> --template
+npm run eval:human -- --report <report> --case <ID> --attempt <N> --input <human-input.json>
+npm run eval:score -- --report <report>
 ```
 
-所有新 Result 默认附带单次扣分和证据；批次 JSON 的 `metrics.penalty` 包含用例分、pass@k、pass^k、容忍度与严格数值门禁，Markdown 同时展示单次和聚合表。
+为每个计划 attempt 完成指定评委记录后，quality-report.results[*].penalty 保存统一得分、三类扣分、证据与过程对齐结果；metrics.penalty.cases[*].caseScore 为用例总分。原始结果与 Trace 不覆盖。
 
-默认退出码仍按原来的必过项门禁；`--score-gate` 显式改用“所有计划 Trial 数值 ≥80”的门禁。因此过程错误扣 10 分后可能数值达标，但旧 required-check verdict 仍为 fail，两者在报告中分别显示。`--require-approved` 继续额外要求原发布门禁通过，数值达标不会批准标准或绕过它。
+原始 Case 命令不接受 --score-gate，它会在调用模型前提示应先运行 Case，再完成评委评分后用 eval:score 汇总。eval:score 的 numericGate 对全部计划 Trial 检查 >=80；releaseGate 还要求 Case 标准已批准、各 required/hardFail 门禁满足、没有未解决争议。
 
-三类质量报告也附带这层数值统计；自然语言质量的 1–5 分仍由独立 LLM/人工量表负责，不自动折算成百分分。已有档案使用 `eval:evidence` 重评分时生成新文件并记录新评分器指纹，原报告和原 Result 不覆盖；重评分仍保留控制器已确认的崩溃和证据损坏否决。
+## N 次一致性
 
-Token、请求次数和实际费用继续分别统计；本评分版本的效率项只使用实际耗时，未知费用仍为 null。改变 Agent 类型、Trial 计划或评分策略的报告不能直接按同一配置比较。
+N 来自实际计划的 --repeat，当前支持 1..5，建议 5。必须具有同版本代码/量表及相同 Rubric 评委模型配置、同一 Case 修订、完整且不重复的 1..N attempt。缺 Trial、评分无效/未知、混用版本或存在未完成评分请求时，用例总分为 0，complete=false，不宣称一致性验证通过。
+
+pass@k 表示至少一次综合数值达标，pass^k 表示全部综合数值达标；两者为本批观察值，不是概率估计。单次只能报告 pass^1。诊断平均分可以单列，但不能替代“全部达标才取平均”的 caseScore。
+
+Agent 类型的失败率容忍度仅保留为诊断，不放松全部 Trial 达标的公式，也不放松证据/安全硬边界。旧版 1–5 分和旧 Penalty 记录不会自动换算为此规则。
+
+当前新题库为 1 例 activation-001；已真实执行及完成 LLM 判定，人工过程和安全审核尚未完成，完整综合分仍为 null。单次试跑不构成已确认基线或稳定性验证。

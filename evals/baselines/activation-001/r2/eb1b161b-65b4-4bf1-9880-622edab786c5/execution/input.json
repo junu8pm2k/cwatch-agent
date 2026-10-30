@@ -1,0 +1,31 @@
+{
+  "scenario": {
+    "driver": "runtime",
+    "instruction": "请审阅下面这条竞品主张及其材料，判断材料能支持到什么范围，并说明还缺什么依据。只使用我提供的材料，不重新调查，不联网，也不用生成文件。\n\n以下品牌名称沿用用户提供的 Zcode；主张、材料标题、日期和摘录均为本用例合成内容，不代表该品牌的真实功能或公告：\n\n主张 C1：Zcode 已支持导出会话记录。\n\n材料 M1：《Zcode 功能说明（合成摘录）》，合成发布日期为 2026-10-20。正文摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”",
+    "source": "none",
+    "tools": [],
+    "steps": [],
+    "selectedSkills": [
+      {
+        "name": "competitor-review",
+        "entry": "---\r\nname: competitor-review\r\ndescription: >-\r\n  Review existing competitor claims and their supporting material for entity attribution, chronology, contradictions,\r\n  and coverage gaps. Use for evidence review of supplied claims or the review phase of a competitor investigation.\r\n  Do not use to start a fresh collection workflow, create unsupported findings, write a general research brief,\r\n  or perform unrelated code review.\r\n---\r\n\r\n# Competitor Evidence Review\r\n\r\nAssess whether the supplied claims are supported at their stated scope. Review does not create missing evidence.\r\n\r\n## Read the material\r\n\r\nRead [the evidence checklist](references/checklist.md) before reviewing claims. In Cwatch, use `session__read_skill_resource` with `skill=competitor-review` and `path=references/checklist.md`; otherwise use the available read-only file or document tool.\r\n\r\nIdentify the claims, referenced sources, entity and product scope, and applicable time window. If essential evidence is missing, state the limitation and ask for or retrieve only the material necessary for the requested review.\r\n\r\n## Review each claim\r\n\r\n- Check that the source actually supports the named entity, product, and assertion.\r\n- Check the relevant event or publication time separately from retrieval time.\r\n- Preserve contradictory evidence, uncertain identity matches, source failures, and missing coverage.\r\n- Distinguish supported facts, interpretations, and unsupported statements. Do not invent identifiers, dates, or results to fill a gap.\r\n\r\n## Return the assessment\r\n\r\nFor each material issue, identify the affected claim, the supporting or conflicting reference, and the correction or additional evidence needed. Finish with the conclusions that remain supported and the unresolved gaps.\r\n\r\nWhen running inside an active investigation, preserve its existing plan, collection, analysis, review, and draft prerequisites. For a standalone review of supplied material, do not start that workflow unless the user requests it. This Skill does not grant tools, execute scripts, or change host permissions.\r\n",
+        "sha256": "dfd273df4ef303af0628c896f7418ef747487cdeaf23437f5265735c252586fa",
+        "resources": [
+          {
+            "path": "references/checklist.md",
+            "text": "# Evidence checklist\n\n1. Match stable entity and product identifiers.\n2. Keep publication time and retrieval time separate.\n3. Preserve official and reprint provenance.\n4. Check contradictory evidence and missing sources.\n5. Describe unstructured MCP results as material to review, not verified facts.\n",
+            "sha256": "cfb5ec8a98db0de1beec89262afe1059f1ea3dabd98e451df317c7e8a6ef1625"
+          }
+        ]
+      }
+    ],
+    "modelMode": "pi_session",
+    "maxTokens": 30000,
+    "maxOutputTokens": 8192,
+    "permission": "explore",
+    "approvalAnswers": [],
+    "toolTimeoutMs": 5000,
+    "maxToolCalls": 8
+  },
+  "materialProvenance": "用户指定品牌；按获认可设计人工编写合成主张和资料。Skill 及资源从仓库本地文件冻结，未提供答案或工具调用脚本。"
+}

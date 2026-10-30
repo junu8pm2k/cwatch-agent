@@ -20,7 +20,7 @@ try {
   const gaps = await new SourceServerBuilder(process.cwd()).register(configs, 'live', registry, signal);
   await registry.register('workflow','workflow',new SourceGuideTools(registry,task),signal);
   const executor = new ToolExecutor(registry, new ActionPolicy(), new ApprovalManager(), store, trace, task, 10_000);
-  for (const [name, args] of [['web_fetch', { url: configs[0].urls![0] }], ['session__read_source_guide', { source:'github' }], ['mcp__github__api_github', { path:'/repos/nodejs/node/releases', method:'GET', params:{per_page:2} }]] as const) {
+  for (const [name, args] of [['web_fetch', { url: configs[0].urls![0] }]] as const) {
     try { results.push({ tool: name, result: redactor.clean(await executor.execute(name, args, signal)) }); }
     catch (e) { results.push({ tool: name, error: String(e) }); }
   }

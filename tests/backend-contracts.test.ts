@@ -66,11 +66,10 @@ check('contract','Source builder classifies browser as builtin and wraps platfor
   const configs=SourceConfigsSchema.parse([
     {...base,slug:'official',kind:'web',allowedDomains:['example.com']},
     {...base,slug:'browser',kind:'browser',urls:['https://example.com/pricing'],allowedDomains:['example.com'],browser:{channel:'msedge'}},
-    {...base,slug:'platform',kind:'github_releases',repo:'nodejs/node'},
     {...base,slug:'platform_api',kind:'api',api:{baseUrl:'https://platform.example'}},
     {...base,slug:'mcp',kind:'mcp',command:process.execPath,args:[],toolSemantics:{read:'collect'}},
   ]);
-  const expected=['builtin','builtin','mcp','mcp','mcp'];
+  const expected=['builtin','builtin','mcp','mcp'];
   try {for(let i=0;i<configs.length;i++){const built=await builder.build(configs[i],'live',signal);assert.equal(built.channel,expected[i]);await built.client.close();}}
   finally {await builder.mcpPool.close();}
 });

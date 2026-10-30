@@ -71,7 +71,7 @@ check('contract', 'Source builder carries configured seeds into the actual web t
   try { assert.ok((await client.listTools(new AbortController().signal)).every(tool => tool.description.includes(refs[1]))); }
   finally { await client.close(); await builder.mcpPool.close(); }
 });
-check('contract', 'Competitor discovery query matrix preserves the existing official whitelist, seeds and exact repository scope', () => {
+check('contract', 'Competitor discovery query matrix preserves the official-site whitelist and seeds', () => {
   const catalog = JSON.parse(readFileSync('examples/competitor-acceptance/targets.json', 'utf8'));
   const matrix = JSON.parse(readFileSync('examples/competitor-acceptance/discovery-queries.json', 'utf8'));
   assert.equal(matrix.limit, 10); assert.equal(matrix.targets.length, 3);
@@ -79,11 +79,10 @@ check('contract', 'Competitor discovery query matrix preserves the existing offi
     const source = SourceConfigsSchema.parse(JSON.parse(readFileSync(`examples/competitor-acceptance/${target.id}.sources.json`, 'utf8'))).find(source => source.kind === 'web')!;
     assert.deepEqual(source.allowedDomains, target.domains); assert.deepEqual(source.urls, target.urls);
     const queries = matrix.targets.find((entry: { id: string }) => entry.id === target.id).queries as string[];
-    assert.equal(queries.length, 3);
+    assert.equal(queries.length, 2);
     for (const text of queries) {
       assert.ok(text.includes(target.name)); const scope = /site:([^\s)]+)/.exec(text)![1];
       allowedUrl('https://' + scope, target.domains);
-      if (scope.startsWith('github.com/')) assert.equal(scope.toLowerCase(), ('github.com/' + target.repo).toLowerCase());
     }
   }
 });

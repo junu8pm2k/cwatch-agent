@@ -6,24 +6,14 @@
     "allowedDomains": [
       "zcode.z.ai",
       "z.ai",
-      "docs.z.ai",
-      "github.com"
+      "docs.z.ai"
     ],
     "urls": [
       "https://zcode.z.ai/en",
-      "https://zcode.z.ai/cn/docs/install",
-      "https://github.com/zai-org/ZCode"
+      "https://zcode.z.ai/cn/docs/install"
     ],
-    "searchMcp": { "requestTimeoutMs": 60000 }
-  },
-  {
-    "slug": "zcode_github",
-    "kind": "github_releases",
-    "active": true,
-    "repo": "zai-org/ZCode",
-    "entityId": "zcode",
-    "entityName": "ZCode",
-    "domain": "zcode.z.ai",
-    "product": "ZCode"
+    "searchMcp": {
+      "requestTimeoutMs": 60000
+    }
   }
 ]

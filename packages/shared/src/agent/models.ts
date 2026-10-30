@@ -20,7 +20,7 @@ export class ReplayModel implements ModelPort {
 }
 export function decodePiMessage(message: { content: Array<{ type: string; id?: string; name?: string; arguments?: unknown; text?: string }>; stopReason: string; errorMessage?: string }): Decision {
   if (message.stopReason === 'error' || message.stopReason === 'aborted') throw new Error('provider_unavailable:' + (message.errorMessage ?? message.stopReason));
-  if (message.stopReason === 'length') throw new Error('provider_unavailable: truncated_response');
+  if (message.stopReason === 'length') throw new Error('model_response_truncated: truncated_response (output token limit reached)');
   const calls = message.content.filter(c => c.type === 'toolCall');
   if (calls.length > 1) return DecisionSchema.parse({ kind: 'call_tools', calls: calls.map(call => ({ sdkToolCallId: call.id, name: call.name, args: call.arguments })) });
   if (calls.length === 1) return DecisionSchema.parse({ kind: 'call_tool', name: calls[0].name, args: calls[0].arguments });

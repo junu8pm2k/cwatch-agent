@@ -41,7 +41,7 @@ check('integration','Workbench HTTP starts a real replay, streams its state, dow
   try{
     const response=await h.post('/api/runs',{profile:'standard',mode:'replay',permission:'explore'});assert.equal(response.status,202);const run=await response.json() as RunSnapshot;
     const stream=await fetch(h.origin+'/api/runs/'+run.id+'/events',{signal:controller.signal});assert.equal(stream.headers.get('content-type'),'text/event-stream; charset=utf-8');const reader=stream.body!.getReader();const first=await reader.read();assert.match(new TextDecoder().decode(first.value),/event: snapshot/);controller.abort();
-    const result=await h.service.wait(run.id);assert.equal(result.status,'complete');const get=await(await fetch(h.origin+'/api/runs/'+run.id)).json() as RunSnapshot;assert.equal(get.claims.length,2);
+    const result=await h.service.wait(run.id);assert.equal(result.status,'complete');const get=await(await fetch(h.origin+'/api/runs/'+run.id)).json() as RunSnapshot;assert.equal(get.claims.length,1);
     const report=await fetch(h.origin+'/api/runs/'+run.id+'/report');assert.match(report.headers.get('content-disposition')!,/attachment/);assert.match(await report.text(),/合成测试快照/);
     assert.equal((await fetch(h.origin+'/api/runs/00000000-0000-0000-0000-000000000000')).status,404);
     assert.equal((await h.post('/api/runs/'+run.id+'/approvals/00000000-0000-0000-0000-000000000000',{allowed:true,argsHash:'0'.repeat(64)})).status,409);

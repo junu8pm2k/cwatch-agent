@@ -1,5 +1,7 @@
 # 平台 API：guide.md + 通用 MCP 工具
 
+2026-10-29：项目已移除 GitHub API 接入、来源配置和联网探测入口，并拦截内建网络通道的 GitHub API 地址。旧离线 fixture 与历史验收记录仅用于审计，不代表当前可用能力。详见 [停用说明](github-api-disabled.md)。
+
 按 Craft 的 sources/api-tools.ts 与 agent/core/prerequisite-manager.ts 组织：每个 API 来源提供一份 guide.md 和一个 api_<slug> 工具。工具描述仅指向指南，模型按需读取端点说明，再提交 path、method、params。指南是使用文档，权限仍由主进程独立裁决。
 
 GitHub 原始 MCP 工具为 api_github；本项目保留来源命名空间，Agent 代理名为 mcp__github__api_github。旧 mcp__github__releases_list 与 api.tools 逐端点配置已移除，调用脚本及示例同步迁移。save_plan、analyze、review、draft 等 workflow 工具仍显式注册。
@@ -21,10 +23,10 @@ config.json 由操作者配置，guide.md 记录端点、参数、结果限制�
 CLI --sources 支持原 JSON 数组、单个配置对象，以及包含各来源目录的 sources 目录。省略该参数时仍使用 examples/sources.json。使用单来源或目录配置时，task.allowedSources 和计划须匹配实际启用的来源。
 
 ~~~powershell
-npm start -- run --mode live --sources sources --task examples/task-github.json
+npm start -- run --mode replay --task examples/task.json
 ~~~
 
-该示例任务仅选择 github，目录中的 platform 默认停用。默认演示仍使用 examples/sources.json 的三个来源。
+默认演示只选择官网来源。sources/platform 保留为停用的通用平台占位模板。
 
 ## 工具调用与门禁
 
@@ -107,23 +109,15 @@ session__read_source_guide 自身经过同一 ToolExecutor、PreToolUse 和 Trac
 - auth 支持 header/query、bearer/raw、自定义 name；密钥从 tokenEnv 每次实际请求读取，required 默认 true。headers 仅放公开静态头，认证与 Cookie 不可硬编码。固定参数也不要写密钥。
 - 固定 HTTPS origin，不跟随重定向，响应流上限 2 MB；取消贯穿 MCP/HTTP。401/403、429、解析失败与空数据分别处理。凭据及常见编码形式在嵌套 HTTP 错误写 Trace 前脱敏，不记录含鉴权 query 的最终 URL 或认证头。
 
-### GitHub 限流与安全重试提示
+### 已停用的 GitHub API
 
-仅对配置的 https://api.github.com REST origin 使用 GitHub 特有的 403 规则：403/429 且 x-ratelimit-remaining=0 为主限流；403 的限流 message 或有效 Retry-After 也会识别为 rate_limited。401 始终保留 auth_failed，普通无上述限流证据的 403 保留认证/权限失败；不将其他平台的 403 套用 GitHub 规则。通用 HTTP 429 仍是 rate_limited。
-
-RetrievalResult.http 是宿主选择的严格元数据，含 HTTP status，以及可选 rateLimit.kind、limit、remaining、resetAt、retryAt、retryAfterSeconds、retrySource。只读取明确白名单中的数字/时间，不保存任意响应头、认证、Cookie、IP 或未校验的头原文。成功响应也可附实际主额度，http_response 的 provider_tool_event 让 Trace 与 MCP Observation 保留同一份元数据；映射结果不得覆盖宿主 HTTP 信息。
-
-Retry-After 支持非负整秒和标准 HTTP-date；主额度为零时读取 x-ratelimit-reset UTC epoch 秒。两项均有效时取更晚的最早重试时间，retrySource=combined；明确次级限流缺少有效未来提示时，以接收时间后至少一分钟为建议值，标 secondary-minimum，不冒充服务端重置时间。坏值、溢出、过期 reset 或缺失字段不补造主限流的未来时间。retryAt 是最早再尝试提示，不保证届时有额度或一定成功；额度可能因出站共享、其他客户端及区域变化而改变。
-
-适配器不等待、不自动重试；每个模型工具调用仍受宿主次数、取消和超时限制。scripts/probe-competitor-github.ts 按原来源串行探测，每仓库一次，任何限流即停止并跳过其余共享额度请求，不刻意耗尽额度。rate_limited 仍为失败采集、signals=[]，业务保留来源缺口与更新未知，不变成 success_empty 或“没有动态”。
-
-依据：[GitHub REST 限流与响应头](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)。真实复验和边界见 [GitHub P1 验收](p1-github-acceptance-2026-10-24.md)。
+GitHub 专用适配器、来源目录和探测脚本已移除。HTTP 分类器中的旧响应语义只供注入固定响应的离线回归使用；内建网络传输拒绝连接 GitHub API，不提供开关或凭据启用方式。
 
 ## 结果与验证
 
 resultFormat=json 将普通 JSON 保留为 discovery 页面和快照，published_at=null，不自动成为事实。resultFormat=retrieval 验证完整 RetrievalResult，并拒绝其他 sourceSlug 的信号，随后仍经归因、时间窗、去重、版本与 Review。
 
-GitHub Releases 在通用 api_github 的指定 GET 路径上保留结构化映射；其他允许的仓库 GET 路径仅作 discovery。replay 也经过实际 MCP tools/call，fixture 不改成 live；通用 API fixture 需配置匹配的 fixtureRequest。
+replay 也经过实际 MCP tools/call，fixture 不改成 live；通用 API fixture 需配置匹配的 fixtureRequest。
 
 npm run verify 覆盖实际 MCP 发现/调用、指南门禁、动态权限、规则优先级、凭据轮换、取消、并发、业务前置条件与目录配置。npm run verify:browser 另验真实 Pi 子进程、浏览器和进程内 MCP 的合成数据闭环。普通 REST 搜索/fetch 使用独立的本地 webApi 工具路径，见 web-api.md；不属于本节的平台 API MCP 包装。
 

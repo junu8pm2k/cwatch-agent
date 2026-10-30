@@ -8,7 +8,7 @@ import { ToolRegistry } from "@cwatch/shared/tools/registry";
 import { ReplayModel } from "@cwatch/shared/agent/models";
 import { runInvestigation } from "@cwatch/server-core/runtime/investigation";
 
-const task = () => { const value = defaultTask(); value.allowedSources.push('news'); return value; };
+const task = () => { const value = defaultTask(); value.allowedSources.push('news', 'github'); return value; };
 check('semantic', 'official and reprint merge one event with two snapshots', () => {
   const data = store(), facts = new EvidenceStore(data); facts.ingest(task(), fixture()); facts.ingest(task(), fixture('news'));
   assert.equal(facts.events().length, 1); assert.equal(facts.versions().length, 1); assert.equal(facts.evidence().length, 2); assert.equal(facts.events()[0].evidenceIds.length, 2);
@@ -63,11 +63,14 @@ check('semantic', 'failure statuses and empty results remain gaps not no-activit
   }
 });
 check('semantic', 'runtime partial source failure keeps good facts and failure in draft', async () => {
-  const configs = SourceConfigsSchema.parse(json('examples/sources.json')), registry = new ToolRegistry(), data = store();
+  const configs = SourceConfigsSchema.parse([...json('examples/sources.json'), json('tests/fixtures/platform-source.json')]), registry = new ToolRegistry(), data = store();
   await new SourceServerBuilder(process.cwd()).register(configs, 'replay', registry, new AbortController().signal);
-  registry.setActive('github', false);
-  const run = await runInvestigation(defaultTask(), ReplayModel.fromFile('fixtures/model-script.json'), registry, data, 'replay');
-  assert.equal(run.status, 'partial'); assert.ok(run.gaps.some(g => g.includes('github'))); const report = readFileSync(data.path(run.report!), 'utf8'); assert.match(report, /github/); assert.match(report, /未知时点、空结果和失败来源/); assert.equal(data.read<any[]>('facts/events.json', []).length, 1); await registry.close();
+  registry.setActive('platform', false);
+  const selected = defaultTask(); selected.allowedSources.push('platform');
+  const steps = json('fixtures/model-script.json'); steps[0].args.sources = selected.allowedSources;
+  steps.splice(2, 0, { kind: 'call_tool', name: 'mcp__platform__api_platform', args: { path: '/releases', method: 'GET', params: {} } });
+  const run = await runInvestigation(selected, new ReplayModel(steps), registry, data, 'replay');
+  assert.equal(run.status, 'partial'); assert.ok(run.gaps.some(g => g.includes('platform'))); const report = readFileSync(data.path(run.report!), 'utf8'); assert.match(report, /platform/); assert.match(report, /未知时点、空结果和失败来源/); assert.equal(data.read<any[]>('facts/events.json', []).length, 1); await registry.close();
 });
 check('semantic', 'signal runtime validation rejects naive timestamps and impossible status/data', () => {
   assert.equal(SignalSchema.safeParse({ ...signal(), published_at: '2025-05-06' }).success, false);

@@ -37,11 +37,11 @@ check('integration','Real Pi worker drives browser and API MCP through the same 
   const {runInvestigation}=await import("@cwatch/server-core/runtime/investigation");
   const {task,json}=await import('./harness.ts');
   const {validateTrace}=await import("@cwatch/shared/sessions/trace");
-  const h=await browserHarness(),value={...task(),allowedSources:['official','github'],signalTypes:['release','price'] as Array<'release'|'price'>},requests:any[]=[];
-  const api=new ApiMcpSource('github',new PlatformApiAdapter('github',PlatformApiConfigSchema.parse({baseUrl:'https://api-fixture.example',resultFormat:'retrieval'}),value.competitor.id,value.product,async()=>new Response(JSON.stringify(json('fixtures/github.json')))));
-  await h.registry.register('github','mcp',api,signal);
+  const h=await browserHarness(),value={...task(),allowedSources:['official','platform'],signalTypes:['release','price'] as Array<'release'|'price'>},requests:any[]=[];
+  const api=new ApiMcpSource('platform',new PlatformApiAdapter('platform',PlatformApiConfigSchema.parse({baseUrl:'https://api-fixture.example',resultFormat:'retrieval'}),value.competitor.id,value.product,async()=>new Response(JSON.stringify(json('tests/fixtures/platform-result.json')))));
+  await h.registry.register('platform','mcp',api,signal);
   const plan=json<any[]>('fixtures/model-script.json')[0];plan.args.sources=value.allowedSources;
-  const steps:any[]=[plan,{kind:'call_tool',name:'session__browser_tool',args:{url:fixtureUrl}},{kind:'call_tool',name:'session__read_source_guide',args:{source:'github'}},{kind:'call_tool',name:'mcp__github__api_github',args:{path:'/releases',method:'GET',params:{}}},{kind:'call_tool',name:'workflow__analyze',args:{}},{kind:'call_tool',name:'workflow__review',args:{}},{kind:'call_tool',name:'workflow__draft',args:{narrative:'Synthetic browser and API MCP fixture report.',claimIds:[]}},{kind:'respond',text:'Saved fixture report.'}];
+  const steps:any[]=[plan,{kind:'call_tool',name:'session__browser_tool',args:{url:fixtureUrl}},{kind:'call_tool',name:'session__read_source_guide',args:{source:'platform'}},{kind:'call_tool',name:'mcp__platform__api_platform',args:{path:'/releases',method:'GET',params:{}}},{kind:'call_tool',name:'workflow__analyze',args:{}},{kind:'call_tool',name:'workflow__review',args:{}},{kind:'call_tool',name:'workflow__draft',args:{narrative:'Synthetic browser and API MCP fixture report.',claimIds:[]}},{kind:'respond',text:'Saved fixture report.'}];
   const errors:unknown[]=[];
   const server=createServer(async(req,res)=>{
     try {

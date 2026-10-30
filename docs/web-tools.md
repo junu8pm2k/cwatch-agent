@@ -1,10 +1,12 @@
 # 本地 Web 工具、原生后端与远程 MCP
 
+2026-10-29：项目已移除 GitHub API 接入、来源配置和联网探测入口，并拦截内建网络通道的 GitHub API 地址。旧离线 fixture 与历史验收记录仅用于审计，不代表当前可用能力。详见 [停用说明](github-api-disabled.md)。
+
 ## 模型入口与执行路径
 
 当前本地 API 路径及配置迁移见 [web-api.md](web-api.md)。
 
-使用 `examples/sources-web.json` / `examples/task-web.json` 时，模型获得 `web_search({query,limit})`、`web_fetch({url})`、`mcp__github__api_github` 及 workflow 工具（含指南读取；API 使用前须先读 sources/github/guide.md）。新闻 MCP 仅保留为独立协议测试夹具，不进入默认产品来源。
+使用 `examples/sources-web.json` / `examples/task-web.json` 时，模型获得 `web_search({query,limit})`、`web_fetch({url})` 及 workflow 工具。新闻 MCP 仅保留为独立协议测试夹具，不进入默认产品来源。
 
 ```text
 模型发出 web tool call
@@ -109,7 +111,7 @@ MCP 缺少操作、方法不支持、5xx、连接失败、超时、401/403、429
 
 RSS/Atom、Brave 搜索和本地 HTTP 页面抓取已从通用 web 路由删除，feeds/searchBackend 与 BRAVE_SEARCH_API_KEY 不再是支持配置。旧来源配置携带已删除字段会被严格 Schema 拒绝，避免误以为仍生效。
 
-SearchHit/Page 仍是发现材料，不自动生成事实；分析保留 discovery_only 缺口。旧 official_web 采集工具已删除；结构化解析函数仅供浏览器采集使用，GitHub Releases API 保留结构化映射。默认演示使用明确标记的预构造结构化快照，通用 Web 在真实运行中返回的 SearchHit/Page 不自动升级为事实。
+SearchHit/Page 仍是发现材料，不自动生成事实；分析保留 discovery_only 缺口。旧 official_web 采集工具已删除；结构化解析函数仅供浏览器采集使用；GitHub Releases API 接入已移除。默认演示使用明确标记的预构造结构化快照，通用 Web 在真实运行中返回的 SearchHit/Page 不自动升级为事实。
 
 ## 官方入口发现与有界覆盖
 
@@ -119,7 +121,7 @@ SourceServerBuilder 现在把 web 来源原配置的 urls 与 allowedDomains 传
 
 summarizeDiscovery 分开统计上游返回次数、越域过滤次数、去重候选、精确参考 URL 搜索命中、抓取正文可用入口和实际 structured signals。未知计数为 null，不写成零。候选跨查询去重；去掉片段与尾斜杠，只对 GitHub owner/repo 忽略大小写，保留其他路径、tag 和 query 的差别。失败、越域或返回 URL 不符不填补正文覆盖；候选与正文不自动升为信号。referenceTextAvailability 只是已列入口文本是否可用，仍需核对实体、错误页、截断及正文完整性，不能冒充全站或事件召回率。
 
-examples/competitor-acceptance/discovery-queries.json 固定每产品三次查询、每次 limit=10；scripts/probe-competitor-discovery.ts 使用三个原有起始 URL 为分母，经原执行器与 MCP 独立保存搜索及抓取结果。结构化 GitHub 采集另用 probe-competitor-github.ts，不和页面数合并计为事实。2026-10-24 的具体结果及残余召回缺口见 [官方来源发现验收](p1-discovery-acceptance-2026-10-24.md)。
+examples/competitor-acceptance/discovery-queries.json 固定每产品两次官网查询、每次 limit=10；scripts/probe-competitor-discovery.ts 使用当前两个官网起始 URL 为分母，经原执行器与 MCP 独立保存搜索及抓取结果。GitHub API 采集与探测入口现已移除。2026-10-24 的具体结果及残余召回缺口见 [官方来源发现验收](p1-discovery-acceptance-2026-10-24.md)。
 
 ## 历史执行记录（迁移前）
 

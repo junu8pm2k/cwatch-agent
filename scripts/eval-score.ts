@@ -23,7 +23,9 @@ try {
       if (values.kind !== 'human' && (values.template || values.input)) throw Error('human_input_options_require_human_kind');
       const subject = prepareQualitySubject(values.report, values.case, values.attempt ? Number(values.attempt) : 1, redactor);
       if (values.kind === 'human' && Boolean(values.template) === Boolean(values.input)) throw Error('choose --template or --input for human scoring');
-      if (values.kind === 'human' && values.template) console.log(JSON.stringify(humanTemplate(subject)));
+      if ((values.kind === 'llm'&&!subject.llmApplicable)||(values.kind === 'human'&&!subject.humanApplicable)) {
+        console.log(JSON.stringify({caseId:values.case,kind:values.kind,status:'not_applicable',reason:'No review criteria assigned; no model request or score created.'}));
+      } else if (values.kind === 'human' && values.template) console.log(JSON.stringify(humanTemplate(subject)));
       else {
         const controller = new AbortController(), cancel = () => controller.abort(Error('judge_cancelled'));
         process.once('SIGINT', cancel);
@@ -31,7 +33,7 @@ try {
           const result = values.kind === 'rules' ? scoreRules(subject) : values.kind === 'human' ? scoreHuman(subject, JSON.parse(readFileSync(values.input!, 'utf8')), redactor)
             : await scoreLlm(subject, readJudgeConfig(), { signal: controller.signal, timeoutMs: values.timeout ? Number(values.timeout) : undefined,
               maxOutputTokens: values['max-output-tokens'] ? Number(values['max-output-tokens']) : undefined });
-          console.log(JSON.stringify(result)); if (result.record.verdict !== 'pass') process.exitCode = 1;
+          console.log(JSON.stringify(result)); if (result.record.verdict !== 'ready') process.exitCode = 1;
         } finally { process.removeListener('SIGINT', cancel); }
       }
     }

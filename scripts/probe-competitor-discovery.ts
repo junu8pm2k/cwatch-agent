@@ -14,7 +14,7 @@ if (existsSync('.env')) process.loadEnvFile('.env');
 const args = process.argv.slice(2), outIndex = args.indexOf('--out');
 const out = outIndex < 0 ? 'artifacts/competitor-discovery-probe' : args[outIndex + 1];
 if (!out) throw new Error('missing --out directory');
-const plan = z.object({ version: z.literal(1), limit: z.number().int().min(1).max(10), purpose: z.string(), targets: z.array(z.object({ id: z.string(), queries: z.array(z.string().min(1).max(500)).length(3) }).strict()).length(3) }).strict()
+const plan = z.object({ version: z.literal(1), limit: z.number().int().min(1).max(10), purpose: z.string(), targets: z.array(z.object({ id: z.string(), queries: z.array(z.string().min(1).max(500)).length(2) }).strict()).length(3) }).strict()
   .parse(JSON.parse(readFileSync('examples/competitor-acceptance/discovery-queries.json', 'utf8')));
 if (new Set(plan.targets.map(target => target.id)).size !== 3 || plan.targets.some(target => !['zcode', 'kimi-code', 'minimax-code'].includes(target.id))) throw new Error('invalid discovery targets');
 const redactor = new Redactor(Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''));
@@ -22,13 +22,12 @@ const results = await Promise.allSettled(plan.targets.map(async target => {
   const task = parseTask(JSON.parse(readFileSync(`examples/competitor-acceptance/${target.id}.task.json`, 'utf8')));
   const configs = SourceConfigsSchema.parse(JSON.parse(readFileSync(`examples/competitor-acceptance/${target.id}.sources.json`, 'utf8'))).filter(source => source.kind === 'web' && source.active);
   const source = configs[0];
-  if (configs.length !== 1 || !source.allowedDomains?.length || source.urls?.length !== 3) throw new Error('probe needs original three configured reference entries');
+  if (configs.length !== 1 || !source.allowedDomains?.length || source.urls?.length !== 2) throw new Error('probe needs two configured official-site reference entries');
   for (const url of source.urls) allowedUrl(url, source.allowedDomains);
   for (const query of target.queries) {
     const directive = /\bsite:([^\s)]+)/.exec(query)?.[1];
     if (!directive) throw new Error('official site directive required');
     allowedUrl('https://' + directive, source.allowedDomains);
-    if (directive.startsWith('github.com/') && !source.urls.some(url => url.toLowerCase() === ('https://' + directive).toLowerCase())) throw new Error('query outside configured official repository');
   }
   const data = new FileStore(`${out}/${target.id}`), registry = new ToolRegistry(), builder = new SourceServerBuilder(process.cwd());
   const runId = id(), trace = new Trace(data, task.taskId, runId, redactor), signal = AbortSignal.timeout(240000);

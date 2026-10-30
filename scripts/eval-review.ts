@@ -4,17 +4,17 @@ import { approveCases } from './evaluation/review.ts';
 
 try {
   const { values } = parseArgs({ options: {
-    dataset: { type: 'string', default: 'evals/model-diagnostic/dataset.json' },
+    dataset: { type: 'string' },
     case: { type: 'string', multiple: true }, by: { type: 'string' }, approve: { type: 'boolean' },
     'dry-run': { type: 'boolean' }, help: { type: 'boolean' },
   } });
+  if (!values.help && !values.dataset) throw Error('evaluation_dataset_required: bundled eval cases have been removed; provide --dataset <file>');
   if (values.help) {
-    console.log(`查看题单：npm run eval:review
-查看一道题：npm run eval:review -- --case model-kimi-window-boundary
-审核通过：npm run eval:review -- --case model-kimi-window-boundary --by Swing --approve
+    console.log(`查看题单：npm run eval:review -- --dataset <file>
+查看一道题：增加 --case <ID>
+审核通过：增加 --case <ID> --by <实际审核者> --approve
 预览变更：在审核命令后加 --dry-run，不写文件
 批量审核：重复 --case，仅列出你已核验的案例
-契约题：增加 --dataset evals/regression/dataset.json
 审核不会调用模型。--approve 表示你已人工核验题目、材料和评分标准。
 程序自动记录实际时间、增加修订与题单版本、计算哈希、同步catalog并保存旧题单快照。`);
   } else if (values.approve) {

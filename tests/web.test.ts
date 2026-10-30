@@ -96,14 +96,14 @@ check('contract', 'URL guard still excludes IP literals, credentials and unsuppo
 });
 check('integration', 'full agent loop consumes search/fetch observations and retains discovery gaps beside structured facts', async () => {
   const h = await harness({ ...base, searchMcp }, { fetcher: mcpProtocol() });
-  h.task.allowedSources.push('github');
-  const configs = SourceConfigsSchema.parse(JSON.parse(readFileSync('examples/sources.json', 'utf8'))).filter(c => c.kind === 'github_releases'); await new SourceServerBuilder(process.cwd()).register(configs, 'replay', h.registry, live);
+  h.task.allowedSources.push('platform');
+  const configs = SourceConfigsSchema.parse([JSON.parse(readFileSync('tests/fixtures/platform-source.json', 'utf8'))]); await new SourceServerBuilder(process.cwd()).register(configs, 'replay', h.registry, live);
   const result = await runInvestigation(h.task, new ReplayModel([
-    { kind: 'call_tool', name: 'workflow__save_plan', args: { taskId: h.task.taskId, objective: 'Fixture web discovery plus verified API evidence', sources: ['web', 'github'], queries: ['Node.js'], evidenceRequirements: ['URL and evidence'], window: { start: h.task.window.start, end: h.task.window.end } } },
+    { kind: 'call_tool', name: 'workflow__save_plan', args: { taskId: h.task.taskId, objective: 'Fixture web discovery plus verified API evidence', sources: ['web', 'platform'], queries: ['Node.js'], evidenceRequirements: ['URL and evidence'], window: { start: h.task.window.start, end: h.task.window.end } } },
     { kind: 'call_tool', name: 'web_search', args: { query: 'Node.js', limit: 2 } },
     { kind: 'call_tool', name: 'web_fetch', args: { url: 'https://nodejs.org/article' } },
-    { kind: 'call_tool', name: 'session__read_source_guide', args: { source: 'github' } },
-    { kind: 'call_tool', name: 'mcp__github__api_github', args: { path: '/repos/nodejs/node/releases', method: 'GET', params: { per_page: 1 } } },
+    { kind: 'call_tool', name: 'session__read_source_guide', args: { source: 'platform' } },
+    { kind: 'call_tool', name: 'mcp__platform__api_platform', args: { path: '/releases', method: 'GET', params: {} } },
     { kind: 'call_tool', name: 'workflow__analyze', args: {} },
     { kind: 'call_tool', name: 'workflow__review', args: {} },
     { kind: 'call_tool', name: 'workflow__draft', args: { narrative: 'Fixture run: generic web material remains discovery; structured API data supplies claims.', claimIds: '$analyzed_claim_ids' } },

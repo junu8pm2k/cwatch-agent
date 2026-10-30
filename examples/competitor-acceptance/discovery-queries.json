@@ -3,20 +3,26 @@
   "limit": 10,
   "purpose": "Bounded official-site discovery. Reference URLs remain those in the existing source configs; this is not a full-site or event recall benchmark.",
   "targets": [
-    { "id": "zcode", "queries": [
-      "ZCode site:zcode.z.ai",
-      "ZCode site:zcode.z.ai (docs OR changelog OR 更新 OR 发布)",
-      "ZCode site:github.com/zai-org/ZCode"
-    ] },
-    { "id": "kimi-code", "queries": [
-      "Kimi Code site:www.kimi.com",
-      "Kimi Code site:www.kimi.com/resources",
-      "Kimi Code site:github.com/MoonshotAI/kimi-code"
-    ] },
-    { "id": "minimax-code", "queries": [
-      "MiniMax Code site:agent.minimax.cn",
-      "MiniMax Code site:agent.minimax.cn/docs",
-      "MiniMax Code site:github.com/MiniMax-AI/minimax-code"
-    ] }
+    {
+      "id": "zcode",
+      "queries": [
+        "ZCode site:zcode.z.ai",
+        "ZCode site:zcode.z.ai (docs OR changelog OR 更新 OR 发布)"
+      ]
+    },
+    {
+      "id": "kimi-code",
+      "queries": [
+        "Kimi Code site:www.kimi.com",
+        "Kimi Code site:www.kimi.com/resources"
+      ]
+    },
+    {
+      "id": "minimax-code",
+      "queries": [
+        "MiniMax Code site:agent.minimax.cn",
+        "MiniMax Code site:agent.minimax.cn/docs"
+      ]
+    }
   ]
 }

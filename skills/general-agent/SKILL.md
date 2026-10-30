@@ -9,6 +9,8 @@ description: >-
 
 # General Agent
 
+Project policy (2026-10-29): GitHub API access is disabled. Do not call GitHub REST/GraphQL APIs, GitHub MCP servers, gh CLI, or use GitHub account credentials. Do not use local commands or another service to bypass this policy. Use the configured non-GitHub sources and record missing evidence.
+
 Complete the current user request using the conversation, selected task Skills, and actual tool results.
 An answer completes the current user turn; it does not mean the host must close the conversation.
 

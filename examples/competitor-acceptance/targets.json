@@ -18,17 +18,14 @@
         "智谱 ZCode"
       ],
       "domain": "zcode.z.ai",
-      "repo": "zai-org/ZCode",
       "domains": [
         "zcode.z.ai",
         "z.ai",
-        "docs.z.ai",
-        "github.com"
+        "docs.z.ai"
       ],
       "urls": [
         "https://zcode.z.ai/en",
-        "https://zcode.z.ai/cn/docs/install",
-        "https://github.com/zai-org/ZCode"
+        "https://zcode.z.ai/cn/docs/install"
       ]
     },
     {
@@ -39,17 +36,14 @@
         "Kimi Code CLI"
       ],
       "domain": "www.kimi.com",
-      "repo": "MoonshotAI/kimi-code",
       "domains": [
         "www.kimi.com",
         "www.kimi.ai",
-        "code.kimi.com",
-        "github.com"
+        "code.kimi.com"
       ],
       "urls": [
         "https://www.kimi.com/code",
-        "https://www.kimi.com/resources/kimi-code-introduction",
-        "https://github.com/MoonshotAI/kimi-code"
+        "https://www.kimi.com/resources/kimi-code-introduction"
       ]
     },
     {
@@ -60,16 +54,13 @@
         "minimaxcode"
       ],
       "domain": "agent.minimax.cn",
-      "repo": "MiniMax-AI/minimax-code",
       "domains": [
         "agent.minimax.cn",
-        "agent.minimax.io",
-        "github.com"
+        "agent.minimax.io"
       ],
       "urls": [
         "https://agent.minimax.cn/about",
-        "https://agent.minimax.cn/docs/changelog",
-        "https://github.com/MiniMax-AI/minimax-code"
+        "https://agent.minimax.cn/docs/changelog"
       ]
     }
   ]

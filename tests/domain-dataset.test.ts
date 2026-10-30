@@ -1,31 +1,11 @@
 import assert from 'node:assert/strict';
 import { check, fixture, json, store, task as defaultTask } from './harness.ts';
 import { EvidenceStore, reviewClaims } from "@cwatch/shared/intelligence/evidence";
-import { RetrievalSchema, type RetrievalResult } from "@cwatch/core/types";
 import { SourceServerBuilder, SourceConfigsSchema } from "@cwatch/shared/sources/server-builder";
 import { ToolRegistry } from "@cwatch/shared/tools/registry";
 import { ReplayModel } from "@cwatch/shared/agent/models";
 import { runInvestigation } from "@cwatch/server-core/runtime/investigation";
-interface LabeledCase {id:string;inputs:Array<{fixture?:string;signal?:Record<string,any>;result?:unknown}>;expected:{events:number;versions:number;evidence:number;claims:number;review:string;gapIncludes:string[]}}
-const dataset=json<{cases:LabeledCase[]}>('fixtures/eval-cases.json');
 const task = () => { const value = defaultTask(); value.allowedSources.push('news'); return value; };
-for(const item of dataset.cases)check('semantic','labeled domain dataset: '+item.id,()=>{
-  const facts=new EvidenceStore(store()),value=task(),ids:string[]=[],gaps:string[]=[];
-  for(const input of item.inputs){
-    let result:RetrievalResult;
-    if(input.result)result=RetrievalSchema.parse(input.result);
-    else {
-      result=fixture(input.fixture);
-      const base=result.signals[0],override=input.signal??{};
-      result.signals[0]={...base,...override,entity:{...base.entity,...override.entity},content:{...base.content,...override.content}};
-    }
-    const added=facts.ingest(value,result);ids.push(...added.evidenceIds);gaps.push(...added.gaps);
-  }
-  const claims=facts.claims(value,ids),review=reviewClaims(value,claims,facts.events(),facts.versions(),facts.evidence());
-  assert.deepEqual({events:facts.events().length,versions:facts.versions().length,evidence:facts.evidence().length,claims:claims.length,review:review.decision},{events:item.expected.events,versions:item.expected.versions,evidence:item.expected.evidence,claims:item.expected.claims,review:item.expected.review});
-  for(const expected of item.expected.gapIncludes)assert.ok(gaps.some(gap=>gap.includes(expected)),expected);
-  if(!item.expected.gapIncludes.length)assert.deepEqual(gaps,[]);
-});
 check('semantic','Previously stored evidence cannot escape a narrower source or signal-type scope',()=>{
   const facts=new EvidenceStore(store()),value=task(),collected=facts.ingest(value,fixture()),claims=facts.claims(value,collected.evidenceIds);
   const narrower={...value,allowedSources:['news']};assert.deepEqual(facts.claims(narrower,collected.evidenceIds),[]);
@@ -36,11 +16,11 @@ check('semantic','Previously stored evidence cannot escape a narrower source or 
   assert.deepEqual(facts.claims(value,priceIds),[]);
 });
 check('semantic','Omitting a planned source remains partial even when other collected facts are valid',async()=>{
-  const value=defaultTask(),registry=new ToolRegistry(),builder=new SourceServerBuilder(process.cwd()),data=store();
+  const value=defaultTask(); value.allowedSources.push('platform'); const registry=new ToolRegistry(),builder=new SourceServerBuilder(process.cwd()),data=store();
   try {
-    await builder.register(SourceConfigsSchema.parse(json('examples/sources.json')),'replay',registry,new AbortController().signal);
-    const steps=json<any[]>('fixtures/model-script.json').filter(step=>step.name!=='mcp__github__api_github');
+    await builder.register(SourceConfigsSchema.parse([...json('examples/sources.json'), json('tests/fixtures/platform-source.json')]),'replay',registry,new AbortController().signal);
+    const steps=json<any[]>('fixtures/model-script.json'); steps[0].args.sources=value.allowedSources;
     const result=await runInvestigation(value,new ReplayModel(steps),registry,data,'replay');
-    assert.equal(result.status,'partial');assert.ok(result.gaps.includes('source_not_collected:github'));assert.ok(result.report);
+    assert.equal(result.status,'partial');assert.ok(result.gaps.includes('source_not_collected:platform'));assert.ok(result.report);
   } finally {await registry.close();await builder.mcpPool.close();}
 });

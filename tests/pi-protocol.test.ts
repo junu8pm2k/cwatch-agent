@@ -34,17 +34,17 @@ check('integration', 'actual Pi SDK HTTP codec runs same scripted loop as replay
     const data = store(), registry = new ToolRegistry(); await new SourceServerBuilder(process.cwd()).register(SourceConfigsSchema.parse(json('examples/sources.json')), 'replay', registry, new AbortController().signal);
     const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-local', MODEL_ID: 'fixture-model', API_KEY: 'fixture-key-never-real', BASE_URL: `http://127.0.0.1:${address.port}/v1/` });
     const actual = await runInvestigation(task(), model, registry, data, 'replay', { timeoutMs: 60_000 });
-    assert.equal(actual.status, 'complete', actual.error); assert.equal(cursor, 8); assert.ok(requestedNames.every(names => names.includes('web_fetch') && !names.includes('bash')));
+    assert.equal(actual.status, 'complete', actual.error); assert.equal(cursor, steps.length); assert.ok(requestedNames.every(names => names.includes('web_fetch') && !names.includes('bash')));
     assert.ok(requestPaths.every(path => path === '/v1/chat/completions'));
     assert.equal(histories[1].filter(message => message.role === 'user').length, 1);
     assert.equal(histories[1].find(message => message.role === 'tool').tool_call_id, 'fixture-call-1');
-    assert.ok(histories[7].filter(message => message.role === 'tool').length >= 7);
+    assert.ok(histories[steps.length - 1].filter(message => message.role === 'tool').length >= steps.length - 1);
     assert.equal((model.usage as Record<string, unknown>).costSource, 'unavailable_for_custom_endpoint');
     assert.equal('cost' in (model.usage as Record<string, unknown>), false);
     assert.ok(!JSON.stringify(replayState(data, actual.runId)).includes('fixture-key-never-real'));
     const state = replayState(data, actual.runId); const replay = new ReplayModel(steps);
     const expected = [];
-    for (let i = 0; i < 8; i++) expected.push(await replay.decide({ state, stable: '', volatile: '', tools: registry.list() }, new AbortController().signal));
+    for (let i = 0; i < steps.length; i++) expected.push(await replay.decide({ state, stable: '', volatile: '', tools: registry.list() }, new AbortController().signal));
     assert.deepEqual(state.decisions, expected);
     const events = data.lines<TraceEvent>('traces/' + actual.runId + '.jsonl'); assert.equal(events[0].data.engine, 'pi-agent-session');
     const processes = events.filter(event => event.type === 'agent_process');
@@ -54,9 +54,9 @@ check('integration', 'actual Pi SDK HTTP codec runs same scripted loop as replay
     const missingExit = events.filter(event => !(event.type === 'agent_process' && event.data.state === 'exited')).map((event, index) => ({ ...event, sequence: index + 1 }));
     assert.ok(validateTrace(missingExit).includes('run terminal with active agent process'));
     const preRequests = events.filter(event => event.type === 'pre_tool_use_request'), preResponses = events.filter(event => event.type === 'pre_tool_use_response');
-    assert.equal(preRequests.length, 7); assert.equal(preResponses.length, 7);
-    assert.deepEqual(preRequests.map(event => event.data.sdkToolCallId), Array.from({ length: 7 }, (_, index) => 'fixture-call-' + (index + 1)));
-    for (const request of preRequests) assert.ok(preResponses.some(response => response.data.requestId === request.data.requestId && response.data.sdkToolCallId === request.data.sdkToolCallId && response.data.action === 'allow')); assert.equal((events.find(e => e.type === 'usage_reported')!.data.modelUsage as unknown[]).length, 8);
+    assert.equal(preRequests.length, steps.length - 1); assert.equal(preResponses.length, steps.length - 1);
+    assert.deepEqual(preRequests.map(event => event.data.sdkToolCallId), Array.from({ length: steps.length - 1 }, (_, index) => 'fixture-call-' + (index + 1)));
+    for (const request of preRequests) assert.ok(preResponses.some(response => response.data.requestId === request.data.requestId && response.data.sdkToolCallId === request.data.sdkToolCallId && response.data.action === 'allow')); assert.equal((events.find(e => e.type === 'usage_reported')!.data.modelUsage as unknown[]).length, steps.length);
     await registry.close();
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

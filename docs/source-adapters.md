@@ -1,11 +1,13 @@
 # 浏览器与 MCP 来源适配
 
+2026-10-29：项目已移除 GitHub API 接入、来源配置和联网探测入口，并拦截内建网络通道的 GitHub API 地址。旧离线 fixture 与历史验收记录仅用于审计，不代表当前可用能力。详见 [停用说明](github-api-disabled.md)。
+
 当前采集仅有 builtin 与 mcp 两类执行通道，另有内部 workflow 工具。CLI 采集与独立 api 通道已删除；应用自身命令行入口保留。
 
 | 通道 | 来源 |
 |---|---|
 | builtin | 通用 web_search / web_fetch、只读 browser_tool |
-| mcp | stdio/远程 MCP、GitHub Releases 包装、通用 REST API 包装 |
+| mcp | stdio/远程 MCP、通用 REST API 包装 |
 
 McpConnectionPool 按运行与配置复用来源及用户 MCP 的连接/工具发现，最多 64 项，最后租约释放后关闭。平台 API 在池内使用真实 MCP Server/Client 与进程内传输。通用 web 路由的搜索 MCP 仍由专用适配器管理。
 
@@ -35,6 +37,6 @@ McpConnectionPool 按运行与配置复用来源及用户 MCP 的连接/工具�
 
 ## 平台 API 包装为 MCP
 
-每个 API 来源用 sources/<slug>/config.json + guide.md 与单个 api_<slug> 工具，Agent 代理名为 mcp__<slug>__api_<slug>。模型经 session__read_source_guide 先读指南，再提交 path/method/params；指南未读或变化时硬阻断，权限由请求实际语义推导。配置、Craft 源码映射、调用图和边界见 [平台 API MCP](platform-api-mcp.md)。原 github_releases 配置自动走 MCP，通用 kind=api 模板见 examples/sources-platform-api.json；kind=cli 不再接受。
+每个 API 来源用 sources/<slug>/config.json + guide.md 与单个 api_<slug> 工具，Agent 代理名为 mcp__<slug>__api_<slug>。模型经 session__read_source_guide 先读指南，再提交 path/method/params；指南未读或变化时硬阻断，权限由请求实际语义推导。配置、Craft 源码映射、调用图和边界见 [平台 API MCP](platform-api-mcp.md)。github_releases 配置已移除，不再接受；通用 kind=api 模板见 examples/sources-platform-api.json；kind=cli 不再接受。
 
-运行 npm run demo:adapters 可演示浏览器 fixture 与 GitHub API fixture 经 MCP 的完整调查。npm run verify:browser 运行真实浏览器、真实 Pi 子进程与真实进程内 MCP 协议，模型响应和业务页面仍是合成 fixture，不能称为真实模型质量验收。
+运行 npm run demo:adapters 可演示浏览器 fixture 的调查流程。npm run verify:browser 运行真实浏览器、真实 Pi 子进程与真实进程内 MCP 协议，模型响应和业务页面仍是合成 fixture，不能称为真实模型质量验收。

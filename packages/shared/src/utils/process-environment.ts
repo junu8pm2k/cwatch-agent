@@ -6,6 +6,7 @@ export function processEnvironment(privateRefs: Record<string,string> = {}, publ
   const env: Record<string,string> = Object.fromEntries(Object.entries(host).filter(([key,value])=>allowed.test(key)&&value!==undefined).map(([key,value])=>[key,value!]));
   const secrets: string[] = [], targets = new Set<string>();
   for (const [refs, sensitive] of [[privateRefs,true],[publicRefs,false]] as const) for (const [target, source] of Object.entries(refs)) {
+    if ([target, source].some(name => /^(?:GITHUB_|GH_(?:TOKEN|ENTERPRISE_TOKEN)$)/i.test(name))) throw new Error('github_credentials_disabled_by_project_policy');
     const key = target.toUpperCase();
     if (key === 'NODE_OPTIONS' || targets.has(key)) throw new Error('source_env_target_invalid');
     targets.add(key);

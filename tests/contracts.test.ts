@@ -1,5 +1,3 @@
-import type { ToolExecutionContext } from '@cwatch/core/types';
-const githubContext: ToolExecutionContext = {stage:async(_name,run)=>run(),event:()=>{}};
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -10,17 +8,17 @@ import { ActionPolicy, ApprovalManager } from "@cwatch/shared/agent/core/permiss
 import { Trace, Redactor, validateTrace, type TraceEvent } from "@cwatch/shared/sessions/trace";
 import { runInvestigation, replayState } from "@cwatch/server-core/runtime/investigation";
 import { ReplayModel, decodePiMessage, encodePiRequest } from "@cwatch/shared/agent/models";
-import { SourceConfigsSchema, SourceServerBuilder, McpSource, GithubSource, mapGitHub, parseOfficial, type SourceConfig } from "@cwatch/shared/sources/server-builder";
+import { SourceConfigsSchema, SourceServerBuilder, McpSource, parseOfficial, type SourceConfig } from "@cwatch/shared/sources/server-builder";
 import { assembleContext, loadInvestigationSkill } from "@cwatch/shared/agent/core/prompt-builder";
 import { FileStore } from "@cwatch/shared/sessions/storage";
 
 const live = new AbortController().signal;
-check('contract', 'standard sources expose one Web search/fetch pair and GitHub MCP without legacy or fake news tools', async () => {
+check('contract', 'standard sources expose one Web search/fetch pair without legacy or fake news tools', async () => {
   const registry = new ToolRegistry(), builder = new SourceServerBuilder(process.cwd());
   try {
     const configs = SourceConfigsSchema.parse(json('examples/sources.json'));
     assert.deepEqual(await builder.register(configs, 'replay', registry, live), []);
-    assert.deepEqual(registry.list().map(tool => tool.proxy_name).sort(), ['mcp__github__api_github', 'web_fetch', 'web_search']);
+    assert.deepEqual(registry.list().map(tool => tool.proxy_name).sort(), ['web_fetch', 'web_search']);
     assert.equal(task().allowedSources.includes('news'), false);
     assert.equal(SourceConfigsSchema.safeParse([{ slug: 'legacy', kind: 'official_web' }]).success, false);
   } finally { await registry.close(); await builder.mcpPool.close(); }
@@ -210,27 +208,11 @@ check('integration', 'local MCP actual stdio tools/list and tools/call', async (
   } finally { await client.close(); }
 });
 
-const githubConfig: SourceConfig = { slug: 'github', active: true, kind: 'github_releases', repo: 'nodejs/node', entityId: 'nodejs', entityName: 'Node.js', domain: 'nodejs.org', product: 'Node.js' };
-for (const [status, expected] of [[401, 'auth_failed'], [429, 'rate_limited'], [503, 'unknown']] as const) check('contract', 'GitHub HTTP ' + status + ' mapped without no-activity inference', async () => {
-  const source = new GithubSource(githubConfig, async () => new Response('failure', { status })); await source.guide.read(live); const result = await source.callTool('api_github', { path: '/repos/nodejs/node/releases', method: 'GET', params: { per_page: 5 } }, live, githubContext); assert.equal(result.status, expected); assert.deepEqual(result.signals, []);
-});
-check('contract', 'GitHub endpoint/request/response mapping is concrete', async () => {
-  let endpoint = '', headers: HeadersInit | undefined;
-  const source = new GithubSource(githubConfig, async (url, options) => { endpoint = String(url); headers = options?.headers; return new Response(fixture('github').raw, { status: 200 }); }, 'private-fixture-key'); await source.guide.read(live);
-  const result = await source.callTool('api_github', { path: '/repos/nodejs/node/releases', method: 'GET', params: { per_page: 5 } }, live, githubContext);
-  assert.equal(endpoint, 'https://api.github.com/repos/nodejs/node/releases?per_page=5'); assert.equal(new Headers(headers).get('authorization'), 'Bearer private-fixture-key'); assert.equal(result.signals[0].eventKey, 'release:v24.1.0'); assert.ok(!JSON.stringify(result).includes('private-fixture-key'));
-});
-check('contract', 'GitHub empty / malformed / timeout remain distinct', async () => {
-  for (const [raw, status] of [['[]', 'success_empty'], ['{}', 'parse_failed'], ['not json', 'parse_failed']]) { const source = new GithubSource(githubConfig, async () => new Response(raw)); await source.guide.read(live); assert.equal((await source.callTool('api_github', { path: '/repos/nodejs/node/releases', method: 'GET', params: { per_page: 1 } }, live, githubContext)).status, status); }
-  const controller = new AbortController(); controller.abort(new DOMException('timeout', 'TimeoutError'));
-  const timed = new GithubSource(githubConfig, async (_url, options) => { options?.signal?.throwIfAborted(); throw new Error('unexpected'); });
-  await assert.rejects(timed.callTool('api_github', { path:'/repos/nodejs/node/releases', method:'GET', params:{per_page:1} }, controller.signal, githubContext), {name:'TimeoutError'});
-});
 check('contract', 'structured extraction preserves publication time without registering a second fetch tool', () => {
   const config = SourceConfigsSchema.parse(json('examples/sources.json'))[0];
   const signals = parseOfficial(config, config.urls![0], fixture().raw);
   assert.equal(signals[0].published_at, '2025-05-06T12:00:00Z');
 });
 check('integration', 'two independent sessions do not share messages or evidence state', async () => {
-  const a = await replayRun(); const b = await replayRun(); assert.notEqual(a.result.runId, b.result.runId); assert.notEqual(a.data.root, b.data.root); assert.equal(replayState(a.data, a.result.runId).observations.length, 7); assert.equal(replayState(b.data, b.result.runId).observations.length, 7);
+  const a = await replayRun(); const b = await replayRun(); assert.notEqual(a.result.runId, b.result.runId); assert.notEqual(a.data.root, b.data.root); assert.equal(replayState(a.data, a.result.runId).observations.length, 5); assert.equal(replayState(b.data, b.result.runId).observations.length, 5);
 });

@@ -1,5 +1,7 @@
 # 简历四条描述与本轮后端对齐
 
+2026-10-29 清理说明：内置 eval case、题单、材料及对应评测归档已删除。下文中的旧案例数量、路径与成绩仅描述历史；当前状态见 [评测状态](evaluation.md)。
+
 按用户提供的四条描述核对当前独立项目。实现证据不倒推历史生产效果、个人职责或人工负担的量化改善；参考仓库和外部简历材料均未改写。
 
 | 简历重点 | 本轮补齐 | 证据与入口 | 表述边界 |
@@ -7,7 +9,7 @@
 | 多源情报工具调用接入 | 只读 browser_tool、API MCP、每运行 MCP 池；统一 builtin/mcp 归类，停用来源不启动后端 | packages/shared/src/sources/browser.ts、packages/shared/src/sources/api-tools.ts、packages/shared/src/mcp/client-pool.ts、packages/shared/src/sources/server-builder.ts；demo:adapters、verify:browser | 不自动理解任意 API 业务数据；单一子进程入口是受控 Node IPC，不是外部 HTTP MCP 池 |
 | 工具调用硬拦截门禁权限 | visibleTools 决定模式与任务的披露面；运行内固定绑定上限；ToolExecutor 继续独立硬检查、审批和阶段复查 | packages/shared/src/agent/core/permission-manager.ts、packages/shared/src/agent/core/prompt-builder.ts、packages/shared/src/tools/executor.ts、packages/shared/src/agent/core/pre-tool-use.ts；tests/backend-contracts.test.ts、tests/pi-session.test.ts | explore 允许必要本地计划/草稿；allow-all 不跳过范围校验。工具门禁不是 OS 沙箱 |
 | 上下文工程 | prepareTurn 每轮校验冻结 Skill 正文、注入权限分支/实体/来源/时间/来源状态，再做体积检查；Pi 续轮实际刷新提示，计划落盘与提交回调保留 | packages/shared/src/agent/core/prompt-builder.ts、packages/server-core/src/runtime/investigation.ts、packages/shared/src/agent/backend/pi/session.ts；context_prepared 保存哈希与工具面 | Skill 在安装/选择时解析 YAML，运行中使用冻结正文；不声称每轮从磁盘重新解析或继承 Craft BaseAgent |
-| Agent Eval 契约回归门禁 | AgentEventSchema 覆盖权限/工具/模型/上下文事件；Trace v2 写入前验证载荷，兼容旧格式；新增独立标签及实际浏览器门禁 | packages/shared/src/agent/events.ts、packages/shared/src/sessions/trace.ts、fixtures/eval-cases.json、tests/domain-dataset.test.ts、tests/browser-live.test.ts | “Trace Schema 仍为设计”已过时；固定标签和协议模型不是实际模型质量 Golden Cases |
+| Agent Eval 契约回归门禁 | AgentEventSchema 覆盖权限/工具/模型/上下文事件；Trace v2 写入前验证载荷，兼容旧格式；新增独立标签及实际浏览器门禁 | packages/shared/src/agent/events.ts、packages/shared/src/sessions/trace.ts、tests/domain-dataset.test.ts、tests/browser-live.test.ts | “Trace Schema 仍为设计”已过时；固定标签和协议模型不是实际模型质量 Golden Cases |
 
 ## 可以演示和复核的机制
 

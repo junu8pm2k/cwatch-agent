@@ -22,12 +22,12 @@ import type { Claim, Evidence } from '@cwatch/shared/intelligence/evidence';
 
 const genericTask = () => ({ kind: 'agent' as const, taskId: 'general-agent-task', instruction: '读取 README.md，说明项目能力和运行方法，并说明依据。', allowedSources: [] as string[] });
 const definitions = [
-  { id: 'standard', name: '官网与发布', description: '通用网页读取与 GitHub API', task: 'examples/task.json', sources: 'examples/sources.json' },
-  { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取与 GitHub API；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: 'examples/sources-web.json' },
-  { id: 'adapters', name: '浏览器与 API', description: '只读浏览器与 GitHub API', task: 'examples/task-adapters.json', sources: 'examples/sources-adapters.json' },
+  { id: 'standard', name: '官网与发布', description: '通用网页读取', task: 'examples/task.json', sources: 'examples/sources.json' },
+  { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: 'examples/sources-web.json' },
+  { id: 'adapters', name: '浏览器读取', description: '只读浏览器', task: 'examples/task-adapters.json', sources: 'examples/sources-adapters.json' },
 ];
 definitions.push({ id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: 'examples/sources.json' });
-const names: Record<string,string> = { official: '官方网站', github: 'GitHub 发布', browser: '浏览器读取', web: '联网搜索与读取' };
+const names: Record<string,string> = { official: '官方网站', browser: '浏览器读取', web: '联网搜索与读取' };
 const startSchema = z.object({
   profile: z.enum(['agent','standard','web','adapters']).default('agent'), mode: z.enum(['live','replay']).default('replay'),
   permission: z.enum(['explore','ask','allow-all']).default('explore'), task: AgentTaskSchema.optional(),
@@ -70,7 +70,7 @@ export class RunService {
   profiles():RunProfile[] {
     return definitions.map(profile=>({id:profile.id,name:profile.name,description:profile.description,
       task:profile.id==='agent'?genericTask():parseTask(JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))),
-      sources:[...readSourceConfigs(resolve(this.root,profile.sources)).map(source=>({slug:source.slug,name:names[source.slug]??source.slug,channel:['api','github_releases','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active})),...new UserMcpStore(this.root).list().map(source=>({slug:source.slug,name:'自定义 · '+source.slug,channel:'mcp',active:source.enabled}))],
+      sources:[...readSourceConfigs(resolve(this.root,profile.sources)).map(source=>({slug:source.slug,name:names[source.slug]??source.slug,channel:['api','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active})),...new UserMcpStore(this.root).list().map(source=>({slug:source.slug,name:'自定义 · '+source.slug,channel:'mcp',active:source.enabled}))],
     }));
   }
   skills(){return new SkillStore(this.root).list().map(item=>({name:item.name,description:item.description,enabled:item.enabled}));}
@@ -142,8 +142,7 @@ export class RunService {
     if(!isInvestigationTask(task))return new ReplayModel([{kind:'call_tool',name:'read',args:{path:'README.md',offset:1,limit:40}},{kind:'respond',text:'本次通用 Agent 演示通过 read 读取 README.md。执行由预设脚本驱动，展示通用任务入口和工具调用，不代表真实模型总结。真实模式将按你的任务和选中 Skill 执行。'}]);
     const steps:Decision[]=[{kind:'call_tool',name:'workflow__save_plan',args:{taskId:task.taskId,objective:'核验 '+task.competitor.name+' 的动态，保留来源与时间缺口',sources:task.allowedSources,queries:[task.competitor.name+' '+task.product+' releases'],evidenceRequirements:['source URL and snapshot','independent publication time','entity attribution'],window:{start:task.window.start,end:task.window.end}}}];
     for(const config of configs.filter(c=>c.active)){
-      if(config.kind==='github_releases'){steps.push({kind:'call_tool',name:'session__read_source_guide',args:{source:config.slug}},{kind:'call_tool',name:proxyToolName(config.slug,'api_'+config.slug),args:{path:'/repos/'+config.repo+'/releases',method:'GET',params:{per_page:5}}});}
-      else if(config.kind==='browser')steps.push({kind:'call_tool',name:registeredToolName(config.slug,'builtin',{name:'browser_tool',namespace:'session',description:'Replay source read',action:'collect',inputSchema:{}}),args:{url:config.urls![0]}});
+      if(config.kind==='browser')steps.push({kind:'call_tool',name:registeredToolName(config.slug,'builtin',{name:'browser_tool',namespace:'session',description:'Replay source read',action:'collect',inputSchema:{}}),args:{url:config.urls![0]}});
       else if(config.kind==='web')steps.push(config.urls?.length?{kind:'call_tool',name:'web_fetch',args:{url:config.urls[0]}}:{kind:'call_tool',name:'web_search',args:{query:task.competitor.name+' releases',limit:5}});
       else if(config.kind==='mcp')steps.push({kind:'call_tool',name:proxyToolName(config.slug,'search.news'),args:{query:task.competitor.name+' releases'}});
     }

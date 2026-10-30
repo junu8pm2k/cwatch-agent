@@ -1,5 +1,7 @@
 # 项目目录与 Craft 对照
 
+2026-10-29 清理说明：内置 eval case、题单、材料及对应评测归档已删除。下文中的旧案例数量、路径与成绩仅描述历史；当前状态见 [评测状态](evaluation.md)。
+
 本项目按 Craft 的 apps/cli、packages/core、packages/shared、packages/server-core 职责组织为 npm workspaces。使用 Node.js 24 和现有依赖版本，根目录保留启动、验证、示例和数据目录。
 
 ## 当前目录
@@ -122,7 +124,9 @@ Node 使用真实 workspace 包链接解析 @cwatch/*，不是仅对编辑器生
 
 `artifacts/test-work/` 由测试和 `scripts/stage-clean.ts` 自动生成，包含 `case-*` 临时状态及 `clean-install-*` 隔离安装副本；在没有测试或隔离安装进程使用它们时可清理。`artifacts/clean-install-path.txt` 只是最近一次隔离安装位置的临时指针。2026-10-25 已清理积累的 20907 个测试目录、5 份隔离安装副本，以及无引用的一次性迁移脚本和 StepSearch 调试下载文件。2026-10-27 在 551 项回归通过后再次清理临时工作目录、一次性调试文件及无引用日志，保留验收与真实评测证据；实际清单和数量见 [清理记录](../artifacts/cleanup-summary.json)，产物分类见 [artifacts 说明](../artifacts/README.md)。
 
-`artifacts/agent-eval/`、`artifacts/agent-eval-model/` 和 `artifacts/tutorial-eval/` 保存可重评分的评测归档；`delivery-demo/`、各验收报告及其证据也应保留。清理临时目录不等于删除全部 artifacts。`.runtime/` 保存工作台历史，`.env` 保存本机配置，均不属于此次清理范围。
+2026-10-29 已删除 Case 评测归档，包括 agent-eval、agent-eval-model、tutorial-eval、model-suite、scenario 和 penalty 演示。`delivery-demo/` 与普通工程运行材料保留。清理临时目录不等于删除全部 artifacts。`.runtime/` 保存工作台历史，`.env` 保存本机配置，均不属于此次清理范围。
+
+2026-10-30 按用户要求再次清理历史生成物：旧 delivery/demo、probe、浏览器及会话输出和根目录日志已删除；现在只保留新建 Case 1 的 agent-eval 完整证据、三份 history-summary 历史摘要及清理索引。Case 1 的旧批次文件受完整性校验保护，不单独拆删；README 与 latest-evaluation.json 指向最新报告。旧运行输出下次执行对应命令时再生成，默认不纳入 Git。
 
 ## 文件迁移索引
 

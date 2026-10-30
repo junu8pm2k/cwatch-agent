@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { ManagedWorkspace } from "../workspaces/managed-workspace.ts";
+import { assertNetworkUrlAllowed, assertMcpIntegrationAllowed } from '../sources/network-policy.ts';
 
 export const actionSchema = z.enum(['collect', 'analyze', 'local_draft', 'modify', 'send', 'publish']);
 const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 export function validateMcpUrl(value: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('mcp_url_invalid'); }
+  assertNetworkUrlAllowed(url);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if ((url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.username || url.password || url.hash || [...url.searchParams.keys()].some(key => /key|token|secret|password|credential|auth/i.test(key))) throw new Error('mcp_url_requires_https_or_localhost_without_credentials');
   return url;
@@ -22,6 +24,11 @@ export const UserMcpSchema = z.object({
   resultFormat: z.enum(['raw', 'retrieval']).default('raw'),
   toolResultFormats: z.record(z.string(), z.enum(['raw', 'retrieval'])).default({}),
 }).strict().superRefine((value, ctx) => {
+  try { assertMcpIntegrationAllowed(value.slug, value.command, value.args); } catch { ctx.addIssue({code:'custom',message:'github_api_disabled_by_project_policy'}); }
+  if ([value.tokenEnv, ...Object.keys(value.env), ...Object.values(value.env), ...Object.keys(value.publicEnv), ...Object.values(value.publicEnv)]
+    .some(name => name && /^(?:GITHUB_|GH_(?:TOKEN|ENTERPRISE_TOKEN)$)/i.test(name))) {
+    ctx.addIssue({code:'custom',message:'github_credentials_disabled_by_project_policy'});
+  }
   if (value.transport === 'stdio') {
     if (!value.command || value.url || value.tokenEnv) ctx.addIssue({ code: 'custom', message: 'stdio requires command; use env references for credentials' });
     if ([...Object.keys(value.env), ...Object.keys(value.publicEnv)].some(key => key.toUpperCase() === 'NODE_OPTIONS')) ctx.addIssue({ code: 'custom', message: 'NODE_OPTIONS is not a server credential' });

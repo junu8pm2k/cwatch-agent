@@ -9,6 +9,7 @@ import { WebFailure } from './web-errors.ts';
 import { normalizeMcpResult } from './web-mcp-results.ts';
 import type { jsonSchemaValidator, JsonSchemaType, JsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/types.js';
 import { ApiMcpConfigSchema, readApiMcp, type ApiMcpConfig, type ApiMcpOptions } from './web-api-config.ts';
+import { assertNetworkUrlAllowed } from './network-policy.ts';
 
 const Ajv = AjvModule as unknown as typeof import('ajv').default;
 const Ajv2020 = Ajv2020Module as unknown as typeof import('ajv/dist/2020.js').default;
@@ -41,6 +42,7 @@ export type SearchMcpOptions = RemoteMcpOptions | ApiMcpOptions;
 export function mcpEndpoint(value: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('invalid_SEARCH_MCP_URL'); }
   if (url.protocol !== 'https:' || url.username || url.password || url.hash || [...url.searchParams.keys()].some(k => /key|token|secret|password|credential|auth/i.test(k))) throw new Error('SEARCH_MCP_URL_requires_HTTPS_without_embedded_credentials');
+  assertNetworkUrlAllowed(url);
   return url;
 }
 export function readSearchMcp(config: ApiMcpConfig, env: NodeJS.ProcessEnv): ApiMcpOptions;
@@ -101,6 +103,7 @@ export class RemoteSearchMcp {
     const network = async (target: string | URL | Request, init?: RequestInit): Promise<Response> => {
       signal.throwIfAborted();
       const url = new URL(target instanceof Request ? target.url : String(target));
+      assertNetworkUrlAllowed(url);
       if (url.origin !== endpoint.origin || (connectionMode === 'streamable-http' && url.toString() !== endpoint.toString()) || url.username || url.password) throw new WebFailure('parse_failed', 'search_mcp_endpoint_changed');
       const merged = new Headers(init?.headers); headers.forEach((v, k) => merged.set(k, v));
       let response: Response;

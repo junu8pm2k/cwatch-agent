@@ -1,6 +1,6 @@
 # 后端现状与职责
 
-核对日期：2026-10-22。以当前源码和 artifacts/eval/latest.json 为准。本文用于说明已实现的后端，不把建议的服务接口或界面当成现有能力。
+核对日期：2026-10-22。本文保留当日后端核对语境，实现以当前源码为准；旧工程运行输出已于 2026-10-30 清理，历史测试数字不能当作当前成绩。最新 Case 评测见 [当前评测入口](../artifacts/agent-eval/latest-evaluation.json)。本文不把建议的服务接口或界面当成现有能力。
 
 项目文件现按 apps/cli、packages/core、packages/shared、packages/server-core 分层，详见 [项目结构](project-structure.md)。
 
