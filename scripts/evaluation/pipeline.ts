@@ -80,8 +80,9 @@ export async function runEvaluationPipeline(options:PipelineOptions){
           emit('judge','unavailable',{caseId:row.caseId,attempt:row.attempt,reason:unavailableReason});
         }else{
           emit('judge','running',{caseId:row.caseId,attempt:row.attempt});
-          const result=await scoreLlm(subject,judgeConfig,{signal:options.signal,timeoutMs:90000,maxOutputTokens:4096,transport:options.judgeTransport});
-          emit('judge',result.record.status,{caseId:row.caseId,attempt:row.attempt,assessmentId:result.record.id,verdict:result.record.verdict});
+          const result=await scoreLlm(subject,judgeConfig,{signal:options.signal,transport:options.judgeTransport});
+          emit('judge',result.record.status,{caseId:row.caseId,attempt:row.attempt,assessmentId:result.record.id,verdict:result.record.verdict,
+            ...(result.record.error?{error:result.record.error}:{})});
         }
       }else emit('judge','not_applicable',{caseId:row.caseId,attempt:row.attempt});
       records=listAssessments(subject);

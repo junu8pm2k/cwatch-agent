@@ -17,6 +17,7 @@ import { checkRegressionSuite, qualifyRegressionCase, runRegressionSuite, Regres
 import type { ModelConfig } from '@cwatch/shared/config/models';
 import type { Assessment } from '../scripts/evaluation/quality.ts';
 import { prepareQualitySubject, scoreHuman } from '../scripts/evaluation/quality.ts';
+import { JUDGE_LIMITS, piJudgeTransport } from '../scripts/evaluation/judge.ts';
 
 mkdirSync(resolve('artifacts'),{recursive:true});
 const root=mkdtempSync(join(resolve('artifacts'),'pipeline-engineering-test-'));
@@ -62,6 +63,51 @@ test('truncated responses are distinct from provider failures and remain eligibl
   assert.equal(judgeUnavailableReason('failed',{error,response:'Observed answer',toolRequestCount:0}),null);
   assert.equal(judgeUnavailableReason('failed',{error,response:null,skillReads:[{completed:true}]}),null);
   assert.equal(judgeUnavailableReason('complete',{error}),null);
+});
+
+test('Judge output budget reaches the SDK payload and only verified Step 5 endpoints override the generic cap',async()=>{
+  for(const [baseUrl,modelId,expected] of [
+    ['https://api.stepfun.com/step_plan/v1','step-5-preview',16_384],
+    ['https://api.stepfun.ai/v1','step-5-preview',16_384],
+    ['https://example.invalid/v1','step-5-preview',4096],
+    ['https://api.stepfun.com/v1','another-model',4096],
+  ] as const){
+    let payload:Record<string,unknown>|undefined,calls=0;
+    const response=await piJudgeTransport({...judge,baseUrl,modelId})({systemPrompt:'Return JSON.',user:'Offline payload capture.',
+      maxOutputTokens:JUDGE_LIMITS.maxOutputTokens,signal:new AbortController().signal,onRequest:value=>{
+        calls++;payload=value as Record<string,unknown>;throw Error('offline_capture_before_network');
+      }});
+    assert.equal(calls,1);assert.ok(payload);assert.equal(payload.max_tokens??payload.max_completion_tokens,expected);
+    assert.equal(payload.tools,undefined);assert.match(response.error??'',/offline_capture_before_network/);
+  }
+});
+
+test('truncated Judge responses stay invalid, block the gate, and expose their cause without retries',async()=>{
+  const directory=join(root,'judge-truncation');mkdirSync(directory);
+  const c=makeCase('fixture-truncated-judge',true),file='case.json';writeFileSync(join(directory,file),JSON.stringify(c));
+  const dataset=join(directory,'dataset.json');writeFileSync(dataset,JSON.stringify(DatasetSchema.parse({
+    schemaVersion:'cwatch.eval-dataset.v5',id:'truncation-engineering-fixture',version:'1',
+    cases:[{id:c.id,revision:1,file,sha256:sha256(readFileSync(join(directory,file)))}]})));
+  let calls=0;
+  const result=await runEvaluationPipeline({dataset,repeat:5,out:join(directory,'runs'),realModel:false,gate:'regression',judgeConfig:judge,
+    judgeTransport:async request=>{
+      const attempt=++calls;assert.equal(request.maxOutputTokens,16_384);request.onRequest({engineeringFixture:true});
+      if(attempt===2||attempt===4)return{text:attempt===2?'{"findings":[':'',stopReason:'length',toolCallCount:0,usage:{totalTokens:16_384}};
+      return{text:JSON.stringify({findings:[{criterionId:c.id+'-O1',verdict:'pass',reason:'Offline engineering fixture response exists.',evidence:['task','final-answer']}],concerns:[]}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};
+    }});
+  assert.equal(calls,5);assert.equal(result.exitCode,2);assert.equal(result.regression?.passed,false);assert.equal(result.regression?.score,null);
+  assert.equal(result.regression?.cases[0].passedTrials,3);assert.equal(result.regression?.cases[0].pendingTrials,2);assert.equal(result.regression?.cases[0].failedTrials,0);
+  const events=result.stages.filter(e=>e.stage==='judge'&&e.status==='invalid');assert.equal(events.length,2);
+  for(const event of events)assert.match(String(event.error),/judge_response_truncated.*maxOutputTokens=16384/);
+  const report=JSON.parse(readFileSync(result.report.json,'utf8'));
+  for(const trial of report.cases[0].trials){
+    assert.ok(trial.codeChecks.every((check:{outcome:string})=>check.outcome==='pass'));
+    if(trial.attempt===2||trial.attempt===4){
+      assert.equal(trial.judge.status,'invalid');assert.equal(trial.judge.answer,null);assert.equal(trial.automatic.score,null);
+      assert.equal(trial.judge.metadata.physicalRequests,1);assert.equal(trial.judge.metadata.limits.maxOutputTokens,16_384);
+    }
+  }
+  assert.match(readFileSync(result.report.markdown,'utf8'),/judge_response_truncated/);assert.ok(existsSync(result.archive.path));
 });
 test('one command produces the fixed report/archive, keeps automatic scores visible, and resume avoids another Judge call',async()=>{
   const directory=join(root,'end-to-end');mkdirSync(directory);

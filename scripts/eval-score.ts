@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { humanTemplate, prepareQualitySubject, saveQualityReport, scoreHuman, scoreRules } from './evaluation/quality.ts';
-import { readJudgeConfig, scoreLlm } from './evaluation/judge.ts';
+import { JUDGE_LIMITS, readJudgeConfig, scoreLlm } from './evaluation/judge.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 const redactor = new Redactor(Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''));
@@ -10,7 +10,7 @@ try {
   const { values } = parseArgs({ options: { kind: { type: 'string', default: 'report' }, report: { type: 'string' }, case: { type: 'string' }, attempt: { type: 'string' },
     template: { type: 'boolean' }, input: { type: 'string' }, timeout: { type: 'string' }, 'max-output-tokens': { type: 'string' }, help: { type: 'boolean' } } });
   if (values.help) {
-    console.log('eval:score -- --report <batch/report.json> [--kind rules --case ID]\neval:judge -- --report <batch/report.json> --case ID [--attempt 1] [--timeout 60000] [--max-output-tokens 2048]\neval:human -- --report <batch/report.json> --case ID --template\neval:human -- --report <batch/report.json> --case ID --input <edited-human-input.json>\nLLM Judge uses only JUDGE_MODEL_PROVIDER/JUDGE_MODEL_ID/JUDGE_API_KEY/JUDGE_BASE_URL. Human input must be completed by the actual reviewer. Original results are preserved.');
+    console.log(`eval:score -- --report <batch/report.json> [--kind rules --case ID]\neval:judge -- --report <batch/report.json> --case ID [--attempt 1] [--timeout ${JUDGE_LIMITS.timeoutMs}] [--max-output-tokens ${JUDGE_LIMITS.maxOutputTokens}]\neval:human -- --report <batch/report.json> --case ID --template\neval:human -- --report <batch/report.json> --case ID --input <edited-human-input.json>\nLLM Judge uses only JUDGE_MODEL_PROVIDER/JUDGE_MODEL_ID/JUDGE_API_KEY/JUDGE_BASE_URL. Human input must be completed by the actual reviewer. Original results are preserved.`);
   } else {
     if (!values.report) throw Error('provide --report <batch/report.json>');
     if (!['report', 'rules', 'human', 'llm'].includes(values.kind!)) throw Error('invalid_score_kind');
