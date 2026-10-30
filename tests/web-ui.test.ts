@@ -85,9 +85,17 @@ check('integration','Web UI starts a real offline investigation, shows citations
   const h=await browserHarness('replay');
   try{
     await h.ui.open();await h.page.screenshot({path:'artifacts/web-eval/desktop-empty.png',fullPage:true});await h.ui.start();await h.ui.completed();await h.ui.report();
-    assert.equal(await h.page.locator('.claim').count(),2);assert.equal(await h.page.locator('.evidence-links a').count(),2);
+    const expected=fixture().signals[0];
+    await h.ui.reportCitations().waitFor({state:'visible'});
+    assert.equal(await h.ui.reportClaims().count(),1);assert.equal(await h.ui.reportCitations().count(),1);
+    assert.ok((await h.ui.reportClaims().innerText()).includes(expected.content.title+': '+expected.content.value));
+    assert.equal(await h.ui.reportCitations().getAttribute('href'),expected.url);
+    assert.equal(await h.ui.reportCitations().textContent(),expected.sourceSlug+' · '+expected.content.title);
+    assert.deepEqual(h.service.list()[0].claims.map(claim=>claim.evidence.map(evidence=>evidence.url)),[[expected.url]]);
     const downloading=h.page.waitForEvent('download');await h.page.getByRole('link',{name:'下载 Markdown 报告'}).click();const download=await downloading;const path=await download.path();assert.ok(path);assert.match(readFileSync(path,'utf8'),/合成测试快照/);
-    await h.page.screenshot({path:'artifacts/web-eval/desktop-report.png',fullPage:true});await h.page.reload();await h.ui.completed();assert.equal(h.service.list().length,1);
+    assert.ok(readFileSync(path,'utf8').includes(expected.url));
+    await h.page.screenshot({path:'artifacts/web-eval/desktop-report.png',fullPage:true});await h.page.reload();await h.ui.completed();await h.ui.report();assert.equal(h.service.list().length,1);
+    await h.ui.reportCitations().waitFor({state:'visible'});assert.equal(await h.ui.reportClaims().count(),1);assert.equal(await h.ui.reportCitations().getAttribute('href'),expected.url);
     await h.page.getByRole('button',{name:'来源与连接',exact:false}).click();await h.page.getByRole('heading',{name:'来源与连接',exact:true}).waitFor();assert.deepEqual(h.errors,[]);
   }finally{await h.close();}
 });
@@ -140,7 +148,8 @@ check('integration','Web live mode runs a real Pi worker and the unified Web too
         close:async()=>{},
       },signal);
     }});await h.ui.open();await h.page.getByRole('radio',{name:'真实运行',exact:true}).check();
-    await h.page.getByRole('checkbox',{name:/GitHub 发布/}).uncheck();
+    assert.deepEqual(await h.ui.sourceOptions().evaluateAll(nodes=>nodes.map(node=>(node as HTMLInputElement).value)),['official']);
+    await h.page.getByRole('checkbox',{name:/^官方网站/}).check();assert.deepEqual(await h.ui.selectedSources(),['official']);
     await h.ui.start();await h.page.getByText('已完成 / 真实调查',{exact:true}).waitFor({timeout:30000});await h.ui.report();
     const run=h.service.list()[0];assert.equal(run.mode,'live');assert.equal(run.claims.length,1);assert.equal(run.modelTurns,6);assert.equal(run.totalTokens,720);
     const data=new FileStore(resolve(h.service.outputRoot,run.id)),events=data.lines<TraceEvent>('traces/'+run.traceRunId+'.jsonl');
