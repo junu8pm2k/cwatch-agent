@@ -1,0 +1,4 @@
+{
+  "stdout": "{\"type\":\"started\"}\n{\"type\":\"finished\",\"runId\":\"e188d855-9045-45e0-a4e3-8c11caf405f4\"}\n",
+  "stderr": "(node:17920) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+}

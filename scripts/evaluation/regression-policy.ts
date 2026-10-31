@@ -6,6 +6,7 @@ interface Trial {
   codeChecks: Array<{ required: boolean; hardFail: boolean; outcome: string }>;
   judge: { status: string; answer: { findings: Array<{ verdict: string }> } | null } | null;
   human: { answer: { judgments: Array<{ verdict: string }>; processChecks: Array<{ verdict: string }> } | null } | null;
+  adjudications?:Array<{input:{findings:Array<{verdict:string}>}}>;
 }
 interface CaseRow { caseId: string; baseline: { status: string }; trials: Trial[] }
 /** CI checks only the explicitly assigned automatic range; it never invents human approvals. */
@@ -20,14 +21,16 @@ export function assessRegressionBatch(report: { cases: CaseRow[] }) {
       const needsJudge = t.automatic?.dimensions.some(d => d.llm !== 'not_applicable') ?? false;
       const findings = t.judge?.answer?.findings ?? [];
       const humanFindings = [...(t.human?.answer?.judgments ?? []), ...(t.human?.answer?.processChecks ?? [])];
+      const humanRejected=t.adjudications?.some(r=>r.input.findings.some(f=>f.verdict==='fail'))??false;
       const knownFailure = t.runStatus === 'failed' || t.runStatus === 'cancelled' || required.some(check => check.outcome === 'fail') ||
-        findings.some(f => f.verdict === 'fail') || humanFindings.some(f => f.verdict === 'fail') ||
+        findings.some(f => f.verdict === 'fail') || humanFindings.some(f => f.verdict === 'fail') || humanRejected ||
         (typeof t.automatic?.score === 'number' && t.automatic.score < REGRESSION_POLICY.minimumScore);
       if (t.runStatus !== 'complete') reasons.push('execution_not_complete');
       if (!t.automatic?.complete || !t.automatic.passed || t.automatic.score !== REGRESSION_POLICY.minimumScore) reasons.push('automatic_score_must_be_100');
       if (!required.length || required.some(check => check.outcome !== 'pass')) reasons.push('code_checks_not_all_pass');
       if (needsJudge && (t.judge?.status !== 'completed' || !findings.length || findings.some(f => f.verdict !== 'pass'))) reasons.push('rubric_not_all_pass');
       if (humanFindings.some(f => f.verdict === 'fail')) reasons.push('human_review_failed');
+      if (humanRejected) reasons.push('human_criterion_rejected');
       return { attempt: t.attempt, runId: t.runId, score: t.automatic?.score ?? null, passed: reasons.length === 0, knownFailure, reasons };
     });
     const baselineConfirmed = c.baseline.status === 'confirmed';

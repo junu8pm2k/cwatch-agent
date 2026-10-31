@@ -1,0 +1,16 @@
+{
+  "kind": "prompt_only_trial",
+  "trialId": "1daba64a-9752-4c05-9fa8-cd00063e0a4a",
+  "sourceDirectory": "artifacts/baseline-trials/activation-002/1daba64a-9752-4c05-9fa8-cd00063e0a4a",
+  "sourceReceipt": "execution/trial.json",
+  "legacySourceMapping": "source.batchId contains the original trial directory ID; source.reportSha256 hashes the original trial.json receipt. No evaluation report, Judge, or score was generated.",
+  "caseSnapshotPurpose": "Binds the matching execution input to the current Case revision; approval does not approve its pre-existing rubric or expectations.",
+  "knownIssues": [
+    "Outcome calls synthetic material a first-hand source.",
+    "Outcome suggests the material publication date as an answer to when the feature started."
+  ],
+  "userConfirmation": {
+    "reply": "ok",
+    "context": "After the actual fresh prompt-only Trace and Outcome were presented, with both issues disclosed, the user accepted this run as the baseline."
+  }
+}

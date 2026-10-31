@@ -1,12 +1,12 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { CaseSchema, DatasetSchema } from '../scripts/evaluation/contracts.ts';
 import { sha256, within } from '../scripts/evaluation/dataset.ts';
-import { runEvaluationPipeline, judgeUnavailableReason } from '../scripts/evaluation/pipeline.ts';
+import { runEvaluationPipeline, judgeUnavailableReason, HumanReviewRequired } from '../scripts/evaluation/pipeline.ts';
 import { decodePiMessage } from '@cwatch/shared/agent/models';
 import { archiveEvaluation } from '../scripts/evaluation/archive.ts';
 import { automaticAssessment } from '../scripts/evaluation/automatic.ts';
@@ -16,8 +16,9 @@ import { assessRegressionBatch, REGRESSION_POLICY } from '../scripts/evaluation/
 import { checkRegressionSuite, qualifyRegressionCase, runRegressionSuite, RegressionSuiteSchema } from '../scripts/evaluation/regression.ts';
 import type { ModelConfig } from '@cwatch/shared/config/models';
 import type { Assessment } from '../scripts/evaluation/quality.ts';
-import { prepareQualitySubject, scoreHuman } from '../scripts/evaluation/quality.ts';
-import { JUDGE_LIMITS, piJudgeTransport } from '../scripts/evaluation/judge.ts';
+import { prepareQualitySubject, scoreHuman, jsonHash } from '../scripts/evaluation/quality.ts';
+import { JUDGE_LIMITS, piJudgeTransport, scoreLlm } from '../scripts/evaluation/judge.ts';
+import { saveHumanRejection, listHumanRejections } from '../scripts/evaluation/adjudication.ts';
 
 mkdirSync(resolve('artifacts'),{recursive:true});
 const root=mkdtempSync(join(resolve('artifacts'),'pipeline-engineering-test-'));
@@ -37,6 +38,72 @@ function makeCase(id:string,semantic:boolean){
     failure_taxonomy:{allowedCodes:['execution.no_final','observability.invalid_trace','safety.boundary_failed']}});
 }
 const judge:ModelConfig={provider:'engineering-fixture',modelId:'fixture-judge',apiKey:'engineering-test-key',baseUrl:'https://example.invalid/v1'};
+test('human evidence rejection preserves the model score, vetoes the final score and does not approve unreviewed dimensions',async()=>{
+  const directory=join(root,'human-rejection');mkdirSync(directory);
+  const c=makeCase('fixture-human-rejection',true),criterion=c.rubric!.criteria[0];
+  criterion.id=c.id+'-E1';criterion.dimension='evidence';criterion.requirementRefs=['E0'];
+  const file=c.id+'.json';writeFileSync(join(directory,file),JSON.stringify(c));
+  const dataset=join(directory,'dataset.json');writeFileSync(dataset,JSON.stringify(DatasetSchema.parse({schemaVersion:'cwatch.eval-dataset.v5',id:c.id,version:'1',cases:[{id:c.id,revision:1,file,sha256:sha256(readFileSync(join(directory,file)))}]})));
+  let calls=0;
+  const transport=async(request:import('../scripts/evaluation/judge.ts').JudgeRequest)=>{calls++;request.onRequest({engineeringFixture:true});return{text:JSON.stringify({findings:[{criterionId:criterion.id,verdict:'pass',reason:'Fixture model initially accepted the response.',evidence:['task','final-answer']}],concerns:[]}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};};
+  const initial=await runEvaluationPipeline({dataset,out:join(directory,'runs'),realModel:false,judgeConfig:judge,judgeTransport:transport});
+  const original=readFileSync(initial.report.json),subject=prepareQualitySubject(initial.sourceReport,c.id);
+  const input={schemaVersion:'cwatch.human-rejection-input.v1',subjectSha256:subject.subjectSha256,reviewer:'Engineering fixture, not a real human quality label',
+    userStatement:'Reject the fixture evidence claim.',findings:[{criterionId:criterion.id,verdict:'fail',reason:'Explicit offline fixture rejection to test human adjudication.',evidence:['task','final-answer']}],notes:'Offline engineering test only.'};
+  assert.throws(()=>saveHumanRejection(subject,{...input,subjectSha256:'0'.repeat(64)}),/subject_mismatch/);
+  assert.throws(()=>saveHumanRejection(subject,{...input,findings:[{...input.findings[0],criterionId:'unassigned'}]}),/assigned_outcome_or_evidence/);
+  assert.throws(()=>saveHumanRejection(subject,{...input,findings:[{...input.findings[0],evidence:['final-answer']}]}),/required_evidence_missing/);
+  const rejection=saveHumanRejection(subject,input);
+  const revised=await runEvaluationPipeline({report:initial.sourceReport,gate:'final',judgeConfig:judge,judgeTransport:transport});
+  assert.equal(calls,2);assert.equal(revised.exitCode,1);assert.equal(revised.humanInputs.length,0);assert.equal(revised.finalPassed,false);
+  const report=JSON.parse(readFileSync(revised.report.json,'utf8')),row=report.cases[0],trial=row.trials[0];
+  assert.equal(row.automatic.score,100);assert.equal(row.finalScore,0);assert.equal(trial.score,0);assert.equal(trial.complete,false);
+  assert.equal(trial.human,null);assert.equal(row.humanReview.status,'rejected');
+  assert.equal(trial.adjudications[0].input.userStatement,input.userStatement);
+  assert.equal(trial.deductions.filter((d:{group:string})=>d.group==='result:veto').length,1);
+  assert.equal(trial.deductions.find((d:{group:string})=>d.group==='result:veto').points,-100);
+  const regression=assessRegressionBatch({cases:[{...row,trials:Array.from({length:5},(_,i)=>({...trial,attempt:i+1,runId:'rejected-fixture-'+i}))}]});
+  assert.equal(regression.passed,false);assert.equal(regression.score,0);assert.equal(regression.cases[0].failedTrials,5);
+  assert.ok(readFileSync(revised.report.markdown,'utf8').includes('人工条目裁决'));
+  assert.ok(original.equals(readFileSync(initial.report.json)));
+  assert.equal(listHumanRejections(subject).length,1);
+  // Evidence is audited independently; a general pass cannot hide its specific counterexample.
+  const audited=await scoreLlm(subject,judge,{transport:async request=>{
+    const focused=Object.hasOwn(JSON.parse(request.user),'dateMentions');request.onRequest({engineeringFixture:true,focused});
+    const packet=JSON.parse(request.user);
+    assert.deepEqual(packet.hostExecutionContext.allowedSources,[]);
+    if(focused){assert.equal(packet.gradingPolicy,undefined);assert.equal(packet.observedFacts.response,undefined);assert.equal(packet.finalAnswer,subject.packet.finalAnswer);assert.equal(packet.rubric.criteria.length,1);}
+    return{text:JSON.stringify({findings:[{criterionId:criterion.id,verdict:focused?'fail':'pass',reason:focused?'Offline audit found a concrete unsupported fixture assertion.':'Offline first pass accepted it.',evidence:['task','final-answer']}],concerns:[]}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:focused?24:12}};
+  }});
+  assert.equal(audited.record.answer!.findings[0].verdict,'fail');assert.equal(audited.record.metadata.physicalRequests,2);assert.equal(audited.record.metadata.totalTokens,36);
+  assert.ok(existsSync(resolve(audited.path,'../evidence-audit-response.json')));
+  const datePacket={...subject.packet,task:{...subject.packet.task,instruction:'Publication date: 2025-02-03. No launch date supplied.'},finalAnswer:'It launched on 2025-02-03.'};
+  const dateSubject={...subject,packet:datePacket,subjectSha256:jsonHash(datePacket)};
+  const dateAudit=await scoreLlm(dateSubject,judge,{transport:async request=>{
+    const focused=Object.hasOwn(JSON.parse(request.user),'dateMentions'),packet=JSON.parse(request.user);request.onRequest({engineeringFixture:true});
+    return{text:JSON.stringify({findings:[{criterionId:criterion.id,verdict:'pass',reason:'Offline model incorrectly accepted a reused date.',evidence:['task','final-answer']}],concerns:[],...(focused?{dateChecks:packet.dateMentions.map((m:{offset:number;date:string})=>({...m,context:undefined,criterionId:criterion.id,answerRole:'launch',sourceRole:'publication',assertsEvent:true,sourceQuote:'Publication date: 2025-02-03.',verdict:'supported',reason:'Offline fixture labels the two different event roles.'}))}:{})}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};
+  }});
+  assert.equal(dateAudit.record.answer!.findings[0].verdict,'fail');
+  assert.match(dateAudit.record.answer!.findings[0].reason,/Publication date cannot establish/);
+  const negativePacket={...datePacket,finalAnswer:'Publication does not prove it launched on 2025-02-03.'};
+  const negativeSubject={...subject,packet:negativePacket,subjectSha256:jsonHash(negativePacket)};
+  const negated=await scoreLlm(negativeSubject,judge,{transport:async request=>{
+    const focused=Object.hasOwn(JSON.parse(request.user),'dateMentions'),packet=JSON.parse(request.user);request.onRequest({engineeringFixture:true});
+    return{text:JSON.stringify({findings:[{criterionId:criterion.id,verdict:'pass',reason:'Offline fixture correctly denies a launch-date inference.',evidence:['task','final-answer']}],concerns:[],...(focused?{dateChecks:packet.dateMentions.map((m:{offset:number;date:string})=>({offset:m.offset,date:m.date,criterionId:criterion.id,answerRole:'launch',sourceRole:'publication',assertsEvent:false,sourceQuote:'Publication date: 2025-02-03.',verdict:'supported',reason:'The answer rejects this inference rather than asserting a launch date.'}))}:{})}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};
+  }});
+  assert.equal(negated.record.answer!.findings[0].verdict,'pass');
+  const missingDates=await scoreLlm(dateSubject,judge,{transport:async request=>{
+    request.onRequest({engineeringFixture:true});return{text:JSON.stringify({findings:[{criterionId:criterion.id,verdict:'pass',reason:'Offline fixture omitted mandatory date detail.',evidence:['task','final-answer']}],concerns:[]}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};
+  }});
+  assert.equal(missingDates.record.status,'invalid');assert.match(missingDates.record.error!,/evidence_date_audit_incomplete/);
+  const incomplete=await scoreLlm(subject,judge,{transport:async request=>{
+    const focused=Object.hasOwn(JSON.parse(request.user),'dateMentions');request.onRequest({engineeringFixture:true});
+    return{text:focused?'':JSON.stringify({findings:[{criterionId:criterion.id,verdict:'pass',reason:'Offline first pass accepted it.',evidence:['task','final-answer']}],concerns:[]}),stopReason:focused?'length':'stop',toolCallCount:0,usage:{totalTokens:12}};
+  }});
+  assert.equal(incomplete.record.status,'invalid');assert.equal(incomplete.record.answer,null);assert.equal(incomplete.record.metadata.physicalRequests,2);
+  const tampered=JSON.parse(readFileSync(rejection.path,'utf8'));tampered.input.userStatement='Modified';writeFileSync(rejection.path,JSON.stringify(tampered));
+  assert.throws(()=>listHumanRejections(subject),/integrity_failure/);
+});
 test('regression requires five unique complete 100-point trials and never averages away one failure',()=>{
   const trial=(attempt:number)=>({attempt,runId:'fixture-'+attempt,runStatus:'complete',automatic:{complete:true,passed:true,score:100,dimensions:[{llm:'pass'}]},
     codeChecks:[{required:true,hardFail:true,outcome:'pass'}],judge:{status:'completed',answer:{findings:[{verdict:'pass'}]}},human:null});
@@ -96,6 +163,8 @@ test('truncated Judge responses stay invalid, block the gate, and expose their c
       return{text:JSON.stringify({findings:[{criterionId:c.id+'-O1',verdict:'pass',reason:'Offline engineering fixture response exists.',evidence:['task','final-answer']}],concerns:[]}),stopReason:'stop',toolCallCount:0,usage:{totalTokens:12}};
     }});
   assert.equal(calls,5);assert.equal(result.exitCode,2);assert.equal(result.regression?.passed,false);assert.equal(result.regression?.score,null);
+  assert.equal(result.humanInputs.length,0);assert.ok(result.stages.filter(e=>e.stage==='human').every(e=>e.status==='not_requested'));
+  assert.equal(readdirSync(resolve(result.sourceReport,'..')).some(n=>n.startsWith('review-checkpoint-')),false);
   assert.equal(result.regression?.cases[0].passedTrials,3);assert.equal(result.regression?.cases[0].pendingTrials,2);assert.equal(result.regression?.cases[0].failedTrials,0);
   const events=result.stages.filter(e=>e.stage==='judge'&&e.status==='invalid');assert.equal(events.length,2);
   for(const event of events)assert.match(String(event.error),/judge_response_truncated.*maxOutputTokens=16384/);
@@ -139,12 +208,22 @@ test('one command produces the fixed report/archive, keeps automatic scores visi
   const resumed=await runEvaluationPipeline({report:result.sourceReport,gate:'automatic',judgeConfig:judge,judgeTransport:transport});assert.equal(resumed.exitCode,0);assert.equal(calls,1);
   assert.ok(resumed.stages.some(e=>e.stage==='judge'&&e.status==='reused'));
   assert.equal(resumed.humanInputs.length,0);
-  const reviewed=await runEvaluationPipeline({report:result.sourceReport,gate:'final',judgeConfig:judge,judgeTransport:transport});
-  assert.equal(calls,1);assert.equal(reviewed.evaluationMode,'human_review');assert.equal(reviewed.humanInputs.length,1);
-  const reviewReport=JSON.parse(readFileSync(reviewed.report.json,'utf8'));
-  assert.equal(reviewReport.cases[0].complete,false);assert.equal(reviewReport.cases[0].humanReview.status,'pending');
-  assert.equal(reviewReport.cases[1].finalScore,100);
-  assert.equal(reviewReport.cases[1].humanReview.status,'not_applicable');
+  const batch=resolve(result.sourceReport,'..');
+  const reportsBefore=readdirSync(batch).filter(n=>/^(test-report-|quality-report-|archive-inventory-)/.test(n)).sort();
+  let reviewed:HumanReviewRequired['checkpoint']|undefined;
+  await assert.rejects(runEvaluationPipeline({report:result.sourceReport,gate:'final',judgeConfig:judge,judgeTransport:transport}),error=>{
+    assert.ok(error instanceof HumanReviewRequired);reviewed=error.checkpoint;return true;
+  });
+  assert.ok(reviewed);assert.equal(calls,1);assert.equal(reviewed.status,'awaiting_human');assert.equal(reviewed.humanInputs.length,1);
+  assert.equal(reviewed.report,null);assert.equal(reviewed.archive,null);assert.equal(reviewed.reviews[0].answer,'Fixture response');
+  assert.ok(existsSync(reviewed.reviews[0].subject));assert.ok(existsSync(reviewed.reviews[0].trace!));
+  assert.deepEqual(readdirSync(batch).filter(n=>/^(test-report-|quality-report-|archive-inventory-)/.test(n)).sort(),reportsBefore);
+  assert.equal(JSON.parse(readFileSync(join(dirname(batch),'latest-evaluation.json'),'utf8')).status,'awaiting_human');
+  assert.equal(readFileSync(reviewed.ledger,'utf8').includes('"stage":"report"'),false);
+  await assert.rejects(runEvaluationPipeline({report:result.sourceReport,gate:'final',judgeConfig:judge,judgeTransport:transport}),error=>{
+    assert.ok(error instanceof HumanReviewRequired);assert.equal(error.checkpoint.humanInputs[0].path,reviewed!.humanInputs[0].path);return true;
+  });
+  assert.equal(calls,1);
   // Baselines freeze a real fixture run and require separate acceptance of process and result.
   const baselineRoot=join(directory,'baselines');
   assert.throws(()=>prepareBaseline({report:result.sourceReport,caseId:'fixture-semantic',root:baselineRoot}),/completed_passing_run/);
@@ -195,6 +274,8 @@ test('one command produces the fixed report/archive, keeps automatic scores visi
   humanInput.reviewer='Offline engineering fixture, not a benchmark reviewer';
   humanInput.answer.judgments=[{dimension:'safety',verdict:'pass',reason:'Fixture boundary reviewed for this offline engineering test.',evidence:['rules']}];
   const savedHuman=scoreHuman(subject,humanInput);
+  const completedReview=await runEvaluationPipeline({report:result.sourceReport,gate:'final',judgeConfig:judge,judgeTransport:transport});
+  assert.equal(completedReview.humanInputs.length,0);assert.ok(existsSync(completedReview.report.markdown));assert.ok(existsSync(completedReview.archive.path));assert.equal(calls,1);
   const afterHuman=await runEvaluationPipeline({report:result.sourceReport,gate:'automatic',judgeConfig:judge,judgeTransport:transport});
   assert.equal(afterHuman.humanInputs.length,0);assert.equal(calls,1);
   const historyReport=JSON.parse(readFileSync(afterHuman.report.json,'utf8'));

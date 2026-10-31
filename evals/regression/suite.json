@@ -1,7 +1,7 @@
 {
   "schemaVersion": "cwatch.regression-suite.v1",
   "id": "agent-capability-regression",
-  "version": 2,
+  "version": 4,
   "policy": {
     "trials": 5,
     "minimumScore": 100,
@@ -11,12 +11,12 @@
   "cases": [
     {
       "id": "activation-001",
-      "revision": 2,
+      "revision": 4,
       "dataset": "../activation/dataset.json",
-      "caseSha256": "9ca3602f5ae2dee6c661a6506af029fb7581f80c8657e5209f3d5318f5a37c43",
+      "caseSha256": "9e7aa50eafa66200d7e46268eac94cb7fd75c33ac69652f1bb4a4a4e293c25e4",
       "baselineRoot": "../baselines",
-      "baselineId": "eb1b161b-65b4-4bf1-9880-622edab786c5",
-      "baselineManifestSha256": "344022e0771432749da7e44fdcfd738df8da7dce8ff1cdb5e00729e83888e881",
+      "baselineId": "25688efe-3e9e-4fe1-97d2-3c926e852227",
+      "baselineManifestSha256": "6393982720d55a0cc6305f0bf08bc0c16442a36543d52e4b2ef8d8f6eca3909e",
       "model": {
         "provider": "stepfun",
         "id": "step-5-preview",
@@ -28,8 +28,31 @@
         "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
       },
       "admission": {
-        "path": "admissions/activation-001.r2.1949f32f-e1df-4463-bb45-464c07e06323.json",
-        "sha256": "94b481a644426bb951a265fc01e57ed3853a230c94fdad58e1161ba1df55bd2c"
+        "path": "admissions/activation-001.r4.eb3c4659-3152-4f88-86d2-036ada872905.json",
+        "sha256": "65117a528034277abef1b3f17dd60f5567a9f1a6aa66a36c7ca1be8978076812"
+      }
+    },
+    {
+      "id": "activation-002",
+      "revision": 2,
+      "dataset": "../activation/dataset.json",
+      "caseSha256": "4bb4489433734608264ecd14b93ed52e5d7f6c96f77c5eb6e7dbf1fde7a1f326",
+      "baselineRoot": "../baselines",
+      "baselineId": "1a9309ba-0fa0-409a-b5f4-340b7afbe1c8",
+      "baselineManifestSha256": "8988ece13b0c25f8a6974a5ceb1697f45e7cac1122900c0ffe09a209862b74be",
+      "model": {
+        "provider": "stepfun",
+        "id": "step-5-preview",
+        "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+      },
+      "judge": {
+        "provider": "stepfun",
+        "id": "step-5-preview",
+        "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+      },
+      "admission": {
+        "path": "admissions/activation-002.r2.2c043382-3eac-4ed8-b682-5329e8270563.json",
+        "sha256": "4465d5e701c53045da75a9b4819c0b7c9ed9c92770e132d964b47cdb32e455ff"
       }
     }
   ]

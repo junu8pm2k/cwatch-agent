@@ -5,7 +5,7 @@
 结构化设计集合：[rubric.json](rubric.json)。评分器现已支持 `cwatch.eval-rubric.v1` 和按 Case 分配条目；下列四份量表符合该契约，可内嵌到 Case v5 的 rubric 字段。四个 Case 本身仍是设计稿，未注册、未执行；本文与 JSON 不包含标准回答或真实评分结果。
 
 - [001 量表](activation-001.rubric.json)：3 项。
-- [002 量表](activation-002.rubric.json)：3 项。
+- [002 量表](activation-002.rubric.json)：3 项；[判定条件与扣分对照](activation-002.rubric.md) 明确每项失败扣多少、去重及待审处理。
 - [003 量表](activation-003.rubric.json)：1 项。
 - [004 量表](activation-004.rubric.json)：1 项。
 

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "cwatch.regression-admission.v1",
+  "qualifiedAt": "2026-10-31T08:28:50.840Z",
+  "caseId": "activation-002",
+  "caseRevision": 2,
+  "caseSha256": "4bb4489433734608264ecd14b93ed52e5d7f6c96f77c5eb6e7dbf1fde7a1f326",
+  "baselineId": "1a9309ba-0fa0-409a-b5f4-340b7afbe1c8",
+  "baselineManifestSha256": "8988ece13b0c25f8a6974a5ceb1697f45e7cac1122900c0ffe09a209862b74be",
+  "gate": {
+    "schemaVersion": "cwatch.regression-gate.v1",
+    "scope": "automatic_regression",
+    "policy": {
+      "trials": 5,
+      "minimumScore": 100,
+      "requireAllRubricPass": true,
+      "requireConfirmedBaseline": true
+    },
+    "passed": true,
+    "score": 100,
+    "cases": [
+      {
+        "caseId": "activation-002",
+        "scheduled": true,
+        "baselineConfirmed": true,
+        "passed": true,
+        "score": 100,
+        "passedTrials": 5,
+        "failedTrials": 0,
+        "pendingTrials": 0,
+        "trials": [
+          {
+            "attempt": 1,
+            "runId": "73ea953c-5ac3-42ff-8a19-2b179a2a98a1",
+            "score": 100,
+            "passed": true,
+            "knownFailure": false,
+            "reasons": []
+          },
+          {
+            "attempt": 2,
+            "runId": "66f25bed-4f95-4c7f-8012-18bc5eea2462",
+            "score": 100,
+            "passed": true,
+            "knownFailure": false,
+            "reasons": []
+          },
+          {
+            "attempt": 3,
+            "runId": "4b7078ba-a33f-42b4-84e9-ad729b4b9856",
+            "score": 100,
+            "passed": true,
+            "knownFailure": false,
+            "reasons": []
+          },
+          {
+            "attempt": 4,
+            "runId": "52e6c691-e3dc-4877-a917-ecb99e2b8282",
+            "score": 100,
+            "passed": true,
+            "knownFailure": false,
+            "reasons": []
+          },
+          {
+            "attempt": 5,
+            "runId": "bac7448d-515f-4694-a4c5-81f6590035a5",
+            "score": 100,
+            "passed": true,
+            "knownFailure": false,
+            "reasons": []
+          }
+        ]
+      }
+    ],
+    "note": "Automatic regression gate only. No human review is requested; historical records are retained. One failing trial makes this case score zero."
+  },
+  "model": {
+    "provider": "stepfun",
+    "id": "step-5-preview",
+    "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+  },
+  "judge": {
+    "provider": "stepfun",
+    "id": "step-5-preview",
+    "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+  },
+  "sourceReport": "artifacts/agent-eval/batch-a2619244-1ba1-4548-ac38-d03daaaf01a7/report.json",
+  "sourceReportSha256": "5e7f94ac92c01115bc8d4b64e7e0587c8ae7d9bbd864de3a558609362e9c7956",
+  "qualificationReport": "artifacts/agent-eval/batch-a2619244-1ba1-4548-ac38-d03daaaf01a7/test-report-54a9c547-d124-4d7c-a503-fc26bfd9a198.json",
+  "qualificationReportSha256": "a56efb0e9f595832ddf9fd6d16277e55a1c1826fe93ec388e6353f7c9b80d202",
+  "note": "Qualified for automatic CI regression under the project owner instruction. This is not a human approval for these new trials."
+}

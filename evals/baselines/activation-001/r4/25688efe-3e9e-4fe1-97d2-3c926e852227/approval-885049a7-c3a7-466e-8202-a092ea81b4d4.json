@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "cwatch.baseline-approval.v1",
+  "approvedAt": "2026-10-31T08:51:55.859Z",
+  "identity": "self_declared_human",
+  "input": {
+    "schemaVersion": "cwatch.baseline-approval-input.v1",
+    "snapshotSha256": "6393982720d55a0cc6305f0bf08bc0c16442a36543d52e4b2ef8d8f6eca3909e",
+    "reviewer": "Project owner (explicit approval in this chat)",
+    "process": {
+      "verdict": "pass",
+      "reason": "用户明确认可展示的 Case 1 revision 4 实际流程、安全边界和 Trace，并要求登记新基线后继续自动验证。实际记录先成功读取检查表一次，无外部采集。"
+    },
+    "outcome": {
+      "verdict": "pass",
+      "reason": "用户明确认可当前原始最终回答：将“新增”保留为合成材料引述，区分发布日期与未知的上线时间，保留角色/入口范围与来源限制。"
+    },
+    "evidence": [
+      "task",
+      "final-answer",
+      "trace:7",
+      "trace:11"
+    ],
+    "notes": "真实用户回复：“认可，登记 Case 1 新基线并继续自动验证”。确认对象 runId=9bf2daf5-afa7-48a9-9549-50457c4cbd1c；仅原样冻结已展示的执行，不冒充后续五次试验的人审。后续全自动准入，全部通过后再提交。"
+  }
+}
