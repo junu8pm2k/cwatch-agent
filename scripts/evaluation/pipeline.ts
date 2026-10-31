@@ -5,15 +5,29 @@ import { readModelConfig, type ModelConfig } from '@cwatch/shared/config/models'
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { loadDataset, sha256, within } from './dataset.ts';
 import { runBatch } from './runner.ts';
-import { humanTemplate, listAssessments, prepareQualitySubject, saveQualityReport, scoreRules, type QualitySubject } from './quality.ts';
+import { humanTemplate, listAssessments, prepareQualitySubject, saveQualityReport, scoreRules, combinedAssessment, type QualitySubject } from './quality.ts';
 import { JUDGE_VERSION, readJudgeConfig, scoreLlm, type JudgeTransport } from './judge.ts';
 import { saveDetailedEvaluationReport } from './report.ts';
 import { archiveEvaluation } from './archive.ts';
 import type { EvalResult } from './grader.ts';
+import { listHumanRejections } from './adjudication.ts';
 
 export interface PipelineOptions {
   dataset?:string;report?:string;caseId?:string;repeat?:number;out?:string;realModel?:boolean;gate?:'automatic'|'final'|'regression';signal?:AbortSignal;baselineRoot?:string;
   judgeConfig?:ModelConfig;judgeTransport?:JudgeTransport;onEvent?:(event:Record<string,unknown>)=>void;
+}
+export interface HumanReviewRequest {
+  caseId:string;attempt:number;runId:string;input:string;subject:string;prompt:string|null;answer:string|null;
+  answerPath:string|null;trace:string|null;traceEvents:string;dimensions:string[];
+}
+export interface HumanReviewCheckpoint {
+  schemaVersion:'cwatch.eval-review-checkpoint.v1';id:string;status:'awaiting_human';exitCode:2;
+  sourceReport:string;checkpointPath:string;report:null;archive:null;humanInputs:Array<{caseId:string;attempt:number;path:string}>;
+  reviews:HumanReviewRequest[];errors:string[];ledger:string;message:string;
+}
+/** Expected suspension: callers must ask the user before resuming the final report stage. */
+export class HumanReviewRequired extends Error {
+  constructor(readonly checkpoint:HumanReviewCheckpoint){super(checkpoint.message);this.name='HumanReviewRequired';}
 }
 /** Failed attempts with observable work must still be judged, including truncated responses. */
 export function judgeUnavailableReason(runStatus:string|null|undefined,facts:Record<string,unknown>):string|null {
@@ -57,7 +71,7 @@ export async function runEvaluationPipeline(options:PipelineOptions){
   const lock=join(lockRoot,batch.split(/[\\/]/).at(-1)+'.lock');let lockFd:number;
   try{lockFd=openSync(lock,'wx');}catch{throw Error('evaluation_batch_busy: another pipeline is processing this batch');}
   try{
-  const stages:Array<Record<string,unknown>>=[],errors:string[]=[],humanInputs:Array<{caseId:string;attempt:number;path:string}>=[];
+  const stages:Array<Record<string,unknown>>=[],errors:string[]=[],humanInputs:Array<{caseId:string;attempt:number;path:string}>=[],reviews:HumanReviewRequest[]=[];
   const emit=(stage:string,status:string,details:Record<string,unknown>={})=>{
     const event=redactor.clean({at:new Date().toISOString(),stage,status,...details});stages.push(event);appendFileSync(ledger,JSON.stringify(event)+'\n');options.onEvent?.(event);
   };
@@ -89,11 +103,35 @@ export async function runEvaluationPipeline(options:PipelineOptions){
       if(evaluationMode==='automatic'){
         emit('human',subject.humanApplicable?'not_requested':'not_applicable',{caseId:row.caseId,attempt:row.attempt,
           historicalRecord:records.filter(r=>r.kind==='human'&&r.status==='completed').at(-1)?.id??null});
-      }else if(subject.humanApplicable&&!records.some(r=>r.kind==='human'&&r.status==='completed')){
-        const path=existingHumanTemplate(subject)??humanTemplate(subject).path;humanInputs.push({caseId:row.caseId,attempt:row.attempt,path});
-        emit('human','pending',{caseId:row.caseId,attempt:row.attempt,input:path});
-      }else emit('human',subject.humanApplicable?'completed':'not_applicable',{caseId:row.caseId,attempt:row.attempt});
+      }else if(listHumanRejections(subject).length){
+        emit('human','rejected',{caseId:row.caseId,attempt:row.attempt,reason:'Explicit human criterion rejection; no further approvals required to establish failure.'});
+      }else{
+        const human=records.filter(r=>r.kind==='human'&&r.status==='completed').at(-1),assessed=combinedAssessment(subject,records);
+        const needsHuman=subject.humanApplicable&&(!human||human.answer?.judgments.some(j=>j.verdict==='unknown')||human.answer?.processChecks.some(p=>p.verdict==='unknown')||human.answer?.concerns.length||assessed.disagreement);
+        if(assessed.penalty.resultDeduction===-100)emit('human','not_required_for_known_failure',{caseId:row.caseId,attempt:row.attempt});
+        else if(needsHuman){
+          const path=existingHumanTemplate(subject)??humanTemplate(subject).path;humanInputs.push({caseId:row.caseId,attempt:row.attempt,path});
+          const observed=JSON.parse(readFileSync(join(subject.archive.directory,'observed.json'),'utf8'));
+          const scenario=subject.archive.value.input.scenario;
+          reviews.push({caseId:row.caseId,attempt:row.attempt,runId:row.runId,input:path,subject:join(dirname(path),'subject.json'),
+            prompt:scenario.driver==='runtime'?scenario.instruction:null,answer:subject.packet.finalAnswer,
+            answerPath:typeof observed.facts?.response==='string'?join(subject.archive.directory,'responses',row.runId+'.md'):null,
+            trace:observed.structuredTracePath?join(subject.archive.directory,observed.structuredTracePath):null,
+            traceEvents:join(subject.archive.directory,observed.tracePath),dimensions:[...subject.packet.humanReview.dimensions]});
+          emit('human','required',{caseId:row.caseId,attempt:row.attempt,input:path,subject:reviews.at(-1)!.subject});
+        }else emit('human',subject.humanApplicable?'completed':'not_applicable',{caseId:row.caseId,attempt:row.attempt});
+      }
     }catch(error){const message=redactor.clean(error instanceof Error?error.message:'assessment_failed');errors.push(message);emit('assessment','error',{caseId:row.caseId,attempt:row.attempt,error:message});}
+  }
+  if(humanInputs.length){
+    const checkpointPath=join(batch,'review-checkpoint-'+id+'.json');
+    const message='Human review is required before generating the final report. Present the supplied prompt, answer and Trace to the user and ask now. Import their actual response, then resume with --report and --gate final. No final report or ZIP has been generated.';
+    emit('pipeline','awaiting_human',{checkpoint:checkpointPath,message});
+    const checkpoint:HumanReviewCheckpoint={schemaVersion:'cwatch.eval-review-checkpoint.v1',id,status:'awaiting_human',exitCode:2,
+      sourceReport:reportPath,checkpointPath,report:null,archive:null,humanInputs,reviews,errors,ledger,message};
+    writeFileSync(checkpointPath,JSON.stringify(checkpoint,null,2)+'\n',{flag:'wx'});
+    writeFileSync(join(dirname(batch),'latest-evaluation.json'),JSON.stringify(checkpoint,null,2)+'\n');
+    throw new HumanReviewRequired(checkpoint);
   }
   const quality=evaluationMode==='human_review'?saveQualityReport(reportPath,redactor):null;
   const detail=saveDetailedEvaluationReport(reportPath,{baselineRoot:options.baselineRoot,regression:gate==='regression',evaluationMode});

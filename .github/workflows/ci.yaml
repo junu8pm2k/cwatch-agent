@@ -79,7 +79,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: node:24-trixie
-    timeout-minutes: 30
+    # Two admitted cases, five trials each; evidence criteria also receive an
+    # independent audit. Leave room for both bounded model requests per Judge.
+    timeout-minutes: 45
     steps:
       - name: 拉取代码
         uses: actions/checkout@v6
@@ -110,4 +112,10 @@ jobs:
         if: always()
         with:
           name: 智能体回归产物
-          path: artifacts/agent-eval/
+          # Include the exact suite/admission and baseline inputs alongside the
+          # reports, Trace, scoring records, ZIPs and SHA256 checksums.
+          path: |
+            artifacts/agent-eval/
+            evals/regression/
+            evals/activation/
+            evals/baselines/

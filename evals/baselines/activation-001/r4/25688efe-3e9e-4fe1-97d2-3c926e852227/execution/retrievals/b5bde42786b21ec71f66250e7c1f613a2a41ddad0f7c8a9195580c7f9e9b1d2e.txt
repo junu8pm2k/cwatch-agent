@@ -1,0 +1,10 @@
+# Evidence checklist
+
+1. Match stable entity and product identifiers.
+2. Keep publication, feature launch/availability, and retrieval times separate. Publication does not by itself establish launch time or current availability. Leave an absent event date unknown.
+   Treat "new" or "newly added" as attributed source wording, not proof of a launch shortly before, after, or around publication. Do not add approximate chronology in a parenthesis or final summary.
+3. Preserve official, reprint, synthetic, and user-supplied provenance. A title or synthetic excerpt alone cannot establish an authentic official or first-hand source.
+4. Check contradictory evidence and missing sources.
+5. Describe unstructured MCP results as material to review, not verified facts.
+
+Apply these checks to suggested rewrites and examples as well as the original claim. A correction must not add unsupported dates, source status, roles, or scope.

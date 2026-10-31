@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "cwatch.eval-baseline-binding.v1",
+  "case": {
+    "id": "activation-001",
+    "revision": 4,
+    "sha256": "b10205bdfccadbf92edaf70484455df7360cb9358b1e735100d6c52a672fe511"
+  },
+  "baselineId": "25688efe-3e9e-4fe1-97d2-3c926e852227",
+  "status": "confirmed",
+  "manifest": {
+    "path": "activation-001/r4/25688efe-3e9e-4fe1-97d2-3c926e852227/baseline.json",
+    "sha256": "6393982720d55a0cc6305f0bf08bc0c16442a36543d52e4b2ef8d8f6eca3909e",
+    "bytes": 3858
+  },
+  "approval": {
+    "path": "activation-001/r4/25688efe-3e9e-4fe1-97d2-3c926e852227/approval-885049a7-c3a7-466e-8202-a092ea81b4d4.json",
+    "sha256": "da41179e6c7921776a47f85d8eeb7c8f0b93fc78c1cd19f143c429d4ae3e9090",
+    "bytes": 1254
+  }
+}

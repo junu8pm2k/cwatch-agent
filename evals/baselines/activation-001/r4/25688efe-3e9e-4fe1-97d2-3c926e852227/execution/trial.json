@@ -1,0 +1,17 @@
+{
+  "purpose": "Fresh prompt-only baseline trial for human inspection",
+  "caseId": "activation-001",
+  "createdAt": "2026-10-31T08:45:23.774Z",
+  "reviewStatus": "awaiting_user_review",
+  "baselineConfirmed": false,
+  "model": {
+    "provider": "stepfun",
+    "id": "step-5-preview",
+    "endpointFingerprint": "fdf3dbb3d98afe7de78af2876965caea2a7fd7d09e92b601f48b8933e4823990"
+  },
+  "promptSha256": "b1289b8837c6a9771a9d617c5891bbd9686b1996168fecfa83a535bde876188a",
+  "skillSha256": "84e040145c07d7175a43aea3d8f944b04ece9d467388a30d33b8e6c18929237f",
+  "expectations": null,
+  "rubric": null,
+  "judge": null
+}

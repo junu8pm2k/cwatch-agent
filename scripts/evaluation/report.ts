@@ -29,7 +29,7 @@ export function saveDetailedEvaluationReport(reportFile:string,options:{baseline
     if(!row.runId||row.verdict==='invalid')return {caseId:row.caseId,title:row.caseId,caseRevision:row.caseRevision,taskGroup:row.familyId,attempt:row.attempt,runId:row.runId,
       runStatus:row.runStatus,evaluationStatus:assessed.verdict,complete:false,score:assessed.penalty.score,numericPassed:null,model:null,prompt:null,
       durationMs:row.durationMs,totalTokens:null,judgeTokens:null,actualCost:null,toolCalls:null,trace:null,traceEvents:null,answer:null,
-      automatic:null,codeChecks:row.checks,deductions:assessed.penalty.deductions,unknownCheckIds:assessed.penalty.unknownCheckIds,failures:row.failures,reviewIssues:row.reviewIssues,judge:null,human:null};
+      automatic:null,adjudications:[],codeChecks:row.checks,deductions:assessed.penalty.deductions,unknownCheckIds:assessed.penalty.unknownCheckIds,failures:row.failures,reviewIssues:row.reviewIssues,judge:null,human:null};
     const archive=readArchivedCase(reportFile,row.caseId,row.attempt),manifest=JSON.parse(readFileSync(join(archive.directory,'manifest.json'),'utf8'));
     const observed=JSON.parse(readFileSync(join(archive.directory,'observed.json'),'utf8')) as WorkerObservation;
     const projection=JSON.parse(readFileSync(join(archive.directory,'projection.json'),'utf8'));
@@ -44,14 +44,14 @@ export function saveDetailedEvaluationReport(reportFile:string,options:{baseline
       durationMs:row.durationMs,totalTokens:projection.cost?.totalTokens??null,judgeTokens,actualCost:projection.cost?.actualCost??null,
       toolCalls:projection.cost?.toolCalls??null,trace:observed.structuredTracePath?toRef(observed.structuredTracePath):null,traceEvents:toRef(observed.tracePath),
       automatic:automaticAssessment(archive.value,codeResult.checks,codeResult.durationMs,'llm' in assessed?assessed.llm:null,'human' in assessed?assessed.human:null,'incompleteJudgeAssessments' in assessed?assessed.incompleteJudgeAssessments:0),
-      answer:observed.facts.response??null,codeChecks:codeResult.checks,deductions:assessed.penalty.deductions,unknownCheckIds:assessed.penalty.unknownCheckIds,
+      adjudications:'adjudications' in assessed?assessed.adjudications:[],answer:observed.facts.response??null,codeChecks:codeResult.checks,deductions:assessed.penalty.deductions,unknownCheckIds:assessed.penalty.unknownCheckIds,
       failures:codeResult.failures,reviewIssues:codeResult.reviewIssues,judge:'llm' in assessed?assessed.llm:null,human:'human' in assessed?assessed.human:null};
   }).map(trial=>{
     const humanApplicable=Boolean(trial.automatic?.manualRequired.length);
     const automatic=trial.automatic?{...trial.automatic,humanReviewRequested:humanRequested,
       manualRequired:humanRequested?trial.automatic.manualRequired:[],
       dimensions:trial.automatic.dimensions.map(d=>({...d,human:!humanRequested&&d.human==='pending'?'not_requested':d.human}))}:null;
-    return {...trial,automatic,humanReview:{requested:humanRequested&&humanApplicable,status:!humanApplicable?'not_applicable':humanRequested?(trial.human?'recorded':'pending'):'not_requested',historicalRecord:trial.human?.id??null},
+    return {...trial,automatic,humanReview:{requested:humanRequested&&humanApplicable,status:trial.adjudications.length?'rejected':!humanApplicable?'not_applicable':humanRequested?(trial.human?'recorded':'pending'):'not_requested',historicalRecord:trial.human?.id??null},
       complete:humanRequested?trial.complete:automatic?.complete??false,score:humanRequested?trial.score:automatic?.score??null,
       evaluationStatus:humanRequested?trial.evaluationStatus:automatic?.verdict??'invalid',numericPassed:humanRequested?trial.numericPassed:automatic?.passed??false,
       deductions:humanRequested?trial.deductions:automatic?automaticDeductions(automatic):[],
@@ -74,17 +74,18 @@ export function saveDetailedEvaluationReport(reportFile:string,options:{baseline
       failureRate:autoComplete?rows.filter(r=>!r.automatic!.passed).length/rows.length:null,toleranceSatisfied:autoComplete?autoPassed:null,
       hardBoundaryFailed:rows.some(r=>r.automatic?.vetoes.some(v=>['evidence','safety'].includes(v.dimension))),
       trials:rows.map(r=>({attempt:r.attempt,score:r.automatic?.score??null,passed:r.automatic?.passed??false,verdict:r.automatic?.verdict??'invalid'}))};
+    const finalScore=rows.some(r=>r.score===0&&r.evaluationStatus==='fail')?0:stability.complete?stability.caseScore:null;
     return {caseId,title:rows[0].title,taskGroup:rows[0].taskGroup,models:rows.map(r=>r.model),executionCount:rows.length,
       baseline:rows[0].runId?baselineForCase(readArchivedCase(reportFile,caseId,rows[0].attempt).value,batch,options.baselineRoot):{status:'not_established',durationMs:null,totalTokens:null,actualCost:null,steps:null,toolCalls:null,reference:null,runId:null,reason:null},
       totalTokens:sumKnown(rows.map(r=>r.totalTokens)),judgeTokens:sumKnown(rows.map(r=>r.judgeTokens)),totalCost:sumKnown(rows.map(r=>r.actualCost)),
       averageCost:rows.every(r=>r.actualCost!==null)?rows.reduce((s,r)=>s+r.actualCost!,0)/rows.length:null,
       automatic:{complete:autoComplete,passed:autoPassed,score:autoScore},
-      scoreScope:evaluationMode,humanReview:{requested:rows.some(r=>r.humanReview.requested),status:rows.every(r=>r.humanReview.status==='not_applicable')?'not_applicable':humanRequested?(rows.every(r=>['recorded','not_applicable'].includes(r.humanReview.status))?'recorded':'pending'):'not_requested'},
-      complete:selectedStability.complete,score:humanRequested?(stability.complete?stability.caseScore:null):autoScore,
-      caseScore:humanRequested?(stability.complete?stability.caseScore:null):autoScore,finalScore:humanRequested&&stability.complete?stability.caseScore:null,
+      scoreScope:evaluationMode,humanReview:{requested:rows.some(r=>r.humanReview.requested),status:rows.some(r=>r.adjudications.length)?'rejected':rows.every(r=>r.humanReview.status==='not_applicable')?'not_applicable':humanRequested?(rows.every(r=>['recorded','not_applicable'].includes(r.humanReview.status))?'recorded':'pending'):'not_requested'},
+      complete:selectedStability.complete,score:humanRequested?finalScore:autoScore,
+      caseScore:humanRequested?finalScore:autoScore,finalScore:humanRequested?finalScore:null,
       stability:{...selectedStability,interpretation:stability.expectedTrials===1?'single_trial_only':'repeated_trials',notProbabilityEstimate:true},trials:rows};
   });
-  const groups=[...new Set(cases.map(c=>c.taskGroup))].map(taskGroup=>{
+    const groups=[...new Set(cases.map(c=>c.taskGroup))].map(taskGroup=>{
     const rows=cases.filter(c=>c.taskGroup===taskGroup),scores=rows.map(c=>c.score);
     return {taskGroup,caseCount:rows.length,automaticAverageScore:rows.every(r=>r.automatic.complete)?rows.reduce((s,r)=>s+r.automatic.score!,0)/rows.length:null,
       averageScore:scores.every(s=>s!==null)?scores.reduce<number>((s,v)=>s+v!,0)/scores.length:null,caseIds:rows.map(c=>c.caseId)};
@@ -142,12 +143,16 @@ export function saveDetailedEvaluationReport(reportFile:string,options:{baseline
         '', '| 扣分项 | 维度 | 分值 | 依据 |','|---|---|---:|---|',...t.deductions.map(d=>`| ${cell(d.group)} | ${d.dimensions.join(', ')} | ${d.points} | ${cell(d.reason)} |`),
         ...(t.deductions.length?[]:[`| 无已确认扣分 | — | — | ${t.complete?'本模式评分已完成':'证据不足不等于满分'} |`]),
         '',`待确认项：${t.unknownCheckIds.join('、')||'无'}。`,
-        '',`LLM Judge：${t.judge?`${t.judge.status} / ${t.judge.verdict}`:'未完成'}；人工审核：${t.humanReview.status==='not_applicable'?'不适用':humanRequested?(t.human?`${t.human.status} / ${t.human.verdict}`:'未完成'):(t.human?'本轮不安排，已有历史记录保留':'本轮不安排')}。`,
+        '',`LLM Judge：${t.judge?`${t.judge.status} / ${t.judge.verdict}`:'未完成'}；人工审核：${t.humanReview.status==='rejected'?'已人工否决':t.humanReview.status==='not_applicable'?'不适用':humanRequested?(t.human?`${t.human.status} / ${t.human.verdict}`:'未完成'):(t.human?'本轮不安排，已有历史记录保留':'本轮不安排')}。`,
         '', '#### 实际回答','', typeof t.answer==='string'?t.answer.split('\n').map(line=>'> '+line).join('\n'):'未取得回答。',
         '',`执行失败项：${t.failures.join('、')||'无'}。`);
       if(t.judge?.answer)lines.push('', '#### LLM 逐项判定','', '| 条目 | 判定 | 理由 | 证据 |','|---|---|---|---|',
         ...t.judge.answer.findings.map(f=>`| ${cell(f.criterionId)} | ${f.verdict} | ${cell(f.reason)} | ${cell(f.evidence.join(', '))} |`));
       if(t.judge?.error)lines.push('',`Judge 错误：${t.judge.error}`);
+      if(t.adjudications.length)lines.push('', '#### 人工条目裁决','',
+        '人工已确认条目失败，结果否决扣 100，单次得分为 0。原 Judge 自动评分保留；其余未评项不自动批准。','',
+        '| 条目 | 人工判定 | 理由 | 用户原话 | 记录 |','|---|---|---|---|---|',
+        ...t.adjudications.flatMap(r=>r.input.findings.map(f=>`| ${cell(f.criterionId)} | fail | ${cell(f.reason)} | ${cell(r.input.userStatement)} | [人工裁决](human-adjudications/${r.id}/record.json) |`)));
     }
   }
   lines.push('', '## 归档','',`本批次目录：${batch}`, '归档不需要 Git 提交。原始记录与失败结果保留，不自动确认基线。', '', ...report.limits.map(s=>'- '+s));

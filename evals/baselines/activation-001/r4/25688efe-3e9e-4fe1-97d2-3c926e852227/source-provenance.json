@@ -1,0 +1,10 @@
+{
+  "kind": "prompt_only_trial",
+  "trialId": "ffa6ba63-ed37-43b4-a13e-cb195714e76d",
+  "sourceDirectory": "artifacts/baseline-trials/activation-001/ffa6ba63-ed37-43b4-a13e-cb195714e76d",
+  "sourceReceipt": "execution/trial.json",
+  "legacySourceMapping": "source.batchId contains the original trial directory ID; source.reportSha256 hashes the original trial.json receipt. No evaluation report, Judge, or score was generated.",
+  "caseSnapshotPurpose": "Binds the matching execution input to the current Case revision; approval does not approve its pre-existing rubric or expectations.",
+  "knownIssues": [],
+  "reviewStatus": "Candidate snapshot prepared for actual user review; no approval inferred."
+}

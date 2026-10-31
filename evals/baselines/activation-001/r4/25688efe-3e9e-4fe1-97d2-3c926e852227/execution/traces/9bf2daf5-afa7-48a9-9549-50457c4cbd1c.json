@@ -1,0 +1,941 @@
+{
+  "schemaVersion": "cwatch.structured-trace.v1",
+  "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+  "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+  "runId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+  "status": "complete",
+  "input": {
+    "task": {
+      "kind": "agent",
+      "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+      "instruction": "请审阅下面这条竞品主张及其材料，判断材料能支持到什么范围，并说明还缺什么依据。只使用我提供的材料，不重新调查，不联网，也不用生成文件。\n\n以下品牌名称沿用用户提供的 Zcode；主张、材料标题、日期和摘录均为本用例合成内容，不代表该品牌的真实功能或公告：\n\n主张 C1：Zcode 已支持导出会话记录。\n\n材料 M1：《Zcode 功能说明（合成摘录）》，合成发布日期为 2026-10-20。正文摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”",
+      "allowedSources": []
+    },
+    "mode": "live",
+    "permissionMode": "explore",
+    "engine": "pi-agent-session",
+    "model": {
+      "provider": "stepfun",
+      "id": "step-5-preview"
+    }
+  },
+  "output": {
+    "response": "# 竞品主张审阅：C1\n\n**主张 C1**：Zcode 已支持导出会话记录。\n**材料 M1**：《Zcode 功能说明（合成摘录）》，合成发布日期 2026-10-20；摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”\n\n审阅仅基于上述提供材料，未做重新调查。\n\n## 一、按证据清单逐项核对\n\n1. **实体与产品范围匹配**：M1 中的“Zcode”与主张实体一致，产品对象“会话记录导出”也对应。这一点上没有明显错配。\n2. **时间线区分**：\n   - M1 只有一个**合成发布日期 2026-10-20**。发布日期本身不能证明该功能的实际上线时间，也不能证明“现在”（审阅时点）仍然可用。摘录中无检索时间记录。\n   - 摘录用词“**新增**”属于材料原文措辞，只能作为引述保留，不能据此推断功能在 2026-10-20 前后某个时间上线。**该功能的上线/可用时间在材料中缺失，应保留为“未知”**。\n3. **材料性质（来源可信度）**：M1 标题和说明均明确其为“合成摘录”，属于本用例合成内容，不能证明 Zcode 真实存在该功能或发布过该公告。因此它至多是“待审阅的材料”，而不是经过验证的事实依据。\n4. **矛盾与缺失来源**：材料只有一份，无矛盾证据；也无官方/一手来源可交叉验证。\n5. **其他**：不涉及 MCP 结果。\n\n## 二、材料实际能支持的范围\n\n- 作为**合成材料的引述内容**，M1 陈述了：Zcode 有“会话记录导出”能力，且**由工作区管理员在会话页面发起导出**。\n- 主张 C1 的核心指向（存在“导出会话记录”功能）在材料字面上有对应表述，但存在两点范围差异：\n  - **主体范围收窄**：材料限定为“工作区管理员可在会话页面发起”，C1 表述为“Zcode 已支持导出会话记录”，未体现管理员角色和入口限制，比材料更宽。\n  - **时效无依据**：C1 的“已支持”暗含当前可用，材料无法证明当前状态（无检索时点、无持续可用性证据）。\n\n## 三、还缺什么依据\n\n1. **真实、 preferably 一手/官方来源**：如官方更新日志、帮助文档、发布公告，以替代或佐证这份合成摘录。\n2. **功能上线/可用的事件日期**：材料仅有合成发布日期，缺实际上线时间；该日期应保持“未知”，不能用 2026-10-20 或其前后推断。\n3. **当前可用性证据**：带检索时间的实际产品界面、文档或可复现的验证记录，以支持“已支持/仍可用”的表述。\n4. **权限与范围细节**：导出是否仅限工作区管理员、是否支持其他角色、可导出的会话范围、导出格式与限制等。\n5. 若要把 C1 放宽为“面向所有用户的导出能力”，还需非管理员角色同样可导出的证据。\n\n## 四、结论\n\n- **可支持的结论**：仅能说“一份合成摘录材料声称 Zcode 新增会话记录导出，并称工作区管理员可在会话页面发起导出”；该材料的来源为合成，发布日期为 2026-10-20（合成），功能实际上线时间未知，当前可用性未经验证。\n- **不支持的结论**：不能宣称 Zcode 真实、已上线并在当前时点支持导出会话记录；不能推断上线时间在 2026-10-20 前后；不能将“新增”转述为确切的发布事件。\n- **待补充**：官方/一手来源、带日期的功能可用性证据、检索时点，以及管理员权限范围之外的导出能力证据（如主张需覆盖更广用户群）。",
+    "report": "responses/9bf2daf5-afa7-48a9-9549-50457c4cbd1c.md",
+    "gaps": []
+  },
+  "timing": {
+    "startedAt": "2026-10-31T08:45:23.802Z",
+    "endedAt": "2026-10-31T08:45:45.079Z",
+    "durationMs": 21291
+  },
+  "summary": {
+    "modelRounds": 2,
+    "auxiliaryUsageRecords": 0,
+    "toolRequests": 1,
+    "toolExecutions": 1,
+    "backendExecutions": 0,
+    "knownTokens": 7983,
+    "totalTokens": 7983,
+    "unknownUsageRecords": 0,
+    "physicalModelRequests": null,
+    "actualCost": null
+  },
+  "source": {
+    "format": "trace-events-jsonl",
+    "path": "traces/9bf2daf5-afa7-48a9-9549-50457c4cbd1c.jsonl",
+    "sha256": "a9744bc77edf21e43cdada5348403598fcffe1ebc84d6f79fe965badd7c7536a",
+    "schemaVersions": [
+      2
+    ],
+    "eventCount": 18
+  },
+  "integrity": {
+    "valid": true,
+    "complete": true,
+    "errors": []
+  },
+  "steps": [
+    {
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "kind": "run",
+      "name": "agent.run",
+      "status": "completed",
+      "timing": {
+        "requestedAt": "2026-10-31T08:45:23.802Z",
+        "startedAt": "2026-10-31T08:45:23.802Z",
+        "endedAt": "2026-10-31T08:45:45.079Z",
+        "durationMs": 21277,
+        "executionDurationMs": 21277
+      },
+      "correlation": {
+        "iteration": null,
+        "requestId": null,
+        "sdkToolCallId": null,
+        "bindingId": null,
+        "stageId": null,
+        "sessionId": null
+      },
+      "input": {
+        "kind": "agent",
+        "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+        "instruction": "请审阅下面这条竞品主张及其材料，判断材料能支持到什么范围，并说明还缺什么依据。只使用我提供的材料，不重新调查，不联网，也不用生成文件。\n\n以下品牌名称沿用用户提供的 Zcode；主张、材料标题、日期和摘录均为本用例合成内容，不代表该品牌的真实功能或公告：\n\n主张 C1：Zcode 已支持导出会话记录。\n\n材料 M1：《Zcode 功能说明（合成摘录）》，合成发布日期为 2026-10-20。正文摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”",
+        "allowedSources": []
+      },
+      "output": {
+        "response": "# 竞品主张审阅：C1\n\n**主张 C1**：Zcode 已支持导出会话记录。\n**材料 M1**：《Zcode 功能说明（合成摘录）》，合成发布日期 2026-10-20；摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”\n\n审阅仅基于上述提供材料，未做重新调查。\n\n## 一、按证据清单逐项核对\n\n1. **实体与产品范围匹配**：M1 中的“Zcode”与主张实体一致，产品对象“会话记录导出”也对应。这一点上没有明显错配。\n2. **时间线区分**：\n   - M1 只有一个**合成发布日期 2026-10-20**。发布日期本身不能证明该功能的实际上线时间，也不能证明“现在”（审阅时点）仍然可用。摘录中无检索时间记录。\n   - 摘录用词“**新增**”属于材料原文措辞，只能作为引述保留，不能据此推断功能在 2026-10-20 前后某个时间上线。**该功能的上线/可用时间在材料中缺失，应保留为“未知”**。\n3. **材料性质（来源可信度）**：M1 标题和说明均明确其为“合成摘录”，属于本用例合成内容，不能证明 Zcode 真实存在该功能或发布过该公告。因此它至多是“待审阅的材料”，而不是经过验证的事实依据。\n4. **矛盾与缺失来源**：材料只有一份，无矛盾证据；也无官方/一手来源可交叉验证。\n5. **其他**：不涉及 MCP 结果。\n\n## 二、材料实际能支持的范围\n\n- 作为**合成材料的引述内容**，M1 陈述了：Zcode 有“会话记录导出”能力，且**由工作区管理员在会话页面发起导出**。\n- 主张 C1 的核心指向（存在“导出会话记录”功能）在材料字面上有对应表述，但存在两点范围差异：\n  - **主体范围收窄**：材料限定为“工作区管理员可在会话页面发起”，C1 表述为“Zcode 已支持导出会话记录”，未体现管理员角色和入口限制，比材料更宽。\n  - **时效无依据**：C1 的“已支持”暗含当前可用，材料无法证明当前状态（无检索时点、无持续可用性证据）。\n\n## 三、还缺什么依据\n\n1. **真实、 preferably 一手/官方来源**：如官方更新日志、帮助文档、发布公告，以替代或佐证这份合成摘录。\n2. **功能上线/可用的事件日期**：材料仅有合成发布日期，缺实际上线时间；该日期应保持“未知”，不能用 2026-10-20 或其前后推断。\n3. **当前可用性证据**：带检索时间的实际产品界面、文档或可复现的验证记录，以支持“已支持/仍可用”的表述。\n4. **权限与范围细节**：导出是否仅限工作区管理员、是否支持其他角色、可导出的会话范围、导出格式与限制等。\n5. 若要把 C1 放宽为“面向所有用户的导出能力”，还需非管理员角色同样可导出的证据。\n\n## 四、结论\n\n- **可支持的结论**：仅能说“一份合成摘录材料声称 Zcode 新增会话记录导出，并称工作区管理员可在会话页面发起导出”；该材料的来源为合成，发布日期为 2026-10-20（合成），功能实际上线时间未知，当前可用性未经验证。\n- **不支持的结论**：不能宣称 Zcode 真实、已上线并在当前时点支持导出会话记录；不能推断上线时间在 2026-10-20 前后；不能将“新增”转述为确切的发布事件。\n- **待补充**：官方/一手来源、带日期的功能可用性证据、检索时点，以及管理员权限范围之外的导出能力证据（如主张需覆盖更广用户群）。",
+        "report": "responses/9bf2daf5-afa7-48a9-9549-50457c4cbd1c.md",
+        "gaps": []
+      },
+      "error": null,
+      "resultStatus": null,
+      "attributes": {
+        "mode": "live",
+        "permissionMode": "explore",
+        "engine": "pi-agent-session",
+        "model": {
+          "provider": "stepfun",
+          "id": "step-5-preview"
+        }
+      },
+      "usage": [],
+      "eventIds": [
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:1",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:2",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:3",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:13",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:17",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:18"
+      ]
+    },
+    {
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "kind": "model",
+      "name": "model.turn",
+      "status": "completed",
+      "timing": {
+        "requestedAt": "2026-10-31T08:45:23.845Z",
+        "startedAt": "2026-10-31T08:45:23.845Z",
+        "endedAt": "2026-10-31T08:45:25.714Z",
+        "durationMs": 1869,
+        "executionDurationMs": 1869
+      },
+      "correlation": {
+        "iteration": 0,
+        "requestId": null,
+        "sdkToolCallId": null,
+        "bindingId": null,
+        "stageId": null,
+        "sessionId": null
+      },
+      "input": {
+        "contextChars": 8834,
+        "context": {
+          "iteration": 0,
+          "permissionMode": "explore",
+          "contextHash": "38c8bb40ffeb167adbcb1d685ee864e9d0cedc15192863a7322d995f0bd3c097",
+          "skillHash": "b2c198f62a10be65cd4c000907ed8196cdb4f49e4fef6f91b1be5332c3352fe2",
+          "tools": [
+            {
+              "proxyName": "session__read_session_memory",
+              "sourceSlug": "session",
+              "originalName": "read_session_memory",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "9db1d96cf2994db61e5e54c978f802678cf979e3a6b902262d57836ba4df40ee"
+            },
+            {
+              "proxyName": "session__read_skill_resource",
+              "sourceSlug": "session",
+              "originalName": "read_skill_resource",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d"
+            },
+            {
+              "proxyName": "session__read_tool_result",
+              "sourceSlug": "session",
+              "originalName": "read_tool_result",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "c00d512f2b7d1605c0fa9fe4713bd4846f3ba5cf41241d6865141cd61c3803e6"
+            },
+            {
+              "proxyName": "session__read_transcript",
+              "sourceSlug": "session",
+              "originalName": "read_transcript",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "43255bc8c8d46048c4333d6c04a84f57e75a78b7a5d7bef1d9346da53d84395f"
+            }
+          ],
+          "prefixHash": "ae99b15236a7a4951fa1f1061da10a6a5b9975df9358c78e0d6521af915a194e",
+          "toolsetHash": "a8f1f4b6156ac827141c3a3fabae73345dc7a5f1b2347f98e62538b24de933bc",
+          "promptCache": {
+            "requestedRetention": "short",
+            "controlOwner": "sdk",
+            "providerSupport": "not_asserted"
+          }
+        }
+      },
+      "output": {
+        "kind": "call_tool",
+        "name": "session__read_skill_resource",
+        "args": {
+          "path": "references/checklist.md",
+          "skill": "competitor-review"
+        }
+      },
+      "error": null,
+      "resultStatus": null,
+      "attributes": {
+        "purpose": "turn",
+        "model": {
+          "provider": "stepfun",
+          "id": "step-5-preview"
+        }
+      },
+      "usage": [
+        {
+          "purpose": "turn",
+          "reported": {
+            "input": 2768,
+            "output": 58,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "totalTokens": 2826,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "cache": {
+            "source": "sdk_normalized_usage",
+            "readTokens": 0,
+            "creationTokens": 0,
+            "inputTokens": 2768,
+            "observation": "no_positive_reuse_reported",
+            "reportedCacheReadInputShare": 0,
+            "financialSavings": "not_estimated"
+          },
+          "totalTokens": 2826
+        }
+      ],
+      "eventIds": [
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:4",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:5",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:6"
+      ]
+    },
+    {
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "kind": "tool",
+      "name": "session__read_skill_resource",
+      "status": "completed",
+      "timing": {
+        "requestedAt": "2026-10-31T08:45:25.731Z",
+        "startedAt": "2026-10-31T08:45:25.737Z",
+        "endedAt": "2026-10-31T08:45:25.742Z",
+        "durationMs": 11,
+        "executionDurationMs": 5
+      },
+      "correlation": {
+        "iteration": null,
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313",
+        "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+        "stageId": null,
+        "sessionId": null
+      },
+      "input": {
+        "path": "references/checklist.md",
+        "skill": "competitor-review"
+      },
+      "output": {
+        "skill": "competitor-review",
+        "path": "references/checklist.md",
+        "offset": 0,
+        "text": "# Evidence checklist\n\n1. Match stable entity and product identifiers.\n2. Keep publication, feature launch/availability, and retrieval times separate. Publication does not by itself establish launch time or current availability. Leave an absent event date unknown.\n   Treat \"new\" or \"newly added\" as attributed source wording, not proof of a launch shortly before, after, or around publication. Do not add approximate chronology in a parenthesis or final summary.\n3. Preserve official, reprint, synthetic, and user-supplied provenance. A title or synthetic excerpt alone cannot establish an authentic official or first-hand source.\n4. Check contradictory evidence and missing sources.\n5. Describe unstructured MCP results as material to review, not verified facts.\n\nApply these checks to suggested rewrites and examples as well as the original claim. A correction must not add unsupported dates, source status, roles, or scope.\n",
+        "hash": "b3dffd440bcd2d4c02d9e1709fe4bcc0a39c9241ef46abef52225574135606b5",
+        "totalChars": 927,
+        "truncated": false,
+        "raw": "# Evidence checklist\n\n1. Match stable entity and product identifiers.\n2. Keep publication, feature launch/availability, and retrieval times separate. Publication does not by itself establish launch time or current availability. Leave an absent event date unknown.\n   Treat \"new\" or \"newly added\" as attributed source wording, not proof of a launch shortly before, after, or around publication. Do not add approximate chronology in a parenthesis or final summary.\n3. Preserve official, reprint, synthetic, and user-supplied provenance. A title or synthetic excerpt alone cannot establish an authentic official or first-hand source.\n4. Check contradictory evidence and missing sources.\n5. Describe unstructured MCP results as material to review, not verified facts.\n\nApply these checks to suggested rewrites and examples as well as the original claim. A correction must not add unsupported dates, source status, roles, or scope.\n",
+        "rawTruncated": false,
+        "snapshot": {
+          "path": "retrievals/b5bde42786b21ec71f66250e7c1f613a2a41ddad0f7c8a9195580c7f9e9b1d2e.txt",
+          "hash": "b5bde42786b21ec71f66250e7c1f613a2a41ddad0f7c8a9195580c7f9e9b1d2e"
+        }
+      },
+      "error": null,
+      "resultStatus": null,
+      "attributes": {
+        "binding": {
+          "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+          "proxyName": "session__read_skill_resource",
+          "originalName": "read_skill_resource",
+          "sourceSlug": "session",
+          "channel": "builtin",
+          "action": "analyze"
+        },
+        "argsHash": "4cb8e62d23b60fd763495a659e7159674ca9f7f86b8e00eb43725c52897f7766",
+        "permission": {
+          "mode": "explore",
+          "decision": "ALLOW",
+          "reason": "declared_semantics_and_valid_scope"
+        },
+        "preToolUse": {
+          "action": "allow",
+          "reason": "declared_semantics_and_valid_scope",
+          "effectiveMode": "explore"
+        },
+        "observationRecorded": true
+      },
+      "usage": [],
+      "eventIds": [
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:7",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:8",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:9",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:10",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:11",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:12"
+      ]
+    },
+    {
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:14",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "kind": "model",
+      "name": "model.turn",
+      "status": "completed",
+      "timing": {
+        "requestedAt": "2026-10-31T08:45:25.752Z",
+        "startedAt": "2026-10-31T08:45:25.752Z",
+        "endedAt": "2026-10-31T08:45:45.077Z",
+        "durationMs": 19325,
+        "executionDurationMs": 19325
+      },
+      "correlation": {
+        "iteration": 1,
+        "requestId": null,
+        "sdkToolCallId": null,
+        "bindingId": null,
+        "stageId": null,
+        "sessionId": null
+      },
+      "input": {
+        "contextChars": 8834,
+        "context": {
+          "iteration": 1,
+          "permissionMode": "explore",
+          "contextHash": "38c8bb40ffeb167adbcb1d685ee864e9d0cedc15192863a7322d995f0bd3c097",
+          "skillHash": "b2c198f62a10be65cd4c000907ed8196cdb4f49e4fef6f91b1be5332c3352fe2",
+          "tools": [
+            {
+              "proxyName": "session__read_session_memory",
+              "sourceSlug": "session",
+              "originalName": "read_session_memory",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "9db1d96cf2994db61e5e54c978f802678cf979e3a6b902262d57836ba4df40ee"
+            },
+            {
+              "proxyName": "session__read_skill_resource",
+              "sourceSlug": "session",
+              "originalName": "read_skill_resource",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d"
+            },
+            {
+              "proxyName": "session__read_tool_result",
+              "sourceSlug": "session",
+              "originalName": "read_tool_result",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "c00d512f2b7d1605c0fa9fe4713bd4846f3ba5cf41241d6865141cd61c3803e6"
+            },
+            {
+              "proxyName": "session__read_transcript",
+              "sourceSlug": "session",
+              "originalName": "read_transcript",
+              "channel": "builtin",
+              "action": "analyze",
+              "bindingId": "43255bc8c8d46048c4333d6c04a84f57e75a78b7a5d7bef1d9346da53d84395f"
+            }
+          ],
+          "prefixHash": "ae99b15236a7a4951fa1f1061da10a6a5b9975df9358c78e0d6521af915a194e",
+          "toolsetHash": "a8f1f4b6156ac827141c3a3fabae73345dc7a5f1b2347f98e62538b24de933bc",
+          "promptCache": {
+            "requestedRetention": "short",
+            "controlOwner": "sdk",
+            "providerSupport": "not_asserted"
+          }
+        }
+      },
+      "output": {
+        "kind": "respond",
+        "text": "# 竞品主张审阅：C1\n\n**主张 C1**：Zcode 已支持导出会话记录。\n**材料 M1**：《Zcode 功能说明（合成摘录）》，合成发布日期 2026-10-20；摘录：“Zcode 新增会话记录导出，工作区管理员可在会话页面发起导出。”\n\n审阅仅基于上述提供材料，未做重新调查。\n\n## 一、按证据清单逐项核对\n\n1. **实体与产品范围匹配**：M1 中的“Zcode”与主张实体一致，产品对象“会话记录导出”也对应。这一点上没有明显错配。\n2. **时间线区分**：\n   - M1 只有一个**合成发布日期 2026-10-20**。发布日期本身不能证明该功能的实际上线时间，也不能证明“现在”（审阅时点）仍然可用。摘录中无检索时间记录。\n   - 摘录用词“**新增**”属于材料原文措辞，只能作为引述保留，不能据此推断功能在 2026-10-20 前后某个时间上线。**该功能的上线/可用时间在材料中缺失，应保留为“未知”**。\n3. **材料性质（来源可信度）**：M1 标题和说明均明确其为“合成摘录”，属于本用例合成内容，不能证明 Zcode 真实存在该功能或发布过该公告。因此它至多是“待审阅的材料”，而不是经过验证的事实依据。\n4. **矛盾与缺失来源**：材料只有一份，无矛盾证据；也无官方/一手来源可交叉验证。\n5. **其他**：不涉及 MCP 结果。\n\n## 二、材料实际能支持的范围\n\n- 作为**合成材料的引述内容**，M1 陈述了：Zcode 有“会话记录导出”能力，且**由工作区管理员在会话页面发起导出**。\n- 主张 C1 的核心指向（存在“导出会话记录”功能）在材料字面上有对应表述，但存在两点范围差异：\n  - **主体范围收窄**：材料限定为“工作区管理员可在会话页面发起”，C1 表述为“Zcode 已支持导出会话记录”，未体现管理员角色和入口限制，比材料更宽。\n  - **时效无依据**：C1 的“已支持”暗含当前可用，材料无法证明当前状态（无检索时点、无持续可用性证据）。\n\n## 三、还缺什么依据\n\n1. **真实、 preferably 一手/官方来源**：如官方更新日志、帮助文档、发布公告，以替代或佐证这份合成摘录。\n2. **功能上线/可用的事件日期**：材料仅有合成发布日期，缺实际上线时间；该日期应保持“未知”，不能用 2026-10-20 或其前后推断。\n3. **当前可用性证据**：带检索时间的实际产品界面、文档或可复现的验证记录，以支持“已支持/仍可用”的表述。\n4. **权限与范围细节**：导出是否仅限工作区管理员、是否支持其他角色、可导出的会话范围、导出格式与限制等。\n5. 若要把 C1 放宽为“面向所有用户的导出能力”，还需非管理员角色同样可导出的证据。\n\n## 四、结论\n\n- **可支持的结论**：仅能说“一份合成摘录材料声称 Zcode 新增会话记录导出，并称工作区管理员可在会话页面发起导出”；该材料的来源为合成，发布日期为 2026-10-20（合成），功能实际上线时间未知，当前可用性未经验证。\n- **不支持的结论**：不能宣称 Zcode 真实、已上线并在当前时点支持导出会话记录；不能推断上线时间在 2026-10-20 前后；不能将“新增”转述为确切的发布事件。\n- **待补充**：官方/一手来源、带日期的功能可用性证据、检索时点，以及管理员权限范围之外的导出能力证据（如主张需覆盖更广用户群）。"
+      },
+      "error": null,
+      "resultStatus": null,
+      "attributes": {
+        "purpose": "turn",
+        "model": {
+          "provider": "stepfun",
+          "id": "step-5-preview"
+        }
+      },
+      "usage": [
+        {
+          "purpose": "turn",
+          "reported": {
+            "input": 847,
+            "output": 1750,
+            "cacheRead": 2560,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "totalTokens": 5157,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "cache": {
+            "source": "sdk_normalized_usage",
+            "readTokens": 2560,
+            "creationTokens": 0,
+            "inputTokens": 3407,
+            "observation": "reuse_reported",
+            "reportedCacheReadInputShare": 0.7513941884355738,
+            "financialSavings": "not_estimated"
+          },
+          "totalTokens": 5157
+        }
+      ],
+      "eventIds": [
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:14",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:15",
+        "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:16"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:1",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 1,
+      "timestamp": "2026-10-31T08:45:23.802Z",
+      "type": "run_started",
+      "category": "run",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "permissionMode": "explore",
+        "mode": "live",
+        "limits": {
+          "maxSteps": 8,
+          "maxToolCalls": 8,
+          "maxSameToolCalls": 16,
+          "contextChars": 150000,
+          "maxResponseChars": 32000,
+          "maxOutputTokens": 8192,
+          "maxTokens": 30000,
+          "timeoutMs": 180000,
+          "modelTimeoutMs": 60000,
+          "toolTimeoutMs": 5000
+        },
+        "toolPipeline": "pre-tool-use-v1",
+        "engine": "pi-agent-session",
+        "model": {
+          "provider": "stepfun",
+          "id": "step-5-preview"
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:2",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 2,
+      "timestamp": "2026-10-31T08:45:23.842Z",
+      "type": "skills_loaded",
+      "category": "run",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "skills": [
+          {
+            "name": "competitor-review",
+            "hash": "84e040145c07d7175a43aea3d8f944b04ece9d467388a30d33b8e6c18929237f",
+            "resources": [
+              "references/checklist.md"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:3",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 3,
+      "timestamp": "2026-10-31T08:45:23.844Z",
+      "type": "context_prepared",
+      "category": "context",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 0,
+        "permissionMode": "explore",
+        "contextHash": "38c8bb40ffeb167adbcb1d685ee864e9d0cedc15192863a7322d995f0bd3c097",
+        "skillHash": "b2c198f62a10be65cd4c000907ed8196cdb4f49e4fef6f91b1be5332c3352fe2",
+        "tools": [
+          {
+            "proxyName": "session__read_session_memory",
+            "sourceSlug": "session",
+            "originalName": "read_session_memory",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "9db1d96cf2994db61e5e54c978f802678cf979e3a6b902262d57836ba4df40ee"
+          },
+          {
+            "proxyName": "session__read_skill_resource",
+            "sourceSlug": "session",
+            "originalName": "read_skill_resource",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d"
+          },
+          {
+            "proxyName": "session__read_tool_result",
+            "sourceSlug": "session",
+            "originalName": "read_tool_result",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "c00d512f2b7d1605c0fa9fe4713bd4846f3ba5cf41241d6865141cd61c3803e6"
+          },
+          {
+            "proxyName": "session__read_transcript",
+            "sourceSlug": "session",
+            "originalName": "read_transcript",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "43255bc8c8d46048c4333d6c04a84f57e75a78b7a5d7bef1d9346da53d84395f"
+          }
+        ],
+        "prefixHash": "ae99b15236a7a4951fa1f1061da10a6a5b9975df9358c78e0d6521af915a194e",
+        "toolsetHash": "a8f1f4b6156ac827141c3a3fabae73345dc7a5f1b2347f98e62538b24de933bc",
+        "promptCache": {
+          "requestedRetention": "short",
+          "controlOwner": "sdk",
+          "providerSupport": "not_asserted"
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:4",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 4,
+      "timestamp": "2026-10-31T08:45:23.845Z",
+      "type": "model_requested",
+      "category": "model",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 0,
+        "contextChars": 8834
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:5",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 5,
+      "timestamp": "2026-10-31T08:45:25.712Z",
+      "type": "model_usage",
+      "category": "model",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 0,
+        "purpose": "turn",
+        "cache": {
+          "source": "sdk_normalized_usage",
+          "readTokens": 0,
+          "creationTokens": 0,
+          "inputTokens": 2768,
+          "observation": "no_positive_reuse_reported",
+          "reportedCacheReadInputShare": 0,
+          "financialSavings": "not_estimated"
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:6",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 6,
+      "timestamp": "2026-10-31T08:45:25.714Z",
+      "type": "decision_made",
+      "category": "model",
+      "status": "completed",
+      "error": null,
+      "attributes": {}
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:7",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 7,
+      "timestamp": "2026-10-31T08:45:25.731Z",
+      "type": "pre_tool_use_request",
+      "category": "tool",
+      "status": "pending",
+      "error": null,
+      "attributes": {
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+        "toolName": "session__read_skill_resource",
+        "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+        "argsHash": "4cb8e62d23b60fd763495a659e7159674ca9f7f86b8e00eb43725c52897f7766",
+        "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:8",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 8,
+      "timestamp": "2026-10-31T08:45:25.733Z",
+      "type": "policy_decision",
+      "category": "tool",
+      "status": "pending",
+      "error": null,
+      "attributes": {
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "binding": {
+          "id": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+          "name": "read_skill_resource",
+          "description": "Read a text resource from a selected installed skill. Does not execute scripts.",
+          "action": "analyze",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "maximum": 24000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "offset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "skill": {
+                "enum": [
+                  "competitor-review"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "skill",
+              "path"
+            ],
+            "type": "object"
+          },
+          "namespace": "session",
+          "source_slug": "session",
+          "original_name": "read_skill_resource",
+          "proxy_name": "session__read_skill_resource",
+          "backendNames": {
+            "pi": "session__read_skill_resource",
+            "replay": "session__read_skill_resource"
+          },
+          "channel": "builtin",
+          "revision": 1
+        },
+        "argsHash": "4cb8e62d23b60fd763495a659e7159674ca9f7f86b8e00eb43725c52897f7766",
+        "effectiveMode": "explore",
+        "reason": "declared_semantics_and_valid_scope"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:9",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 9,
+      "timestamp": "2026-10-31T08:45:25.734Z",
+      "type": "pre_tool_use_response",
+      "category": "tool",
+      "status": "pending",
+      "error": null,
+      "attributes": {
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+        "toolName": "session__read_skill_resource",
+        "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+        "argsHash": "4cb8e62d23b60fd763495a659e7159674ca9f7f86b8e00eb43725c52897f7766",
+        "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313",
+        "action": "allow",
+        "reason": "declared_semantics_and_valid_scope",
+        "effectiveMode": "explore"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:10",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 10,
+      "timestamp": "2026-10-31T08:45:25.737Z",
+      "type": "execution_started",
+      "category": "tool",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+        "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:11",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 11,
+      "timestamp": "2026-10-31T08:45:25.742Z",
+      "type": "execution_finished",
+      "category": "tool",
+      "status": "completed",
+      "error": null,
+      "attributes": {
+        "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+        "state": "completed"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:12",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:tool:8444151b-7d65-4504-a292-768edf480a3a",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:4",
+      "sequence": 12,
+      "timestamp": "2026-10-31T08:45:25.744Z",
+      "type": "observation_added",
+      "category": "tool",
+      "status": "completed",
+      "error": null,
+      "attributes": {
+        "name": "session__read_skill_resource",
+        "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313"
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:13",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 13,
+      "timestamp": "2026-10-31T08:45:25.749Z",
+      "type": "context_prepared",
+      "category": "context",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 1,
+        "permissionMode": "explore",
+        "contextHash": "38c8bb40ffeb167adbcb1d685ee864e9d0cedc15192863a7322d995f0bd3c097",
+        "skillHash": "b2c198f62a10be65cd4c000907ed8196cdb4f49e4fef6f91b1be5332c3352fe2",
+        "tools": [
+          {
+            "proxyName": "session__read_session_memory",
+            "sourceSlug": "session",
+            "originalName": "read_session_memory",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "9db1d96cf2994db61e5e54c978f802678cf979e3a6b902262d57836ba4df40ee"
+          },
+          {
+            "proxyName": "session__read_skill_resource",
+            "sourceSlug": "session",
+            "originalName": "read_skill_resource",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d"
+          },
+          {
+            "proxyName": "session__read_tool_result",
+            "sourceSlug": "session",
+            "originalName": "read_tool_result",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "c00d512f2b7d1605c0fa9fe4713bd4846f3ba5cf41241d6865141cd61c3803e6"
+          },
+          {
+            "proxyName": "session__read_transcript",
+            "sourceSlug": "session",
+            "originalName": "read_transcript",
+            "channel": "builtin",
+            "action": "analyze",
+            "bindingId": "43255bc8c8d46048c4333d6c04a84f57e75a78b7a5d7bef1d9346da53d84395f"
+          }
+        ],
+        "prefixHash": "ae99b15236a7a4951fa1f1061da10a6a5b9975df9358c78e0d6521af915a194e",
+        "toolsetHash": "a8f1f4b6156ac827141c3a3fabae73345dc7a5f1b2347f98e62538b24de933bc",
+        "promptCache": {
+          "requestedRetention": "short",
+          "controlOwner": "sdk",
+          "providerSupport": "not_asserted"
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:14",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:14",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 14,
+      "timestamp": "2026-10-31T08:45:25.752Z",
+      "type": "model_requested",
+      "category": "model",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 1,
+        "contextChars": 8834
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:15",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:14",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 15,
+      "timestamp": "2026-10-31T08:45:45.076Z",
+      "type": "model_usage",
+      "category": "model",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "iteration": 1,
+        "purpose": "turn",
+        "cache": {
+          "source": "sdk_normalized_usage",
+          "readTokens": 2560,
+          "creationTokens": 0,
+          "inputTokens": 3407,
+          "observation": "reuse_reported",
+          "reportedCacheReadInputShare": 0.7513941884355738,
+          "financialSavings": "not_estimated"
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:16",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:model:14",
+      "parentStepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "sequence": 16,
+      "timestamp": "2026-10-31T08:45:45.077Z",
+      "type": "decision_made",
+      "category": "model",
+      "status": "completed",
+      "error": null,
+      "attributes": {}
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:17",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 17,
+      "timestamp": "2026-10-31T08:45:45.079Z",
+      "type": "usage_reported",
+      "category": "run",
+      "status": "running",
+      "error": null,
+      "attributes": {
+        "toolCalls": 1,
+        "durationMs": 21291,
+        "usageAvailable": true,
+        "mode": "live",
+        "callsByTool": {
+          "session__read_skill_resource": 1
+        },
+        "totalTokens": 7983,
+        "limits": {
+          "maxSteps": 8,
+          "maxToolCalls": 8,
+          "maxSameToolCalls": 16,
+          "contextChars": 150000,
+          "maxResponseChars": 32000,
+          "maxOutputTokens": 8192,
+          "maxTokens": 30000,
+          "timeoutMs": 180000,
+          "modelTimeoutMs": 60000,
+          "toolTimeoutMs": 5000
+        },
+        "cacheUsage": {
+          "source": "sdk_normalized_usage",
+          "byPurpose": {
+            "turn": {
+              "responses": 2,
+              "reuseReportedResponses": 1,
+              "readTokens": 2560,
+              "creationTokens": 0,
+              "inputTokens": 6175,
+              "unavailableReadResponses": 0,
+              "unavailableCreationResponses": 0
+            }
+          },
+          "financialSavings": "not_estimated",
+          "zeroMeaning": "No positive reuse was reported; support and raw-field availability may be unknown."
+        }
+      }
+    },
+    {
+      "eventId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:event:18",
+      "traceId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+      "stepId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c:run",
+      "parentStepId": null,
+      "sequence": 18,
+      "timestamp": "2026-10-31T08:45:45.079Z",
+      "type": "run_completed",
+      "category": "run",
+      "status": "completed",
+      "error": null,
+      "attributes": {
+        "status": "complete",
+        "permissionMode": "explore",
+        "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+        "runId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+        "gaps": []
+      }
+    }
+  ],
+  "errors": []
+}

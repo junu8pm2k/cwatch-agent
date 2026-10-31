@@ -1,0 +1,57 @@
+{
+  "requestId": "8444151b-7d65-4504-a292-768edf480a3a",
+  "taskId": "eval-5723f1b0-ab1f-4182-955a-ed2bb3dc672d",
+  "runId": "9bf2daf5-afa7-48a9-9549-50457c4cbd1c",
+  "sourceSlug": "session",
+  "toolBinding": {
+    "name": "read_skill_resource",
+    "description": "Read a text resource from a selected installed skill. Does not execute scripts.",
+    "action": "analyze",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 24000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "skill": {
+          "enum": [
+            "competitor-review"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill",
+        "path"
+      ],
+      "type": "object"
+    },
+    "namespace": "session",
+    "id": "f3a9a6911f22ee684617bdfa7ba86c96bbfb773588f25fdf455ae8117d9d641d",
+    "source_slug": "session",
+    "original_name": "read_skill_resource",
+    "proxy_name": "session__read_skill_resource",
+    "backendNames": {
+      "pi": "session__read_skill_resource",
+      "replay": "session__read_skill_resource"
+    },
+    "channel": "builtin",
+    "revision": 1
+  },
+  "argsHash": "4cb8e62d23b60fd763495a659e7159674ca9f7f86b8e00eb43725c52897f7766",
+  "state": "completed",
+  "startedAt": "2026-10-31T08:45:25.727Z",
+  "execute_count": 1,
+  "sdkToolCallId": "chatcmpl-tool-b8b8951b44ecc313",
+  "endedAt": "2026-10-31T08:45:25.740Z"
+}

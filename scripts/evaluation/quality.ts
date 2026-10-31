@@ -11,6 +11,7 @@ import { summarizePenalty, unavailablePenalty, scorePenalty, PENALTY_PROFILE, ty
 import type { WorkerObservation } from './contracts.ts';
 import { EVAL_DIMENSIONS, LLM_DIMENSIONS, HUMAN_DIMENSIONS, SEMANTIC_DIMENSIONS, SCORER_DIMENSIONS } from './dimensions.ts';
 import { rubricDimensions, StructuredRubricSchema } from './rubric.ts';
+import { listHumanRejections, applyHumanRejections } from './adjudication.ts';
 
 const VERDICT_ANCHORS = {
   outcome:{pass:'The observed task result matches every declared outcome expectation.',fail:'A declared task outcome differs from its expectation.',unknown:'The result cannot be established from the supplied evidence.'},
@@ -232,6 +233,8 @@ export function combinedAssessment(subject: QualitySubject, records = listAssess
   const llm = records.filter(r => r.kind === 'llm').at(-1) ?? null, human = records.filter(r => r.kind === 'human').at(-1) ?? null;
   const rules = subject.packet.rules;
   const penalty=scorePenalty(subject.archive.value,rules.checks,{durationMs:rules.durationMs},{rubric:scoringReview(llm),human:scoringReview(human)});
+  const adjudications=listHumanRejections(subject);
+  applyHumanRejections(subject,penalty,adjudications);
   if(pending){penalty.unknownCheckIds.push('__judge_request_incomplete');penalty.complete=false;penalty.passed=false;if(penalty.resultDeduction!==-100)penalty.score=null;}
   const disagreement=penalty.processFindings.some(f=>f.disagreement);
   const verdict=rules.verdict==='fail'||(penalty.score!==null&&penalty.score<80)?'fail'
@@ -240,7 +243,8 @@ export function combinedAssessment(subject: QualitySubject, records = listAssess
     graderVersion:'combined-v2-'+jsonHash({rules:rules.graderVersion,policy:RUBRIC,rubricSha256:subject.packet.rubricSha256,humanReview:subject.packet.humanReview,judge:llm?{version:llm.metadata.graderVersion,provider:llm.metadata.provider,modelId:llm.metadata.modelId,endpoint:llm.metadata.endpointFingerprint}:null}).slice(0,16),
     verdict, releaseEligible: verdict === 'pass' && rules.releaseEligible, semanticApplicable: subject.semanticApplicable, disagreement, incompleteJudgeAssessments: pending,
     llmApplicable:subject.llmApplicable,humanApplicable:subject.humanApplicable,rubricSha256:subject.packet.rubricSha256,
-    penalty,dimensions:combinedDimensions(subject,rules,llm,human,penalty),rules,llm,human, history: records.map(r => ({ id: r.id, kind: r.kind, verdict: r.verdict, completedAt: r.completedAt,
+    penalty,adjudications,dimensions:Object.fromEntries(Object.entries(combinedDimensions(subject,rules,llm,human,penalty)).map(([id,value])=>[id,
+      adjudications.some(r=>r.input.findings.some(f=>subject.packet.rubric?.criteria.some(c=>c.id===f.criterionId&&c.dimension===id)))?{...value,status:'fail',humanAdjudicated:true}:value])),rules,llm,human, history: records.map(r => ({ id: r.id, kind: r.kind, verdict: r.verdict, completedAt: r.completedAt,
       physicalRequests: r.kind === 'llm' ? Number(r.metadata.physicalRequests ?? 0) : 0,
       totalTokens: r.kind === 'llm' && typeof r.metadata.totalTokens === 'number' ? r.metadata.totalTokens : null })),
   };
