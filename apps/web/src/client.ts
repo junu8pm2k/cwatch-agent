@@ -115,13 +115,15 @@ function elapsed(){
   $('stat-time').textContent=seconds<60?seconds+'s':Math.floor(seconds/60)+'m '+seconds%60+'s';
 }
 const workspaceSymbol='<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="9" width="34" height="28" rx="5"/><path d="M7 17h34M17 17v20m7-12h10m-10 6h6"/><circle cx="12" cy="13" r=".8" fill="currentColor" stroke="none"/></svg>';
+const researchIllustration='<svg class="research-illustration" viewBox="0 0 360 190" fill="none" aria-hidden="true"><ellipse cx="180" cy="95" rx="131" ry="67" stroke="#e4eaf4" stroke-dasharray="4 7"/><path d="M88 75 180 95l92-40M180 95l77 56M180 95l-84 53" stroke="#c4d1ed" stroke-width="1.5"/><circle cx="180" cy="95" r="46" fill="#f0f4ff"/><rect x="151" y="66" width="58" height="58" rx="18" fill="#3763d8"/><path d="M191 83a16 16 0 1 0 0 24M178 83v12l8 5" stroke="white" stroke-width="2.5" stroke-linecap="round"/><rect x="47" y="50" width="67" height="49" rx="10" fill="white" stroke="#dce4f1"/><path d="M60 64h21M60 72h39M60 80h30" stroke="#a0afc8" stroke-width="2" stroke-linecap="round"/><rect x="249" y="32" width="55" height="44" rx="10" fill="white" stroke="#dce4f1"/><path d="m263 57 8-8 8 6 11-12" stroke="#557ddc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="236" y="131" width="47" height="36" rx="9" fill="white" stroke="#dce4f1"/><path d="m249 148 7 6 13-14" stroke="#4b958b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="95" cy="149" r="10" fill="#e6edf9"/><path d="m91 149 3 3 5-6" stroke="#6c8ac4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="224" cy="22" r="3" fill="#c8d6f4"/><circle cx="132" cy="174" r="3" fill="#c8d6f4"/></svg>';
 function empty(title:string,note:string,symbol=workspaceSymbol){
   return '<div class="empty-state"><div class="empty-symbol" aria-hidden="true">'+symbol+'</div><h3>'+escape(title)+'</h3><p>'+escape(note)+'</p></div>';
 }
 function renderProcess(){
   const run=state.current;
   if(!run){
-    $('process-content').innerHTML=empty('今天想完成什么？','在任务设置中描述目标，执行过程与结果会出现在这里。')+'<div class="source-preview"><span>阅读文件</span><span>研究资料</span><span>整理结论</span></div>';return;
+    const domain=investigation(currentProfile().task);
+    $('process-content').innerHTML='<div class="workspace-welcome">'+researchIllustration+'<h3>'+(domain?'从变化中，找到下一步。':'把目标交给 Cwatch。')+'</h3><p>'+(domain?'从公开来源收集线索，核验变化与证据，整理为可追溯的调查草稿。':'阅读材料、研究问题、整理结论。<br>你来确定方向，让 Agent 把过程与结果带回来。')+'</p><div class="welcome-actions"><button type="button" data-template="agent"'+(!domain?' aria-pressed="true"':' aria-pressed="false"')+'>'+workspaceSymbol+'<span>通用任务<small>从一个问题开始</small></span></button><button type="button" data-template="standard"'+(domain?' aria-pressed="true"':' aria-pressed="false"')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品调查<small>追踪变化与来源</small></span></button></div><p class="welcome-note">设置好任务，点击“'+(domain?'开始调查':'开始任务')+'”即可运行</p></div>';return;
   }
   const old=$('process-content').querySelector('.activity-scroll'),scroll=old?.scrollTop??0,atBottom=!old||old.scrollHeight-old.clientHeight-scroll<70;
   $('process-content').innerHTML=(run.mode==='replay'?'<div class="run-notice">离线演示使用固定脚本和合成数据。</div>':'')+(run.error?'<div class="run-notice">'+escape(run.error)+'</div>':'')+'<div class="activity-scroll"><ol class="activity-list">'+run.activities.map(event=>'<li class="activity '+escape(event.kind)+'"><div class="activity-header"><span class="activity-message">'+escape(event.message)+'</span><time datetime="'+escape(event.timestamp)+'">'+formatTime(event.timestamp)+'</time></div>'+(event.detail?'<details><summary>查看调用详情</summary><pre>'+escape(event.detail)+'</pre></details>':'')+'</li>').join('')+'</ol></div>';
@@ -218,6 +220,12 @@ $('end-conversation').addEventListener('click',()=>{
   void api<RunSnapshot>('/api/runs/'+run.id+'/end',{}).then(update).catch(alertError).finally(()=>{state.sending=false;renderConversation();});
 });
 $('new-run').addEventListener('click',newRun);$('profile').addEventListener('change',()=>{profileForm();if(!state.current)renderRun();});
+$('process-content').addEventListener('click',event=>{
+  const button=(event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
+  if(!button||state.current||!state.bootstrap?.profiles.some(profile=>profile.id===button.dataset.template))return;
+  $<HTMLSelectElement>('profile').value=button.dataset.template!;profileForm();renderRun();
+  announce('已选择'+currentProfile().name+'模板。');
+});
 for(const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]'))input.addEventListener('change',modeChanged);
 $('permission').addEventListener('change',permissionChanged);
 $('cancel-run').addEventListener('click',()=>{const run=state.current;if(!run)return;clearError();void api<RunSnapshot>('/api/runs/'+run.id+'/cancel',{}).then(update).catch(alertError);});
