@@ -1,5 +1,7 @@
 # Case 1 首次执行
 
+2026-11-01：用户要求重新设计触发场景。新版 [Case 1 r5 设计](../drafts/v2/case-01.md)及配对反例属于[14 题新方案](../drafts/v2/README.md)，尚未试跑、评分或确认基线。本目录的 dataset 继续固定历史 r4/r2，不把既有通过记录迁移到新设计；下文为历史执行记录。
+
 当前 activation-001 为 revision 4：保留 Prompt、量表、代码检查、总 Token 预算 30000 与单次输出上限 8192，更新冻结的专家 Skill，明确不从发布日期或“新增”推断准确/近似上线日期；旧 revision 2 和 revision 3 文件及既有运行证据保持原样。宿主通用 Skill 另要求按需读取历史，只使用实际披露的转录锚点。
 
 题单为 dataset.json，当前含 activation-001 revision 4、activation-002 revision 2，标准状态均为 needs_review。任务使用仓库 competitor-review Skill 与检查表的冻结快照；宿主通过真实 SessionTools 提供资源读取，不用预设工具调用或答案。模型只收到输入与 Skill，量表保存在评审侧。

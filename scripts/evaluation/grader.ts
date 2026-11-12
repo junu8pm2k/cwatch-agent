@@ -10,9 +10,10 @@ import { inspectFinalOutput, type OutputContract } from './output-format.ts';
 import { inspectMarkdownReport, type ReportContract } from './report-format.ts';
 import { scorePenalty, unavailablePenalty, forcePenaltyZero, type PenaltyTrial } from './penalty.ts';
 import { checkDimension, dimensionResults, type DimensionResults } from './dimensions.ts';
+import { markdownTableMatches, MarkdownTableExpectationSchema } from './artifact-checks.ts';
 export { parseFinalJson } from './output-format.ts';
 
-export const GRADER_VERSION='deterministic-v2-'+sha256(Buffer.concat(['grader.ts','contracts.ts','rubric.ts','skill-snapshots.ts','dimensions.ts','dataset.ts','output-format.ts','report-format.ts','penalty.ts','../../packages/shared/src/sessions/structured-trace.ts'].map(name=>readFileSync(fileURLToPath(new URL('./'+name,import.meta.url)))))).slice(0,12);
+export const GRADER_VERSION='deterministic-v2-'+sha256(Buffer.concat(['grader.ts','contracts.ts','rubric.ts','skill-snapshots.ts','dimensions.ts','dataset.ts','output-format.ts','report-format.ts','artifact-checks.ts','penalty.ts','../../packages/shared/src/sessions/structured-trace.ts'].map(name=>readFileSync(fileURLToPath(new URL('./'+name,import.meta.url)))))).slice(0,12);
 export function select(value:unknown,path:string):unknown{
   const parts=path.split('.');if(parts.some(p=>['__proto__','prototype','constructor'].includes(p)))throw Error('unsafe_selector');
   return parts.reduce<unknown>((v,key)=>v!==null&&typeof v==='object'&&Object.hasOwn(v,key)?(v as Record<string,unknown>)[key]:undefined,value);
@@ -136,6 +137,12 @@ export function grade(raw:EvalCase,projection:ReturnType<typeof collectProjectio
       const actual=select(projection,rule.path!);
       if(actual!==undefined){outcome=typeof actual==='string'&&actual.trim().length>0?'pass':'fail';reason='Checks only that the observed field is a non-whitespace string; its meaning requires human review';}
       else if(rule.path!.startsWith('facts.finalJson.')&&select(projection,'facts.finalJson')!==null&&select(projection,'facts.finalJson')!==undefined){outcome='fail';reason='The observed JSON artifact omits a required output field';}
+    }else if(rule.method==='markdown_table_equals'){
+      const actual=select(projection,rule.path!);
+      if(typeof actual==='string'){outcome=markdownTableMatches(actual,MarkdownTableExpectationSchema.parse(rule.expected))?'pass':'fail';reason='Declared table-only artifact: exact cell values/order; spacing and alignment are ignored';}
+    }else if(rule.method==='none_of'){
+      const actual=select(projection,rule.path!);
+      if(Array.isArray(actual)&&actual.every(item=>typeof item==='string')){outcome=actual.some(item=>(rule.expected as string[]).includes(item))?'fail':'pass';reason='Actual requested tool names checked against the explicit forbidden set, including unsuccessful requests';}
     }else if(rule.method==='trace_valid'){outcome=projection.trace.valid?'pass':'fail';reason=projection.trace.errors.join('; ')||'Trace contract holds';evidence.push({artifact:projection.trace.path});}
     else if(rule.method==='file_boundary'){
       if(projection.boundary){outcome=projection.boundary.privateReadDenied===true&&projection.boundary.childProcessDenied===true?'pass':'fail';reason='Actual private-sentinel read and child-spawn probes under Node permission model';evidence.push({artifact:'boundary.json'});}

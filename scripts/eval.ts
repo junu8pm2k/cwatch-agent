@@ -24,6 +24,7 @@ import '../tests/api-mcp.test.ts';
 import '../tests/api-http.test.ts';
 import '../tests/source-coverage.test.ts';
 import '../tests/structured-trace.test.ts';
+import '../tests/langfuse.test.ts';
 import '../tests/browser-source.test.ts';
 import '../tests/domain-dataset.test.ts';
 import '../tests/extensions.test.ts';
@@ -33,6 +34,10 @@ import '../tests/web-api.test.ts';
 import '../tests/conversation.test.ts';
 import { cases } from '../tests/harness.ts';
 import { FileStore } from "@cwatch/shared/sessions/storage";
+// Live provider fixtures must never upload to the operator's real Langfuse project.
+// Langfuse integration cases explicitly scope their own local test configuration.
+process.env.LANGFUSE_ENABLED = 'false';
+delete process.env.CWATCH_AGENT_PROMPT_SNAPSHOT;
 const startedAt = new Date().toISOString();
 const results: Array<{ name: string; group: string; critical: boolean; passed: boolean; durationMs: number; error?: string }> = [];
 for (const entry of cases) {

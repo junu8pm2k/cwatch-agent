@@ -1,5 +1,7 @@
 # 评测状态与通用入口
 
+2026-11-01 当前题单为[14题完整设计](../evals/cwatch/README.md)：触发2、核心逻辑8、异常容错2、产物质量2。14份CaseSchema均已有输入、评分条目及评审分配，异常fixture已配置；新修订仍needs_review、未确认基线或生成成绩。Langfuse现用目录为cwatch/current，旧v2仅保留归档历史。历史activation-001 r4、activation-002 r2的基线与成绩不能迁移给新修订。以下早期记录仅为历史。
+
 2026-10-29 清空全部旧 Case；2026-10-30 从新设计注册 **1 个用例 activation-001**，用于首次真实执行。当前基线仍未建立。
 
 新用例集见 [设计说明](../evals/drafts/README.md)：四类场景暂定共 32 例，触发已有 4 个设计稿（正反各 2）。Case 1 已形成 [可执行题单](../evals/activation/dataset.json)，其余三例未注册。Case 1 使用冻结的本地 Skill 和资源、无外部采集来源，真实执行与真实 Judge 请求分别归档；人工审核不由脚本代填。

@@ -6,6 +6,8 @@
 
 纯执行试跑保存于 artifacts/baseline-trials/<caseId>/<trialId>/，包括 prompt.md、input.json、trial.json、outcome.md 和原始/结构化 Trace，reviewStatus 为 awaiting_user_review。它不生成分数或自动确认。下文 eval:baseline 是已有评分批次的冻结入口，其当前实现要求综合评审达标，不能用它强迫纯执行试跑先完成评分或伪造通过记录；纯执行试跑得到人工认可后，登记应绑定原始证据与真实用户确认。
 
+2026-11-01：新增可复用入口 `eval:baseline:trial`，修订目录为 `artifacts/baseline-trials/<caseId>/r<revision>/<trialId>/`。可用 `--publish` 将本次真实执行放进 Langfuse 人工队列，`--trial <trial.json> --sync` 拉回实际认可意见。反馈不会自动批准量表、继承旧基线或登记一个尚未冻结评分契约的新 Case。详见 [Langfuse 基线审核](langfuse.md#新版-case-的纯执行基线)。
+
 ## 保存位置
 
 登记文件：evals/baselines/<caseId>.r<revision>.json。快照：evals/baselines/<caseId>/r<revision>/<baselineId>/baseline.json 及旁边的证据文件。这些文件随仓库版本管理，不属于 artifacts 中可清理的普通日志。基线登记按 Case ID、修订和完整内容哈希关联；Case 内容变化时旧快照不会自动成为新 Case 的基线。

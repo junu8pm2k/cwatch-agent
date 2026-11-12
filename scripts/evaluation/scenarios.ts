@@ -20,12 +20,20 @@ import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
 import { summarizeDiscovery } from '@cwatch/shared/intelligence/source-coverage';
 import { InputSchema, type EvalInput, type WorkerObservation } from './contracts.ts';
 import { frozenSkillBundle } from './skill-snapshots.ts';
+import { AgentPromptSnapshotSchema, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 
 type Scenario=EvalInput['scenario'];
 const usage={input:100,output:20,cacheRead:0,cacheWrite:0,totalTokens:120,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
 const emptySchema={type:'object',properties:{},additionalProperties:false};
 
-async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:FileStore,config?:ModelConfig):Promise<WorkerObservation>{
+async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:FileStore,config?:ModelConfig,agentPrompts?:AgentPromptSnapshot):Promise<WorkerObservation>{
+  const effectiveSkills=s.selectedSkills.map(skill=>{
+    const entry=agentPrompts?.entries.find(e=>e.key===skill.name);if(!entry)return skill;
+    return {...skill,entry:entry.text,sha256:entry.sha256,resources:skill.resources.map(resource=>{
+      const replacement=agentPrompts?.entries.find(e=>e.key==='review-checklist'&&skill.name==='competitor-review'&&resource.path==='references/checklist.md');
+      return replacement?{...resource,text:replacement.text,sha256:replacement.sha256}:resource;
+    })};
+  });
   const registry=new ToolRegistry(),controller=new AbortController();
   const fixtureCalls:Array<{tool:string;args:unknown;matched:boolean}>=[],approvalRequests:Array<{requestId:string;tool:string;argsHash:string;answer:boolean}>=[];
   const slug='fixture';let guideRead=false;
@@ -69,9 +77,9 @@ async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:File
       runSession:async(input,hooks,signal)=>{const configured=await createPiRuntime(config!.provider,config!.modelId,config,signal);
         try{await runPiSession(configured.runtime,configured.model,input,hooks,signal);}catch(error){
           const e=error as Error&{code?:string;resource?:string};store.write('adapter.error.json',new Redactor([config!.apiKey]).clean({message:e.message,code:e.code,resource:e.resource,stack:e.stack}));throw error;}}}:new ReplayModel(s.steps);
-    const userSkills=frozenSkillBundle(s.selectedSkills);
+    const userSkills=frozenSkillBundle(effectiveSkills);
     const result=await runAgent({kind:'agent',taskId:'eval-'+id(),instruction:s.instruction,allowedSources:s.source==='none'?[]:[slug]},model,registry,store,real?'live':'replay',
-      {builtinTools:false,userSkills,skillPath:fileURLToPath(new URL('../../skills/general-agent/SKILL.md',import.meta.url)),timeoutMs:real?180000:15000,modelTimeoutMs:real?60000:5000,toolTimeoutMs:s.toolTimeoutMs,maxToolCalls:s.maxToolCalls,maxSameToolCalls:16,maxSteps:real?8:16,
+      {builtinTools:false,userSkills,...(agentPrompts?{agentPrompts}:{}),skillPath:fileURLToPath(new URL('../../skills/general-agent/SKILL.md',import.meta.url)),timeoutMs:real?180000:15000,modelTimeoutMs:real?60000:5000,toolTimeoutMs:s.toolTimeoutMs,maxToolCalls:s.maxToolCalls,maxSameToolCalls:16,maxSteps:real?8:16,
         maxTokens:s.maxTokens,maxOutputTokens:s.maxOutputTokens,...(config?{secrets:[config.apiKey]}:{})},controller.signal,
       new ActionPolicy(s.permission),new ApprovalManager(async request=>{const answer=s.approvalAnswers[approvalRequests.length]??false;
         approvalRequests.push({requestId:request.requestId,tool:request.tool,argsHash:request.argsHash,answer});store.append('approvals.jsonl',approvalRequests.at(-1));return answer;}));
@@ -91,8 +99,9 @@ async function runtimeScenario(s:Extract<Scenario,{driver:'runtime'}>,store:File
     const requests=transcript.filter(e=>e.type==='custom'&&['cwatch.model_request','cwatch.summary_request','cwatch.memory_request'].includes(e.customType??'')).length;
     return{runId:result.runId,status:result.status,tracePath:'traces/'+result.runId+'.jsonl',structuredTracePath:'traces/'+result.runId+'.json',facts:{driver:'runtime',fixtureCalls,fixtureCallCount:fixtureCalls.length,
       fixtureEscapes:fixtureCalls.filter(c=>!c.matched).length,guideRead,approvalRequests,approvalCount:approvalRequests.length,
-      selectedSkills:s.selectedSkills.map(s=>({name:s.name,sha256:s.sha256,resources:s.resources.map(r=>({path:r.path,sha256:r.sha256}))})),
-      skillSetupValid:s.selectedSkills.every(s=>loadedSkills.some(l=>l.name===s.name&&l.hash===s.sha256))&&(!s.selectedSkills.length||disclosedTools.includes('session__read_skill_resource')),
+      selectedSkills:effectiveSkills.map(s=>({name:s.name,sha256:s.sha256,resources:s.resources.map(r=>({path:r.path,sha256:r.sha256}))})),
+      ...(agentPrompts?{agentPromptSnapshot:agentPrompts.sha256}:{}),
+      skillSetupValid:effectiveSkills.every(s=>loadedSkills.some(l=>l.name===s.name&&l.hash===s.sha256))&&(!s.selectedSkills.length||disclosedTools.includes('session__read_skill_resource')),
       skillReads,toolRequestCount:toolRequests.length,externalSourceCallCount:fixtureCalls.length,
       executionCount:execution.reduce((sum,e)=>sum+e.execute_count,0),executionStates:execution.map(e=>e.state),
       apiStatus:apiResults.find(r=>typeof r.status==='string')?.status??null,
@@ -158,9 +167,10 @@ async function discoveryScenario(s:Extract<Scenario,{driver:'discovery'}>,store:
   trace.emit('usage_reported',{toolCalls:0,durationMs:Date.now()-startedAt,modelUsage:[],usageAvailable:false,mode:'replay'});trace.emit('run_completed',{status:'complete'});
   return{runId,status:'complete',tracePath:trace.key,structuredTracePath:trace.structuredKey,facts:{driver:'discovery',...metrics},usage:{mode:'fixture',mainTaskTokens:null,maintenanceTokens:null,physicalModelRequests:0,completeness:'not_applicable'}};
 }
-export async function executeScenario(input:unknown,output:string,config?:ModelConfig):Promise<WorkerObservation>{
+export async function executeScenario(input:unknown,output:string,config?:ModelConfig,rawPrompts?:AgentPromptSnapshot):Promise<WorkerObservation>{
+  const agentPrompts=rawPrompts?AgentPromptSnapshotSchema.parse(rawPrompts):undefined;
   const {scenario}=InputSchema.parse(input),store=new FileStore(output);
-  if(scenario.driver==='runtime')return runtimeScenario(scenario,store,config);
+  if(scenario.driver==='runtime')return runtimeScenario(scenario,store,config,agentPrompts);
   if(scenario.driver==='memory')return memoryScenario(scenario,store);
   return discoveryScenario(scenario,store);
 }

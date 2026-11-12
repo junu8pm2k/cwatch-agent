@@ -1,0 +1,18 @@
+{
+  "scenario": {
+    "driver": "runtime",
+    "instruction": "合成已核对事实：角色=工作区管理员；入口=会话页面；导出格式=未知。\n请直接输出一个Markdown表格。表头依次为“字段”“值”；行依次为“角色”“入口”“导出格式”。原值保持不变，未知写“未知”。不加标题、解释或代码围栏，不调用工具。",
+    "source": "none",
+    "tools": [],
+    "steps": [],
+    "selectedSkills": [],
+    "modelMode": "pi_session",
+    "maxTokens": 30000,
+    "maxOutputTokens": 4096,
+    "permission": "explore",
+    "approvalAnswers": [],
+    "toolTimeoutMs": 1000,
+    "maxToolCalls": 8
+  },
+  "materialProvenance": "人工设计的合成测试材料。仅复用已公开的competitor-review Skill快照；不加载旧答案、量表、评分或基线确认。fixture不访问真实文件或外部服务。"
+}

@@ -1,0 +1,7 @@
+# Optional local experiment integration; use with the operator's existing Langfuse compose file.
+# Permit only the internal receiver as an additional internal webhook destination.
+# Receiver has no published ports; host executor remains loopback-only.
+services:
+  langfuse-web:
+    environment:
+      LANGFUSE_WEBHOOK_WHITELISTED_HOST: cwatch-langfuse-hook

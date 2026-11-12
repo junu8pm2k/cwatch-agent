@@ -10,6 +10,7 @@ import type { WorkerObservation } from './contracts.ts';
 import { readModelConfig, type ModelConfig } from '@cwatch/shared/config/models';
 import { buildExecutionInput } from './execution-input.ts';
 import { EVAL_DIMENSIONS, summarizeDimensions } from './dimensions.ts';
+import { readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 
 const workspace=resolve(fileURLToPath(new URL('../../',import.meta.url)));
 const save=(path:string,value:unknown)=>writeFileSync(path,JSON.stringify(value,null,2)+'\n',{flag:'wx'});
@@ -25,7 +26,7 @@ function sourceVersion(){
     graderVersion:GRADER_VERSION,graderSha256:sha256(readFileSync(fileURLToPath(new URL('./grader.ts',import.meta.url)))),
     sdkVersion:JSON.parse(readFileSync(resolve(workspace,'node_modules/@earendil-works/pi-coding-agent/package.json'),'utf8')).version};
 }
-async function runWorker(input:unknown,output:string,probe:string,signal?:AbortSignal,credentials?:ModelConfig):Promise<{ok:boolean;reason:string|null;started:boolean}>{
+async function runWorker(input:unknown,output:string,probe:string,signal?:AbortSignal,credentials?:ModelConfig,agentPrompts?:AgentPromptSnapshot):Promise<{ok:boolean;reason:string|null;started:boolean}>{
   const readable=['package.json','node_modules','packages','scripts/evaluation','skills/general-agent/SKILL.md'].map(path=>resolve(workspace,path));
   const args=['--use-env-proxy','--permission',...readable.map(path=>'--allow-fs-read='+path),'--allow-fs-read='+output,'--allow-fs-write='+output,
     '--experimental-transform-types',fileURLToPath(new URL('./worker.ts',import.meta.url)),output,probe];
@@ -47,7 +48,7 @@ async function runWorker(input:unknown,output:string,probe:string,signal?:AbortS
       const failure=messages.find(m=>m.type==='harness_error');
       finish(code===0&&messages.some(m=>m.type==='finished'),timedOut?'worker_timeout':failure?.code??(code===0?null:'worker_exit:'+code));
     });
-    child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({input,...(credentials?{credentials}:{})}));if(signal?.aborted)abort();
+    child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({input,...(credentials?{credentials}:{}),...(agentPrompts?{agentPrompts}:{})}));if(signal?.aborted)abort();
   });
 }
 export function summarize(results:EvalResult[],penaltyOptions:{expectedTrials?:number;agentType?:AgentType}={}){
@@ -73,7 +74,7 @@ export function summarize(results:EvalResult[],penaltyOptions:{expectedTrials?:n
     measuredLiveModelAccuracy:null,actualLiveModelCost:null,dimensions:summarizeDimensions(results,penaltyOptions.expectedTrials),penalty:summarizePenalty(results,penaltyOptions),
     executionGate:results.length>0&&results.every(r=>r.executionPassed),releaseGate:results.length>0&&results.every(r=>r.releaseEligible)};
 }
-export interface BatchOptions{dataset?:string;out?:string;caseId?:string;repeat?:number;requireApproved?:boolean;signal?:AbortSignal;realModel?:boolean;split?:'regression'|'holdout';agentType?:AgentType;scoreGate?:boolean}
+export interface BatchOptions{dataset?:string;out?:string;caseId?:string;repeat?:number;requireApproved?:boolean;signal?:AbortSignal;realModel?:boolean;split?:'regression'|'holdout';agentType?:AgentType;scoreGate?:boolean;agentPrompts?:string}
 export async function runBatch(options:BatchOptions={}){
   if(!options.dataset)throw Error('evaluation_dataset_required: bundled eval cases have been removed; provide an explicit dataset');
   if(options.scoreGate)throw Error('unified_score_gate_requires_completed_reviews: run the Case without --score-gate, then eval:judge, eval:human and eval:score');
@@ -83,6 +84,8 @@ export async function runBatch(options:BatchOptions={}){
     (e.value.scope.executionMode==='frozen_tools_live_model')===Boolean(options.realModel)&&(!options.caseId||e.value.id===options.caseId));
   if(!entries.length)throw Error('no_matching_cases');
   const credentials=options.realModel?readModelConfig():undefined;
+  const agentPrompts=readAgentPromptSnapshot(options.agentPrompts??(options.realModel?process.env.CWATCH_AGENT_PROMPT_SNAPSHOT:undefined));
+  if(agentPrompts&&entries.some(e=>e.value.input.scenario.driver!=='runtime'))throw Error('agent_prompts_require_runtime_cases');
   const repeat=options.repeat??1;if(!Number.isInteger(repeat)||repeat<1||repeat>5)throw Error('repeat_must_be_1_to_5');
   const agentType=options.agentType??'critical_decision';if(!AGENT_TYPES.includes(agentType))throw Error('invalid_agent_type');
   const out=resolve(options.out??resolve(workspace,'artifacts/agent-eval'));
@@ -99,11 +102,13 @@ export async function runBatch(options:BatchOptions={}){
   const version=sourceVersion(),startedAt=new Date().toISOString(),results:EvalResult[]=[],artifacts:Array<{caseId:string;attempt:number;directory:string;manifestSha256:string}>=[];
   mkdirSync(join(batch,'private','cases'));
   save(join(batch,'private','dataset.snapshot.json'),data.manifest);
+  if(agentPrompts)save(join(batch,'agent-prompts.json'),agentPrompts);
   for(const entry of entries)writeFileSync(join(batch,'private','cases',entry.value.id+'.source'),readFileSync(entry.file),{flag:'wx'});
   for(const entry of entries)for(let attempt=1;attempt<=repeat;attempt++){
     const directory=join(batch,entry.value.id+'-'+attempt);mkdirSync(directory);
     const input=buildExecutionInput(entry.value);save(join(directory,'input.json'),input);
-    const worker=options.signal?.aborted?{ok:false,reason:'batch_cancelled',started:false}:await runWorker(input,directory,probe,options.signal,credentials);
+    if(agentPrompts)save(join(directory,'agent-prompts.json'),agentPrompts);
+    const worker=options.signal?.aborted?{ok:false,reason:'batch_cancelled',started:false}:await runWorker(input,directory,probe,options.signal,credentials,agentPrompts);
     let result:EvalResult;
     const traceRoot=join(directory,'traces'),existingTraces=existsSync(traceRoot)?readdirSync(traceRoot).filter(name=>/^[a-zA-Z0-9_-]+\.jsonl$/.test(name)):[];
     const hasEvidence=existsSync(join(directory,'observed.json'))||existingTraces.length>0;
@@ -140,6 +145,7 @@ export async function runBatch(options:BatchOptions={}){
       scorePolicy:{penaltyProfile:PENALTY_PROFILE,agentType,plannedTrialsPerCase:repeat,gate:options.scoreGate?'penalty':'required_checks',requireApproved:Boolean(options.requireApproved)},
       model:credentials?{provider:credentials.provider,id:credentials.modelId,endpointFingerprint:sha256(credentials.baseUrl??'sdk-default')}:'scripted_or_fixture_maintenance',
       isolation:{labels:'not_sent_to_worker',fileBoundary:'node_permission_probe',processNetwork:'not_os_verified'},
+      ...(agentPrompts?{agentPrompts:{sha256:agentPrompts.sha256,ref:'agent-prompts.json',projectId:agentPrompts.projectId,prompts:agentPrompts.entries.map(({key,name,version,sha256})=>({key,name,version,sha256}))}}:{}),
       frozenCaseRef:'../private/cases/'+entry.value.id+'.source',evidence,restrictedEvidence};
     save(join(directory,'manifest.json'),manifest);
     const integrity=verifyInventory(directory,evidence);if(integrity.length)preserveControllerFailures(result,['observability.evidence_tampered']);
@@ -148,7 +154,7 @@ export async function runBatch(options:BatchOptions={}){
     if(split!=='holdout')console.log(`${result.executionPassed?'CHECKS_PASS':result.verdict.toUpperCase()} ${entry.value.id} attempt=${attempt} verdict=${result.verdict}`);
   }
   const report={schemaVersion:'cwatch.eval-report.v2',batchId,startedAt,endedAt:new Date().toISOString(),datasetId:data.manifest.id,datasetVersion:data.manifest.version,datasetSha256:data.sha256,
-    executionMode:options.realModel?'frozen_tools_live_model':'deterministic',split,version,evaluationDimensions:EVAL_DIMENSIONS,plannedTrialsPerCase:repeat,
+    executionMode:options.realModel?'frozen_tools_live_model':'deterministic',split,version,...(agentPrompts?{agentPromptSnapshot:agentPrompts.sha256}:{}),evaluationDimensions:EVAL_DIMENSIONS,plannedTrialsPerCase:repeat,
     scorePolicy:{penaltyProfile:PENALTY_PROFILE,agentType,gate:options.scoreGate?'penalty':'required_checks',requireApproved:Boolean(options.requireApproved)},metrics:summarize(results,{expectedTrials:repeat,agentType}),results,artifacts,
     limits:['Candidate labels require human review.','Fixture tools are explicitly simulated; they do not establish live source availability.','Node file/process permission checks do not prove OS network isolation.','No independent holdout or production traffic is claimed.',
       options.realModel?'Actual SDK session in a permission-restricted eval worker; production IPC transport is covered separately by engineering tests.':'Scripted decisions and fixture usage do not measure live model quality or actual monetary cost.']};

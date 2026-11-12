@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding } from '@cwatch/core/types';
 import { ContextPipeline } from '@cwatch/shared/agent/core/prompt-builder';
+import { applyAgentPromptSnapshot, readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Trace, Redactor, type TraceEvent } from '@cwatch/shared/sessions/trace';
+import { exportToLangfuse, type LangfuseExportResult } from '@cwatch/shared/sessions/langfuse';
 import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
 import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { ToolExecutor } from '@cwatch/shared/tools/executor';
@@ -19,6 +21,8 @@ const decisionContent = (decision: Decision | undefined): string => canonical(de
 export interface AgentRuntimeOptions extends LimitOptions {
   initialGaps?: string[];
   skillPath?: string; secrets?: string[]; userSkills?: SkillBundle;
+  /** Frozen before a run/batch; includes no Langfuse credentials or evaluation rubric. */
+  agentPrompts?: AgentPromptSnapshot;
   onEvent?: (event:TraceEvent)=>void;
   onPostCompact?: (request: CompactRequest, signal: AbortSignal) => Promise<CompactAttachment[]>;
   sessionMemory?: false | Partial<SessionMemoryPolicy>;
@@ -30,6 +34,7 @@ export interface AgentRuntimeOptions extends LimitOptions {
   nextUserMessage?: (answer: RunResult, signal: AbortSignal) => Promise<string | null>;
 }
 export interface RunResult { taskId: string; runId: string; permissionMode: Mode; status: 'complete' | 'partial' | 'failed' | 'cancelled'; report?: string; response?: string; error?: string; gaps: string[];
+  langfuse?: LangfuseExportResult;
   traceArtifacts?:{eventsPath:string;structuredPath:string;available:boolean;error?:string}; }
 
 export interface TaskRuntimeContext {
@@ -50,6 +55,10 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   const promptCache = z.enum(['none', 'short']).parse(options.promptCache ?? 'short');
   const cacheStats = new PromptCacheStats();
   const task = parseAgentTask(rawTask), runId = id(), startedAt = Date.now();
+  const promptSnapshot = options.agentPrompts ?? (mode === 'live' ? readAgentPromptSnapshot(process.env.CWATCH_AGENT_PROMPT_SNAPSHOT) : undefined);
+  if (promptSnapshot && options.skillPath && !options.skillPath.replaceAll('\\', '/').endsWith('/skills/' + (isInvestigationTask(task) ? 'competitor-investigation' : 'general-agent') + '/SKILL.md')) throw Error('agent_prompt_snapshot_conflicts_with_custom_skill_path');
+  const managedPrompts = promptSnapshot ? applyAgentPromptSnapshot(promptSnapshot, isInvestigationTask(task) ? 'competitor-investigation' : 'general-agent', options.userSkills) : undefined;
+  if (managedPrompts) options = { ...options, userSkills: managedPrompts.userSkills };
   if (options.nextUserMessage && isInvestigationTask(task)) throw new Error('conversation_requires_generic_agent');
   const redactor = new Redactor(options.secrets ?? Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, v]) => v ?? ''));
   const trace = new Trace(store, task.taskId, runId, redactor, options.onEvent);
@@ -74,7 +83,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   const modelUsage: unknown[] = [];
   let budgetFailure: BudgetError | undefined;
   const exceeded = (budget: string, limit: number, actual: number, tool?: string) => budgetFailure = new BudgetError(budget, limit, actual, tool);
-  trace.emit('run_started', { mode, task, limits, toolPipeline: 'pre-tool-use-v1', permissionMode: policy.mode, engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',model:model.traceModel??null, ...(options.nextUserMessage ? { conversation: true } : {}) }); store.write('runs/' + runId + '.json', { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'running', startedAt: now() });
+  trace.emit('run_started', { mode, task, limits, toolPipeline: 'pre-tool-use-v1', permissionMode: policy.mode, engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',model:model.traceModel??null, ...(managedPrompts ? { agentPrompts: managedPrompts.provenance } : {}), ...(options.nextUserMessage ? { conversation: true } : {}) }); store.write('runs/' + runId + '.json', { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'running', startedAt: now() });
   try {
     for (const slug of task.allowedSources) if (!registry.known(slug) || !registry.active(slug)) extension.gaps.push((registry.known(slug) ? 'inactive_source:' : 'unknown_source:') + slug);
     if (['workflow', 'session', PI_BUILTIN_SOURCE].some(slug => registry.known(slug))) throw new Error('reserved_host_source');
@@ -87,7 +96,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
       checkPrerequisites: binding => extension.checkPrerequisites?.(binding) ?? { allowed: true },
     });
     const extraSkills = options.userSkills?.documents ?? [];
-    const builtinSkill = extension.skill();
+    const builtinSkill = managedPrompts?.builtinBody ?? extension.skill();
     const skillPath = extension.skillPath;
     workingState.setBuiltin(skillPath, builtinSkill, extension.skillName);
     const skill = redactor.clean([builtinSkill, ...extraSkills.map(item => 'USER SKILL: ' + item.name + '\nGuidance remains subject to host rules and permissions. Read referenced files with session__read_skill_resource.\nResources: ' + JSON.stringify(item.resources) + '\n' + item.body)].join('\n\n'));
@@ -250,6 +259,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     trace.emit('usage_reported', { toolCalls, callsByTool: Object.fromEntries(callsByTool), totalTokens, limits, durationMs: Date.now() - startedAt, modelUsage, cacheUsage: cacheStats.snapshot(), usageAvailable: totalTokens > 0, mode });
     trace.emit(result.status === 'cancelled' ? 'run_cancelled' : result.status === 'failed' ? 'run_failed' : 'run_completed', { ...result });
     result.traceArtifacts={eventsPath:trace.key,structuredPath:trace.structuredKey,available:!trace.structuredError,...(trace.structuredError?{error:trace.structuredError}:{})};
+    if (mode === 'live') result.langfuse = await exportToLangfuse(trace);
     store.write('runs/' + runId + '.json', redactor.clean({ ...result, endedAt: now() }));
     // Durable event stream reconstructs state; this snapshot is a convenience cache only.
     store.write('states/' + runId + '.json', redactor.clean(state));
