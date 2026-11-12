@@ -5,6 +5,7 @@ const $=<E extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(
 const escape=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const statusNames:Record<RunStatus,string>={preparing:'准备来源',running:'调查中',awaiting_approval:'等待审批',awaiting_user:'等待追问',cancelling:'正在取消',complete:'已完成',partial:'部分完成',failed:'运行失败',cancelled:'已取消',unknown:'运行中断'};
 const active=(run?:RunSnapshot)=>Boolean(run&&['preparing','running','awaiting_approval','awaiting_user','cancelling'].includes(run.status));
+let instructionDraft='';
 const state:{bootstrap?:WorkbenchBootstrap;runs:RunSnapshot[];current?:RunSnapshot;tab:string;stream?:EventSource;submitting:boolean;sending:boolean;drafts:Map<string,string>;pendingMessage?:{runId:string;text:string;messageId:string};reportCache:Map<string,string>;loadingReports:Set<string>}={runs:[],tab:'process',submitting:false,sending:false,drafts:new Map(),reportCache:new Map(),loadingReports:new Set()};
 function announce(text:string){$('announcer').textContent=text;}
 function alertError(error:unknown){const text=error instanceof Error?error.message:String(error);$('alert').textContent=text;$('alert').hidden=false;announce(text);}
@@ -28,6 +29,8 @@ function profileForm(task=currentProfile().task){
   $('page-title').textContent=domain?'竞品调查':'通用 Agent';
   $('page-description').textContent=domain?'追踪变化，让结论有据可查。':'交代目标，开始协作。';
   $('task-title').textContent=domain?'调查设置':'任务设置';
+  $('intro-title').textContent=domain?'看清变化，再做判断。':'今天，想弄清什么？';
+  $('intro-description').textContent=domain?'从公开来源收集线索，把产品变化整理成有依据的结论。':'从一个问题开始，让资料、思路和答案连接起来。';
   $('start-run').innerHTML=(domain?'开始调查':'开始任务')+' <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>';
   $('cancel-run').textContent=domain?'停止调查':'停止任务';
   $('tab-report').textContent=domain?'调查报告':'任务结果';
@@ -35,16 +38,21 @@ function profileForm(task=currentProfile().task){
     $<HTMLInputElement>('competitor-name').value=task.competitor.name;$<HTMLInputElement>('competitor-id').value=task.competitor.id;
     $<HTMLInputElement>('product').value=task.product;$<HTMLInputElement>('domains').value=task.competitor.domains.join(', ');
     $<HTMLInputElement>('start-date').value=task.window.start.slice(0,10);$<HTMLInputElement>('end-date').value=task.window.end.slice(0,10);
-  }else $<HTMLTextAreaElement>('instruction').value=task.instruction;
+  }else $<HTMLTextAreaElement>('instruction').value=state.current||mode()==='replay'?task.instruction:instructionDraft;
   $('source-options').innerHTML=currentProfile().sources.map(source=>'<label class="source-option"><input type="checkbox" name="source" value="'+escape(source.slug)+'" '+(source.active&&task.allowedSources.includes(source.slug)?'checked ':'')+(!source.active?'disabled ':'')+'><span>'+escape(source.name)+'</span><small>'+escape(source.channel==='mcp'?'MCP':'内建')+'</small></label>').join('');
-  modeChanged();
+  modeChanged(true);
 }
-function modeChanged(){
+function modeChanged(resetInstruction=false){
   const replay=mode()==='replay',configured=state.bootstrap?.model.configured;
   for(const id of ['competitor-name','competitor-id','product','domains','start-date','end-date'])$<HTMLInputElement>(id).readOnly=replay;
   for(const input of document.querySelectorAll<HTMLInputElement>('input[name=source]'))input.disabled=replay||!currentProfile().sources.find(source=>source.slug===input.value)?.active;
   $<HTMLTextAreaElement>('instruction').readOnly=replay;
-  $('mode-note').textContent=replay?'固定样例，可直接体验。':configured?'使用已配置的模型和来源。':'请先在本机 .env 配置模型并重启服务。';
+  const task=currentProfile().task;
+  if(resetInstruction&&!state.current&&!investigation(task)){
+    const input=$<HTMLTextAreaElement>('instruction'),example=task.instruction;
+    input.value=replay?example:instructionDraft;
+  }
+  $('mode-note').textContent=replay?'当前为固定样例，切换真实运行可编辑任务。':configured?'使用已配置的模型，任务描述与来源均可调整。':'请先在本机 .env 配置模型并重启服务。';
   $('start-note').textContent=replay?'演示使用固定脚本与合成数据，不调用外部服务。':'将使用模型与来源服务，按实际用量消耗额度。';
   $<HTMLButtonElement>('start-run').disabled=state.submitting||(!replay&&!configured);
 }
@@ -57,7 +65,7 @@ function update(run:RunSnapshot){
   const previous=state.current?.status,index=state.runs.findIndex(item=>item.id===run.id);
   if(index>=0&&(state.runs[index].revision??0)>(run.revision??0))return;
   if(index<0)state.runs.unshift(run);else state.runs[index]=run;
-  if(state.current?.id===run.id){state.current=run;if(previous!==run.status&&run.conversation&&run.status==='awaiting_user')showTab('report');renderRun();if(previous!==run.status)announce(statusNames[run.status]);}
+  if(state.current?.id===run.id){state.current=run;if(previous!==run.status&&((run.conversation&&run.status==='awaiting_user')||(!investigation(run.task)&&run.status==='complete'&&run.reportReady)))showTab('report');renderRun();if(previous!==run.status)announce(statusNames[run.status]);}
   renderHistory();
 }
 function selectRun(run:RunSnapshot){
@@ -70,8 +78,8 @@ function selectRun(run:RunSnapshot){
   stream.onerror=()=>{if(state.current?.id===run.id)setConnection('连接中断，正在重连',false);};
 }
 function newRun(){
-  state.stream?.close();state.current=undefined;localStorage.removeItem('cwatch-selected-run');clearError();
-  $<HTMLSelectElement>('profile').value='agent';document.querySelector<HTMLInputElement>('input[name=mode][value=replay]')!.checked=true;
+  state.stream?.close();state.current=undefined;instructionDraft='';localStorage.removeItem('cwatch-selected-run');clearError();
+  $<HTMLSelectElement>('profile').value='agent';document.querySelector<HTMLInputElement>('input[name=mode][value='+(state.bootstrap?.model.configured?'live':'replay')+']')!.checked=true;
   $<HTMLSelectElement>('permission').value='explore';profileForm();permissionChanged();showTab('process');renderHistory();renderRun();announce('可以新建任务。');
 }
 function showTab(tab:string){
@@ -82,6 +90,7 @@ function showTab(tab:string){
 function renderRun(){
   const run=state.current;
   document.querySelector<HTMLElement>('.workbench')!.dataset.hasRun=String(Boolean(run));
+  document.querySelector<HTMLElement>('.workbench')!.dataset.conversation=String(Boolean(run?.conversation));
   $('run-title').textContent=run?taskTitle(run.task):'任务空间';
   $('run-stats').hidden=!run;
   $('run-label').textContent=run?statusNames[run.status]+' / '+(run.mode==='replay'?'离线演示':run.conversation?'真实会话':'真实调查'):'准备就绪';
@@ -115,16 +124,12 @@ function elapsed(){
   $('stat-time').textContent=seconds<60?seconds+'s':Math.floor(seconds/60)+'m '+seconds%60+'s';
 }
 const workspaceSymbol='<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="9" width="34" height="28" rx="5"/><path d="M7 17h34M17 17v20m7-12h10m-10 6h6"/><circle cx="12" cy="13" r=".8" fill="currentColor" stroke="none"/></svg>';
-const researchIllustration='<svg class="research-illustration" viewBox="0 0 360 190" fill="none" aria-hidden="true"><ellipse cx="180" cy="95" rx="131" ry="67" stroke="#e4eaf4" stroke-dasharray="4 7"/><path d="M88 75 180 95l92-40M180 95l77 56M180 95l-84 53" stroke="#c4d1ed" stroke-width="1.5"/><circle cx="180" cy="95" r="46" fill="#f0f4ff"/><rect x="151" y="66" width="58" height="58" rx="18" fill="#3763d8"/><path d="M191 83a16 16 0 1 0 0 24M178 83v12l8 5" stroke="white" stroke-width="2.5" stroke-linecap="round"/><rect x="47" y="50" width="67" height="49" rx="10" fill="white" stroke="#dce4f1"/><path d="M60 64h21M60 72h39M60 80h30" stroke="#a0afc8" stroke-width="2" stroke-linecap="round"/><rect x="249" y="32" width="55" height="44" rx="10" fill="white" stroke="#dce4f1"/><path d="m263 57 8-8 8 6 11-12" stroke="#557ddc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="236" y="131" width="47" height="36" rx="9" fill="white" stroke="#dce4f1"/><path d="m249 148 7 6 13-14" stroke="#4b958b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="95" cy="149" r="10" fill="#e6edf9"/><path d="m91 149 3 3 5-6" stroke="#6c8ac4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="224" cy="22" r="3" fill="#c8d6f4"/><circle cx="132" cy="174" r="3" fill="#c8d6f4"/></svg>';
 function empty(title:string,note:string,symbol=workspaceSymbol){
   return '<div class="empty-state"><div class="empty-symbol" aria-hidden="true">'+symbol+'</div><h3>'+escape(title)+'</h3><p>'+escape(note)+'</p></div>';
 }
 function renderProcess(){
   const run=state.current;
-  if(!run){
-    const domain=investigation(currentProfile().task);
-    $('process-content').innerHTML='<div class="workspace-welcome">'+researchIllustration+'<h3>'+(domain?'从变化中，找到下一步。':'把目标交给 Cwatch。')+'</h3><p>'+(domain?'从公开来源收集线索，核验变化与证据，整理为可追溯的调查草稿。':'阅读材料、研究问题、整理结论。<br>你来确定方向，让 Agent 把过程与结果带回来。')+'</p><div class="welcome-actions"><button type="button" data-template="agent"'+(!domain?' aria-pressed="true"':' aria-pressed="false"')+'>'+workspaceSymbol+'<span>通用任务<small>从一个问题开始</small></span></button><button type="button" data-template="standard"'+(domain?' aria-pressed="true"':' aria-pressed="false"')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品调查<small>追踪变化与来源</small></span></button></div><p class="welcome-note">设置好任务，点击“'+(domain?'开始调查':'开始任务')+'”即可运行</p></div>';return;
-  }
+  if(!run){$('process-content').innerHTML=empty('开始之后，在这里查看每一步','回答、工具调用与来源会随任务保存在这里。');return;}
   const old=$('process-content').querySelector('.activity-scroll'),scroll=old?.scrollTop??0,atBottom=!old||old.scrollHeight-old.clientHeight-scroll<70;
   $('process-content').innerHTML=(run.mode==='replay'?'<div class="run-notice">离线演示使用固定脚本和合成数据。</div>':'')+(run.error?'<div class="run-notice">'+escape(run.error)+'</div>':'')+'<div class="activity-scroll"><ol class="activity-list">'+run.activities.map(event=>'<li class="activity '+escape(event.kind)+'"><div class="activity-header"><span class="activity-message">'+escape(event.message)+'</span><time datetime="'+escape(event.timestamp)+'">'+formatTime(event.timestamp)+'</time></div>'+(event.detail?'<details><summary>查看调用详情</summary><pre>'+escape(event.detail)+'</pre></details>':'')+'</li>').join('')+'</ol></div>';
   const next=$('process-content').querySelector('.activity-scroll');if(next)next.scrollTop=atBottom?next.scrollHeight:scroll;
@@ -220,13 +225,17 @@ $('end-conversation').addEventListener('click',()=>{
   void api<RunSnapshot>('/api/runs/'+run.id+'/end',{}).then(update).catch(alertError).finally(()=>{state.sending=false;renderConversation();});
 });
 $('new-run').addEventListener('click',newRun);$('profile').addEventListener('change',()=>{profileForm();if(!state.current)renderRun();});
-$('process-content').addEventListener('click',event=>{
+$('task-suggestions').addEventListener('click',event=>{
   const button=(event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
   if(!button||state.current||!state.bootstrap?.profiles.some(profile=>profile.id===button.dataset.template))return;
   $<HTMLSelectElement>('profile').value=button.dataset.template!;profileForm();renderRun();
   announce('已选择'+currentProfile().name+'模板。');
 });
-for(const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]'))input.addEventListener('change',modeChanged);
+$('run-form').addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&!$<HTMLButtonElement>('start-run').disabled){event.preventDefault();$<HTMLFormElement>('run-form').requestSubmit();}
+});
+$('instruction').addEventListener('input',()=>{if(!state.current)instructionDraft=$<HTMLTextAreaElement>('instruction').value;});
+for(const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]'))input.addEventListener('change',()=>modeChanged(true));
 $('permission').addEventListener('change',permissionChanged);
 $('cancel-run').addEventListener('click',()=>{const run=state.current;if(!run)return;clearError();void api<RunSnapshot>('/api/runs/'+run.id+'/cancel',{}).then(update).catch(alertError);});
 $('history-list').addEventListener('click',event=>{const target=(event.target as HTMLElement).closest<HTMLElement>('[data-run]');const run=state.runs.find(r=>r.id===target?.dataset.run);if(run){clearError();selectRun(run);}});
@@ -256,6 +265,7 @@ async function init(){
     const bootstrap=await api<WorkbenchBootstrap>('/api/bootstrap');state.bootstrap=bootstrap;state.runs=bootstrap.runs;
     $('profile').innerHTML=bootstrap.profiles.map(profile=>'<option value="'+escape(profile.id)+'">'+escape(profile.name)+'</option>').join('');
     $<HTMLSelectElement>('profile').value='agent';
+    document.querySelector<HTMLInputElement>('input[name=mode][value='+(bootstrap.model.configured?'live':'replay')+']')!.checked=true;
     $('skill-options').innerHTML=bootstrap.skills.filter(skill=>skill.enabled).map(skill=>'<label class="source-option"><input type="checkbox" name="skill" value="'+escape(skill.name)+'"><span>'+escape(skill.name)+'</span></label>').join('')||'<p class="field-note">使用所选模板的基础指导；可通过 CLI 安装和选择自己的 Skill。</p>';
     $('model-status').textContent=bootstrap.model.configured?'模型：'+bootstrap.model.provider+' / '+bootstrap.model.id:'模型未配置 · 离线演示可用';
     setConnection('本地服务已连接');renderConnections();profileForm();permissionChanged();renderHistory();

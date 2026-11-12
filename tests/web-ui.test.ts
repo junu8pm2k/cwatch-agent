@@ -52,9 +52,15 @@ check('integration','Web conversation sends real user follow-ups through one Pi 
   Object.assign(process.env,variables);let h:Awaited<ReturnType<typeof browserHarness>>|undefined;
   try{
     h=await browserHarness('conversation',{modelFactory:()=>provider.model()});await h.ui.open('agent');
-    await h.page.getByRole('radio',{name:'真实运行',exact:true}).check();
+    assert.equal(await h.page.getByRole('radio',{name:'真实运行',exact:true}).isChecked(),true);
+    assert.equal(await h.page.getByLabel('任务描述',{exact:true}).inputValue(),'');
     await h.page.getByLabel('任务描述',{exact:true}).fill('Remember BROWSER-BLUE-17 for our conversation.');
-    await h.ui.start();await h.ui.awaitingInput();
+    await h.page.getByRole('radio',{name:'离线演示',exact:true}).check();
+    assert.equal(await h.page.getByLabel('任务描述',{exact:true}).getAttribute('readonly'),'');
+    await h.page.getByRole('radio',{name:'真实运行',exact:true}).check();
+    assert.equal(await h.page.getByLabel('任务描述',{exact:true}).inputValue(),'Remember BROWSER-BLUE-17 for our conversation.');
+    assert.equal(h.service.list().length,0);
+    await h.page.getByLabel('任务描述',{exact:true}).focus();await h.page.keyboard.press('Control+Enter');await h.ui.awaitingInput();
     const runId=h.service.list()[0].id;
     await h.ui.followUp('What was the code? <img src=x onerror="window.__xss=1">');await entered.promise;
     assert.equal(await h.page.getByRole('button',{name:'发送追问',exact:true}).isEnabled(),false);
