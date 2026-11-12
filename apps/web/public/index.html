@@ -14,28 +14,45 @@
     <div class="sidebar-bottom"><span class="workspace-avatar" aria-hidden="true">C</span><span>本地工作区<small><span class="dot"></span> 记录保存在你的电脑</small></span></div>
   </aside>
   <main id="main">
-    <div class="page-context"><span>工作台</span><span aria-hidden="true">/</span><span>任务空间</span></div>
     <header class="page-header"><div><h1 id="page-title">通用 Agent</h1><p id="page-description">交代目标，开始协作。</p></div><div class="header-actions"><span class="connection" id="connection"><span class="dot"></span>正在连接</span><button class="button secondary" id="new-run"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>新建任务</button></div></header>
     <div id="alert" class="alert" role="alert" hidden></div>
     <section id="connections-panel" class="connections-panel" hidden aria-label="来源与连接"></section>
     <div class="mobile-history"><label for="history-select">任务记录</label><select id="history-select"><option value="">新建任务</option></select><button class="button secondary" id="mobile-sources" aria-expanded="false" aria-controls="connections-panel">连接</button></div>
     <div class="workbench">
       <section class="task-panel" aria-labelledby="task-title">
-        <div class="panel-heading"><span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="8" cy="5" r="2"/><circle cx="13" cy="10" r="2"/><circle cx="7" cy="15" r="2"/></svg></span><h2 id="task-title">任务设置</h2></div>
+        <div class="task-intro">
+          <span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M31 10a15 15 0 1 0 0 20M20 10v10l7 4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="32" cy="7" r="3" fill="currentColor"/></svg></span>
+          <h2 id="intro-title">今天，想弄清什么？</h2>
+          <p id="intro-description">从一个问题开始，让资料、思路和答案连接起来。</p>
+        </div>
+        <div class="panel-heading"><h2 id="task-title">任务设置</h2></div>
         <form id="run-form">
-          <fieldset class="mode-field"><legend>运行方式</legend><div class="segmented"><label><input type="radio" name="mode" value="replay" checked><span>离线演示</span></label><label><input type="radio" name="mode" value="live"><span>真实运行</span></label></div><p class="field-note" id="mode-note">使用合成快照，体验完整调查流程。</p></fieldset>
-          <div class="field profile-field"><label for="profile">任务模板</label><select id="profile" name="profile"></select></div>
-          <div class="field" id="agent-fields"><label for="instruction">任务描述</label><textarea id="instruction" name="instruction" rows="5" maxlength="24000" placeholder="想完成什么？可以附上材料和输出要求。"></textarea></div>
+          <div class="composer-body">
+          <div class="field" id="agent-fields"><label class="sr-only" for="instruction">任务描述</label><textarea id="instruction" name="instruction" rows="4" maxlength="24000" placeholder="描述你想完成的事，也可以附上材料和输出要求…" aria-describedby="mode-note"></textarea></div>
           <div id="investigation-fields">
           <div class="field-row"><label class="field" for="competitor-name">竞品名称<input id="competitor-name" name="competitor" required maxlength="100"></label><label class="field" for="product">产品<input id="product" name="product" required maxlength="100"></label></div>
           <details class="advanced-identity"><summary>实体标识与域名</summary><label class="field" for="competitor-id">稳定标识<input id="competitor-id" required maxlength="100"></label><label class="field" for="domains">允许域名<input id="domains" required placeholder="example.com，多个域名用逗号分隔"></label></details>
           <fieldset class="date-field"><legend>调查时间窗</legend><div class="field-row"><label class="field" for="start-date">开始日期<input type="date" id="start-date" required></label><label class="field" for="end-date">结束日期（不含）<input type="date" id="end-date" required></label></div><p class="field-note">按发布时间核验 · Asia/Shanghai</p></fieldset>
           </div>
+          </div>
+          <div class="composer-toolbar">
+            <div class="field profile-field"><label class="sr-only" for="profile">任务模板</label><select id="profile" name="profile" title="任务模板"></select></div>
+            <fieldset class="mode-field"><legend class="sr-only">运行方式</legend><div class="segmented"><label><input type="radio" name="mode" value="replay" checked><span>离线演示</span></label><label><input type="radio" name="mode" value="live"><span>真实运行</span></label></div></fieldset>
+            <div class="field permission-field"><label class="sr-only" for="permission">工具权限</label><select id="permission" title="工具权限" aria-describedby="permission-note"><option value="explore">只读探索</option><option value="ask">写入前审批</option><option value="allow-all">允许已配置操作</option></select></div>
+          </div>
+          <div class="composer-context"><p class="field-note" id="mode-note">固定样例，切换真实运行可编辑任务。</p><p class="sr-only" id="permission-note">允许采集、分析和保存本地草稿。</p></div>
           <fieldset class="sources-field"><legend>可用来源</legend><div id="source-options"></div></fieldset>
-          <div class="field permission-field"><label for="permission">工具权限</label><select id="permission"><option value="explore">只读探索</option><option value="ask">写入前审批</option><option value="allow-all">允许已配置操作</option></select><p class="field-note" id="permission-note">允许采集、分析和保存本地草稿。</p></div>
+          <div class="composer-bottom">
           <details class="budget-details"><summary>技能与运行限制</summary><div class="field-row"><label class="field" for="timeout">总时限（秒）<input id="timeout" type="number" value="180" min="1" max="600"></label><label class="field" for="tokens">Token 上限<input id="tokens" type="number" value="100000" min="100" max="2000000"></label></div><p class="skills-label">任务技能</p><div id="skill-options"></div></details>
-          <div class="form-footer"><button class="button primary" type="submit" id="start-run"><span aria-hidden="true">▷</span> 开始调查</button><p id="start-note">演示无需模型密钥，也不会调用外部服务。</p></div>
+          <div class="form-footer"><button class="button primary" type="submit" id="start-run">开始任务</button></div>
+          </div>
         </form>
+        <p id="start-note" class="start-note">演示无需模型密钥，也不会调用外部服务。</p>
+        <div class="task-suggestions" id="task-suggestions" aria-label="选择一个起点">
+          <button type="button" data-template="agent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg><span>阅读与整理<small>先读懂这个项目</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
+          <button type="button" data-template="standard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品研究<small>看看产品有哪些变化</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
+          <button type="button" data-template="web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg><span>公开资料<small>从网页中收集线索</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
+        </div>
       </section>
       <section class="run-panel" aria-labelledby="run-title">
         <div class="run-heading"><div><span id="run-label" class="run-label">准备就绪</span><h2 id="run-title">一份有来源的情报简报</h2></div><button id="cancel-run" class="button danger" hidden>停止调查</button></div>
