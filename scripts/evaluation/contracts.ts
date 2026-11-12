@@ -5,6 +5,7 @@ import { ReportContractSchema } from './report-format.ts';
 import { EVAL_DIMENSION_IDS, CODE_DIMENSIONS, PROCESS_SCORING_ITEMS, type EvalDimension } from './dimensions.ts';
 import { StructuredRubricSchema } from './rubric.ts';
 import { FrozenSkillSchema } from './skill-snapshots.ts';
+import { MarkdownTableExpectationSchema } from './artifact-checks.ts';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/);
 const json = z.json();
@@ -46,13 +47,15 @@ export const InputSchema = z.object({ scenario: ScenarioSchema, materialProvenan
 export type EvalInput = z.infer<typeof InputSchema>;
 export const CheckSchema = z.object({ id, requirementRefs: z.array(id).min(1),
   dimension:z.enum(CODE_DIMENSIONS).optional(),
-  method: z.enum(['equals', 'at_most', 'non_empty_string', 'trace_valid', 'file_boundary', 'no_canary_leak']),
+  method: z.enum(['equals', 'at_most', 'non_empty_string', 'trace_valid', 'file_boundary', 'no_canary_leak', 'markdown_table_equals', 'none_of']),
   path: z.string().regex(/^[a-zA-Z0-9_.-]+$/).optional(), expected: json.optional(),
   required: z.boolean(), hardFail: z.boolean(), failureCode: z.string().regex(/^[a-z_]+\.[a-z_]+$/),
 }).strict().superRefine((v,ctx) => {
   if (v.method === 'equals' && (!v.path || !Object.hasOwn(v,'expected'))) ctx.addIssue({code:'custom',message:'equals requires path and expected'});
   if (v.method === 'at_most' && (!v.path || typeof v.expected!=='number' || !Number.isFinite(v.expected) || v.expected<0)) ctx.addIssue({code:'custom',message:'at_most requires path and a finite nonnegative numeric limit'});
   if (v.method === 'non_empty_string' && (!v.path || Object.hasOwn(v,'expected'))) ctx.addIssue({code:'custom',message:'non_empty_string requires path and no expected value'});
+  if(v.method==='markdown_table_equals'&&(!v.path||!MarkdownTableExpectationSchema.safeParse(v.expected).success))ctx.addIssue({code:'custom',message:'markdown_table_equals requires path and explicit headers/rows'});
+  if(v.method==='none_of'&&(!v.path||!z.array(z.string()).min(1).safeParse(v.expected).success))ctx.addIssue({code:'custom',message:'none_of requires path and a nonempty string list'});
   if (v.path?.split('.').some(p=>['__proto__','prototype','constructor'].includes(p))) ctx.addIssue({code:'custom',message:'unsafe selector'});
   if (v.hardFail && !v.required) ctx.addIssue({code:'custom',message:'hard failure must be required'});
 });

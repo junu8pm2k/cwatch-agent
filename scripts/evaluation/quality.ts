@@ -61,7 +61,7 @@ export function qualityVerdict(answer:QualityAnswer):'ready'|'fail'|'needs_revie
 export function prepareQualitySubject(reportFile: string, caseId: string, attempt = 1, redactor = new Redactor()) {
   if (!Number.isInteger(attempt) || attempt < 1) throw Error('invalid_attempt');
   const archive = readArchivedCase(reportFile, caseId, attempt);
-  const manifest = JSON.parse(readFileSync(join(archive.directory, 'manifest.json'), 'utf8')) as { model?: unknown };
+  const manifest = JSON.parse(readFileSync(join(archive.directory, 'manifest.json'), 'utf8')) as { model?: unknown; agentPrompts?: unknown };
   const original = archive.report.results.find(r => r.caseId === caseId && r.attempt === attempt);
   if (!original?.runId || original.verdict === 'invalid') throw Error('assessment_requires_observed_run');
   const observed = JSON.parse(readFileSync(join(archive.directory, 'observed.json'), 'utf8')) as WorkerObservation;
@@ -86,7 +86,7 @@ export function prepareQualitySubject(reportFile: string, caseId: string, attemp
     allowedEvidenceRefs,
     caseId, caseRevision: archive.value.revision, runId: original.runId, attempt,
     reportSha256: sha256(readFileSync(archive.reportPath)), caseSha256: jsonHash(archive.value), subjectModel: manifest.model ?? null,
-    task, requirements: { outcome: archive.value.expected_final, trajectory: archive.value.expected_process, evidence: archive.value.expected_evidence, safety: archive.value.safety_boundaries, cost: archive.value.expected_cost },
+    task, ...(manifest.agentPrompts?{agentPromptVariant:{snapshot:manifest.agentPrompts,actualSelectedSkills:select(projection,'facts.selectedSkills')}}:{}), requirements: { outcome: archive.value.expected_final, trajectory: archive.value.expected_process, evidence: archive.value.expected_evidence, safety: archive.value.safety_boundaries, cost: archive.value.expected_cost },
     measuredCost:projection.cost,observedFacts:projection.facts,
     oracleLimits: archive.value.oracle.knownLimits, finalAnswer: final, artifact:select(projection,'facts.report')??null, evidence: visible, rules,
   });
@@ -245,7 +245,7 @@ export function combinedAssessment(subject: QualitySubject, records = listAssess
     llmApplicable:subject.llmApplicable,humanApplicable:subject.humanApplicable,rubricSha256:subject.packet.rubricSha256,
     penalty,adjudications,dimensions:Object.fromEntries(Object.entries(combinedDimensions(subject,rules,llm,human,penalty)).map(([id,value])=>[id,
       adjudications.some(r=>r.input.findings.some(f=>subject.packet.rubric?.criteria.some(c=>c.id===f.criterionId&&c.dimension===id)))?{...value,status:'fail',humanAdjudicated:true}:value])),rules,llm,human, history: records.map(r => ({ id: r.id, kind: r.kind, verdict: r.verdict, completedAt: r.completedAt,
-      physicalRequests: r.kind === 'llm' ? Number(r.metadata.physicalRequests ?? 0) : 0,
+      physicalRequests: r.kind === 'llm' ? (typeof r.metadata.physicalRequests === 'number' ? r.metadata.physicalRequests : null) : 0,
       totalTokens: r.kind === 'llm' && typeof r.metadata.totalTokens === 'number' ? r.metadata.totalTokens : null })),
   };
 }
@@ -260,8 +260,8 @@ export function qualityReport(reportFile: string, redactor = new Redactor()) {
   return { schemaVersion: 'cwatch.quality-report.v5', gradingPolicy: RUBRIC, originalReportSha256: sha256(readFileSync(reportFile)), results,
     metrics: { planned: results.length, pass: results.filter(r => r.verdict === 'pass').length, fail: results.filter(r => r.verdict === 'fail').length,
       needsReview: results.filter(r => r.verdict === 'needs_review').length, invalid: results.filter(r => r.verdict === 'invalid').length,
-      numericGate:penalty.strictGate, releaseGate:penalty.strictGate&&results.length>0&&results.every(r=>r.releaseEligible), judgeAttempts: llm.reduce((sum, r) => sum + r.physicalRequests, 0),
-      knownJudgeTokens: llm.reduce((sum, r) => sum + (r.totalTokens ?? 0), 0), judgeUnknownUsageAttempts: llm.filter(r => r.physicalRequests > 0 && r.totalTokens === null).length,
+      numericGate:penalty.strictGate, releaseGate:penalty.strictGate&&results.length>0&&results.every(r=>r.releaseEligible), judgeAttempts: llm.some(r=>r.physicalRequests===null)?null:llm.reduce((sum, r) => sum + (r.physicalRequests??0), 0),
+      knownJudgeTokens: llm.reduce((sum, r) => sum + (r.totalTokens ?? 0), 0), judgeUnknownUsageAttempts: llm.filter(r => r.physicalRequests !== 0 && r.totalTokens === null).length,
       incompleteJudgeAssessments: results.reduce((sum, r) => sum + ('incompleteJudgeAssessments' in r ? r.incompleteJudgeAssessments : 0), 0),
       // Selected scores and full history are both exposed; no best-of selection.
       actualJudgeCost: null,penalty },

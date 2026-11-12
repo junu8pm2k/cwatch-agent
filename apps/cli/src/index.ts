@@ -17,6 +17,7 @@ import { resolveLimits, type RunLimits } from "@cwatch/shared/agent/core/budgets
 import { apiSecrets } from "@cwatch/shared/sources/api-tools";
 import { hash } from "@cwatch/core/types";
 import { Trace, Redactor } from '@cwatch/shared/sessions/trace';
+import { exportToLangfuse } from '@cwatch/shared/sessions/langfuse';
 const limitFlags: Record<keyof RunLimits, string> = { maxSteps: 'max-steps', maxToolCalls: 'max-tool-calls', maxSameToolCalls: 'max-same-tool-calls', contextChars: 'context-chars', maxResponseChars: 'max-response-chars', maxOutputTokens: 'max-output-tokens', maxTokens: 'max-tokens', timeoutMs: 'timeout', modelTimeoutMs: 'model-timeout', toolTimeoutMs: 'tool-timeout' };
 function readLimits(): RunLimits {
   const supplied: Partial<RunLimits> = {};
@@ -44,6 +45,12 @@ async function main(): Promise<void> {
     const source=store.lines<import('@cwatch/shared/sessions/trace').TraceEvent>('traces/'+runId+'.jsonl');if(!source.length)throw Error('trace_not_found');
     if(source.some(event=>event.runId!==runId||event.taskId!==source[0].taskId))throw Error('trace_identity_mismatch');
     const trace=new Trace(store,source[0].taskId,runId,new Redactor(secrets)),document=trace.exportStructured();
+    if (args.includes('--langfuse')) {
+      const result = await exportToLangfuse(trace);
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status !== 'exported') process.exitCode = 1;
+      return;
+    }
     console.log(JSON.stringify(document,null,2));if(!document.integrity.valid)process.exitCode=1;return;
   }
   if (command === 'inspect') { console.log(JSON.stringify({ executions: store.executions() }, null, 2)); return; }

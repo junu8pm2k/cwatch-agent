@@ -13,7 +13,7 @@ import type { EvalResult } from './grader.ts';
 import { listHumanRejections } from './adjudication.ts';
 
 export interface PipelineOptions {
-  dataset?:string;report?:string;caseId?:string;repeat?:number;out?:string;realModel?:boolean;gate?:'automatic'|'final'|'regression';signal?:AbortSignal;baselineRoot?:string;
+  dataset?:string;report?:string;caseId?:string;repeat?:number;out?:string;realModel?:boolean;gate?:'automatic'|'final'|'regression';signal?:AbortSignal;baselineRoot?:string;agentPrompts?:string;
   judgeConfig?:ModelConfig;judgeTransport?:JudgeTransport;onEvent?:(event:Record<string,unknown>)=>void;
 }
 export interface HumanReviewRequest {
@@ -64,7 +64,8 @@ export async function runEvaluationPipeline(options:PipelineOptions){
     if(mode)readModelConfig();
     if(entries.some(e=>e.value.rubric!==null))judgeConfig??=readJudgeConfig();
   }
-  const source=options.report?{path:realpathSync(options.report)}:await runBatch({dataset:options.dataset,caseId:options.caseId,repeat:options.repeat??(gate==='regression'?5:1),out:options.out,realModel:mode,signal:options.signal});
+  if(options.report&&options.agentPrompts)throw Error('cannot_change_agent_prompts_for_existing_report');
+  const source=options.report?{path:realpathSync(options.report)}:await runBatch({dataset:options.dataset,caseId:options.caseId,repeat:options.repeat??(gate==='regression'?5:1),out:options.out,realModel:mode,signal:options.signal,agentPrompts:options.agentPrompts});
   const reportPath=resolve(source.path),batch=dirname(reportPath),id=randomUUID(),ledger=join(batch,'pipeline-events-'+id+'.jsonl');
   const lockRoot=join(dirname(batch),'.locks');mkdirSync(lockRoot,{recursive:true});
   if(!within(realpathSync(dirname(batch)),realpathSync(lockRoot)))throw Error('pipeline_lock_escape');

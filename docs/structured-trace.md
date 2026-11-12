@@ -2,6 +2,8 @@
 
 每次任务结束，自动生成 `traces/<runId>.json`，版本为 `cwatch.structured-trace.v1`。持续追加的 `traces/<runId>.jsonl` 保留为原始审计记录（事件版本 2）；JSON 是可重新生成的结构化视图。二者均经宿主脱敏，结构化视图只使用审计事件，不读取 SDK 私有思考内容。
 
+配置 Langfuse 后，真实任务终态会将同一结构化视图上报为 Agent / Generation / Tool / Span；上报失败不改变任务结果。配置与历史补传见 [Langfuse 接入](langfuse.md)。
+
 可直接查看 [本地合成调用示例](../examples/structured-trace/README.md)，其中包含成对的 JSONL 与结构化 JSON。
 
 ## 获取方式

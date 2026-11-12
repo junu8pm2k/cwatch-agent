@@ -38,7 +38,7 @@ async function faultyCase(mode: string, options: { ask?: boolean; pendingTool?: 
   return { result, events, data, client, toolAborted, prompted, durationMs: Date.now() - started };
 }
 check('contract', 'Agent worker environment excludes host source tokens, model keys and Node preload options', () => {
-  assert.deepEqual(workerEnvironment({ PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy', SEARCH_MCP_TOKEN: 'secret', API_KEY: 'secret', ANTHROPIC_API_KEY: 'secret', NODE_OPTIONS: '--require bad', HOME: '/private' }), { PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy' });
+  assert.deepEqual(workerEnvironment({ PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy', SEARCH_MCP_TOKEN: 'secret', API_KEY: 'secret', ANTHROPIC_API_KEY: 'secret', LANGFUSE_PUBLIC_KEY: 'pk-lf-test', LANGFUSE_SECRET_KEY: 'sk-lf-test', NODE_OPTIONS: '--require bad', HOME: '/private' }), { PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy' });
 });
 for (const mode of ['exit-startup', 'disconnect', 'wrong-session', 'wrong-sequence', 'malformed', 'oversized', 'execute-first'] as const) check('contract', 'Agent subprocess rejects ' + mode + ' and preserves a terminal host Trace', async () => {
   const actual = await faultyCase(mode);

@@ -74,7 +74,7 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
     const d=event.data,eventId=runId+':event:'+(index+1);let owner=root,category:StructuredTrace['events'][number]['category']='run',eventStatus:TraceStep['status']='completed';
     let eventError:z.infer<typeof TraceErrorSchema>|null=null;
     const requestId=str(d.requestId),sdkId=str(d.sdkToolCallId),iteration=num(d.iteration);
-    if(event.type==='run_started'){root.timing.requestedAt=root.timing.startedAt=event.timestamp;root.status='running';root.input=json(d.task);root.attributes=metadata({mode:d.mode,permissionMode:d.permissionMode,engine:d.engine,model:d.model});}
+    if(event.type==='run_started'){root.timing.requestedAt=root.timing.startedAt=event.timestamp;root.status='running';root.input=json(d.task);root.attributes=metadata({mode:d.mode,permissionMode:d.permissionMode,engine:d.engine,model:d.model,...(d.agentPrompts?{agentPrompts:d.agentPrompts}:{})});}
     if(event.type==='context_prepared'){
       category='context';context=d;
       for(const tool of Array.isArray(d.tools)?d.tools:[]){const binding=object(tool);if(str(binding.bindingId))bindings.set(String(binding.bindingId),binding);}

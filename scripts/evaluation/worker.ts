@@ -18,6 +18,6 @@ try{
   const envelope=JSON.parse(Buffer.concat(chunks).toString('utf8'));
   // SDK resource discovery must stay inside the granted input/output workspace.
   process.chdir(output);
-  const observed=await executeScenario(envelope.input,output,envelope.credentials);
+  const observed=await executeScenario(envelope.input,output,envelope.credentials,envelope.agentPrompts);
   writeFileSync(resolve(output,'observed.json'),JSON.stringify(observed,null,2)+'\n');send({type:'finished',runId:observed.runId});
 }catch(error){send({type:'harness_error',code:error instanceof Error?error.message:'worker_error'});process.exitCode=1;}

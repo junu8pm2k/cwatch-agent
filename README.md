@@ -12,6 +12,10 @@ Cwatch 默认提供「通用 Agent + Skill」：输入任务 → 加载所选 Sk
 
 后端的进程边界、模块职责、当前能力与缺口见 [后端现状说明](docs/backend-overview.md)。
 
+Agent 行为提示词可同步到 Langfuse 的 `cwatch/agent`，拉取指定版本后用原 Case 实际运行并记录版本。命令与比较流程见 [Agent 提示词评测](docs/agent-prompts.md)。
+
+也可在 Langfuse Dataset 页面通过 Webhook 启动完整 Agent 评测并查看实验结果；[启动和操作说明](docs/langfuse-experiments.md)。本地评测和 GitHub Actions 继续独立运行。
+
 ## 项目结构
 
 按 Craft 的职责拆分为 npm workspaces：apps/cli 是入口，packages/core 保存契约，packages/shared 保存 Agent/来源/MCP/Skill/会话能力，packages/server-core 承载共享任务 Runtime 与可选调查模板。目录树、依赖图和文件迁移索引见 [项目结构](docs/project-structure.md)。现有 npm start、demo、verify、scripts/eval.ts 入口保留。
@@ -32,6 +36,8 @@ npm run demo
 输出目录 `artifacts/demo/`：`plans/`、`facts/events.json`、`facts/versions.json`、`evidence/index.json`、`evidence/snapshots/`、`claims/`、`reviews/`、`reports/`、`executions/`、`traces/`、`states/` 和 `runs/`。Pi 真实会话另存 `sessions/<runId>.jsonl` 完整脱敏转录。重复运行同目录会比较之前保存的事实。换一个 `--out` 可得到全新历史。
 
 运行结束自动输出结构化 Trace：`traces/<runId>.json`，包含任务输入、最终输出、模型/工具/后端步骤、调用关联、耗时、用量、权限和错误；原始审计事件保存在同名 `.jsonl`。CLI 的 `trace` 字段指向结构化文件，`traceEvents` 指向审计日志。字段、历史转换及接口见 [结构化 Trace](docs/structured-trace.md)。
+
+支持将真实任务 Trace 自动上报到 Langfuse。在 `.env` 填 `LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY` 和对应实例的 `LANGFUSE_BASE_URL`，运行 `npm run probe:langfuse` 验证。配置、数据范围和历史补传见 [Langfuse 接入](docs/langfuse.md)。
 
 ## Web 操作界面
 

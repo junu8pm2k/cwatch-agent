@@ -8,7 +8,7 @@ export interface RuntimeOptions extends AgentRuntimeOptions { onPlanSubmitted?: 
 export function runInvestigation(rawTask: unknown, model: Parameters<typeof runTask>[1], registry: Parameters<typeof runTask>[2], store: Parameters<typeof runTask>[3], mode: 'live' | 'replay', options: RuntimeOptions = {}, signal = new AbortController().signal, policy?: Parameters<typeof runTask>[8], approvals?: Parameters<typeof runTask>[9]) {
   const task = parseTask(rawTask);
   return runTask(task, model, registry, store, mode, options, context => {
-    const workflow = new InvestigationWorkflow(task, context.state, registry, store, context.trace, mode, options, context.transcript, context.workingState, context.memory);
+    const workflow = new InvestigationWorkflow(task, context.state, registry, store, context.trace, mode, { ...options, ...context.options }, context.transcript, context.workingState, context.memory);
     return { slug: 'workflow', channel: 'workflow', client: workflow, gaps: workflow.gaps, checkpoint: workflow,
       skill: () => loadInvestigationSkill(options.skillPath), skillPath: options.skillPath ?? 'skills/competitor-investigation/SKILL.md', skillName: 'competitor-investigation',
       completionInstruction: 'Do not finish before workflow__draft succeeded.',
