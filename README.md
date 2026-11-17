@@ -1,5 +1,7 @@
 # Cwatch
 
+Issue 流程测试：本仓库已可通过 GitHub Issue 跟进任务。
+
 2026-10-29：GitHub API 接入已移除并停用，默认来源只使用官网与网页工具。eval case 及其归档已随后清空；详见 [停用说明](docs/github-api-disabled.md)。
 
 当前自带工具的完整清单、用途和清理记录见 [工具清单](docs/tools.md)。
