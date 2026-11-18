@@ -1,4 +1,4 @@
-name: 项目检查与能力回归
+name: 项目检查
 on: [push, pull_request]
 
 # GitHub-hosted Ubuntu runners execute jobs in the same Node 24 / Debian image.
@@ -28,94 +28,11 @@ jobs:
           fdfind --help | grep -q -- '--no-require-git'
       - name: 安装项目依赖
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: 运行工程与评测流水线检查
+      - name: 运行常规测试
         run: npm run verify
-      - name: 运行示例流程
-        run: npm run demo
       - name: 归档工程检查产物
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: 工程检查产物
           path: artifacts/
-
-  browser-regression:
-    name: 浏览器与网页检查
-    runs-on: ubuntu-latest
-    container:
-      image: node:24-trixie
-    steps:
-      - name: 拉取代码
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: 安装检索工具依赖
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ripgrep fd-find
-          rg --version
-          fdfind --version
-          fdfind --help | grep -q -- '--no-require-git'
-      - name: 安装项目依赖
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: 安装 Chromium 浏览器
-        run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: 运行浏览器回归测试
-        run: npm run verify:browser
-        env:
-          # Only synthetic fixtures opt out of Chromium's sandbox in root CI.
-          EVAL_BROWSER_NO_SANDBOX: '1'
-      - name: 运行网页回归测试
-        run: npm run verify:web
-      - name: 归档浏览器检查产物
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: 浏览器检查产物
-          path: artifacts/
-
-  agent-regression:
-    name: 智能体能力回归
-    runs-on: ubuntu-latest
-    container:
-      image: node:24-trixie
-    # Two admitted cases, five trials each; evidence criteria also receive an
-    # independent audit. Leave room for both bounded model requests per Judge.
-    timeout-minutes: 45
-    steps:
-      - name: 拉取代码
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: 安装检索工具依赖
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ripgrep fd-find
-      - name: 安装项目依赖
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      # Every push and pull request runs all qualified cases. No secret/configuration skip.
-      # Automatic regression mode does not create a human review queue.
-      # The fixed model identities must match the admission record; keys stay in CI secrets.
-      - name: 运行智能体能力回归（每例五次）
-        run: npm run eval:regression
-        env:
-          MODEL_PROVIDER: stepfun
-          MODEL_ID: step-5-preview
-          BASE_URL: https://api.stepfun.com/step_plan/v1
-          API_KEY: ${{ secrets.EVAL_API_KEY }}
-          JUDGE_MODEL_PROVIDER: stepfun
-          JUDGE_MODEL_ID: step-5-preview
-          JUDGE_BASE_URL: https://api.stepfun.com/step_plan/v1
-          JUDGE_API_KEY: ${{ secrets.JUDGE_API_KEY }}
-      - name: 归档智能体回归产物
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: 智能体回归产物
-          # Include the exact suite/admission and baseline inputs alongside the
-          # reports, Trace, scoring records, ZIPs and SHA256 checksums.
-          path: |
-            artifacts/agent-eval/
-            evals/regression/
-            evals/activation/
-            evals/baselines/

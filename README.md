@@ -194,7 +194,7 @@ npm run eval
 
 统一负分制：100 分起、80 分达标，结果不符扣 100；过程由 Rubric 与人工确认，步骤遵循性、中间输出、工具/知识库调用各按不符步骤/项扣 10；分析耗时超过 5 分钟后每开始 1 分钟扣 10。所有计划 Trial 全部达标才取平均，否则用例分为 0。建议显式提供题单并运行 `--repeat 5`，逐次完成评委记录后用 `eval:score` 汇总；原始 Case 命令不再接受 `--score-gate`。报告保留 pass@k、pass^k 和类型容忍度。原必过项与人工审核状态单列，见 [负分制与稳定性](docs/penalty-scoring.md)。
 
-`verify` 一条命令执行项目结构、TypeScript、工程及评测流水线离线检查。工程结果写入 `artifacts/eval/latest.json` 与 `latest.md`，任何失败退出非零。GitHub Actions 在每次 push 和 PR 时运行工程检查、浏览器检查和真实 Agent 自动回归三条独立任务，使用 Ubuntu runner 与 Node 24 / Debian 容器。自动回归集见 [正式清单](evals/regression/suite.json)，每例五次、全部 100 分及代码/Rubric 全通过才通过，本轮不创建人工待办。远程需要配置 `EVAL_API_KEY`、`JUDGE_API_KEY`；本次未触发远程 CI。
+`npm run verify` 执行项目结构、TypeScript、工程测试和离线评测流水线测试。工程结果写入 `artifacts/eval/latest.json` 与 `latest.md`，任何失败退出非零。GitHub Actions 在 push 和 PR 时只运行这套常规测试。浏览器、网页和真实 Agent 回归可在本地按需运行，真实 Agent 回归命令见 [自动回归集](evals/regression/README.md)。
 
 1. 来源 Hub：运行 demo，查看 Trace 中唯一 binding、original_name、builtin/mcp/workflow 三类 channel；实际本地 MCP 协议测试及 probe:sources 独立验证。
 2. 执行门禁：eval 的权限/审批用例逐项断言真实执行次数；拒绝为零。
