@@ -53,13 +53,13 @@ async function sync(datasetName: string, version: string) {
   const cases = (await fetchItems(client, dataset, version)).filter(item => item.status === 'ACTIVE').map(item => {
     try {
       const { caseId, ...metadata } = itemMetadata.parse(item.metadata);
-      const { instruction, fixture } = itemInput.parse(item.input);
-      const value = benchmarkCase.parse({ id: caseId, itemId: item.id, ...metadata, input: instruction, fixture, expected: itemExpected.parse(item.expectedOutput) });
+      const { instruction, ...execution } = itemInput.parse(item.input);
+      const value = benchmarkCase.parse({ id: caseId, itemId: item.id, ...metadata, ...execution, input: instruction, expected: itemExpected.parse(item.expectedOutput) });
       const serialized = JSON.stringify(value);
       if (redactor.clean(serialized) !== serialized) throw Error('sensitive value detected in snapshot candidate');
       if (ids.has(value.id)) throw Error('duplicate stable case ID');
       ids.add(value.id);
-      fixturePath(fixture);
+      fixturePath(value.fixture);
       return value;
     } catch (error) {
       throw Error('invalid Langfuse item ' + item.id + ': ' + redact(error));

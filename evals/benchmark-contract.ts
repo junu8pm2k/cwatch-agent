@@ -8,22 +8,45 @@ export const suites = ['smoke', 'regression'] as const;
 const suiteSchema = z.enum(suites);
 const safeId = z.string().regex(/^[a-z][a-z0-9-]{0,79}$/);
 const fixture = z.string().regex(/^[a-z][a-z0-9-]{0,63}\.txt$/);
-const metric = z.enum(['tool_correctness', 'grounded_answer', 'missing_information']);
+const metric = z.enum(['tool_correctness', 'json_equals', 'evidence_review', 'grounded_answer', 'missing_information']);
 const instruction = z.string().trim().min(1).max(4000);
 const atLeastOneTag = z.array(suiteSchema).min(1).max(2).refine(tags => new Set(tags).size === tags.length);
-export const itemInput = z.strictObject({ instruction, fixture });
-export const itemExpected = z.strictObject({ tool: z.literal('read'), arguments: z.strictObject({ path: fixture }), answer: instruction });
+export const reviewProfile = z.literal('competitor-review');
+const legacyInput = z.strictObject({ instruction, fixture });
+const reviewInput = legacyInput.extend({ profile: reviewProfile });
+export const itemInput = z.union([legacyInput, reviewInput]);
+const readExpected = z.strictObject({ tool: z.literal('read'), arguments: z.strictObject({ path: fixture }), answer: instruction });
+const reviewExpected = z.strictObject({
+  toolPolicy: z.enum(['review-checklist', 'no-tools']),
+  answer: instruction,
+  json: z.strictObject({ claim: instruction, material: instruction }).optional(),
+});
+export const itemExpected = z.union([readExpected, reviewExpected]);
+const origin = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('sop'), reference: instruction, stage: z.enum(['main', 'branch', 'stop', 'boundary', 'handoff']) }),
+  z.strictObject({ type: z.literal('bad-case'), reference: instruction, runId: z.uuid(), failureMode: instruction }),
+]);
 export const itemMetadata = z.strictObject({
   caseId: safeId,
   category: safeId,
   metrics: z.array(metric).min(1).max(3).refine(values => new Set(values).size === values.length && values.includes('tool_correctness')),
   tags: atLeastOneTag,
   dataClass: z.literal('synthetic'),
+  origin: origin.optional(),
 });
-export const benchmarkCase = z.strictObject({
+const fields = {
   id: safeId, itemId: z.string().min(1), ...itemMetadata.omit({ caseId: true }).shape,
-  input: instruction, fixture, expected: itemExpected,
-}).refine(value => value.fixture === value.expected.arguments.path, 'expected tool path must match the fixture');
+  input: instruction, fixture,
+};
+export const benchmarkCase = z.union([
+  z.strictObject({ ...fields, origin: z.never().optional(), expected: readExpected })
+    .refine(value => value.fixture === value.expected.arguments.path
+      && value.metrics.every(metric => ['tool_correctness', 'grounded_answer', 'missing_information'].includes(metric)), 'invalid file-reading case'),
+  z.strictObject({ ...fields, origin, profile: reviewProfile, expected: reviewExpected })
+    .refine(value => value.metrics.includes('json_equals') === Boolean(value.expected.json)
+      && value.metrics.every(metric => ['tool_correctness', 'json_equals', 'evidence_review'].includes(metric))
+      && (value.origin.type !== 'bad-case' || value.tags.includes('regression')), 'invalid review case scoring or suite'),
+]);
 export type BenchmarkCase = z.infer<typeof benchmarkCase>;
 
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/);

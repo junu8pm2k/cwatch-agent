@@ -6,6 +6,7 @@
 /evals/sync.ts @junu8pm2k
 /evals/*.py @junu8pm2k
 /skills/general-agent/ @junu8pm2k
+/skills/competitor-review/ @junu8pm2k
 /package.json @junu8pm2k
 /package-lock.json @junu8pm2k
 /.python-version @junu8pm2k

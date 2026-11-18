@@ -58,12 +58,15 @@ def load_manifest():
 
 
 def run_agent(case, case_dir):
-    with TemporaryDirectory(prefix="cwatch-bench-") as temp_dir:
+    workspace_cache = ROOT / ".cache"
+    workspace_cache.mkdir(exist_ok=True)
+    with TemporaryDirectory(prefix="bench-", dir=workspace_cache) as temp_dir:
+        profile = {"profile": case["profile"]} if "profile" in case else {}
         result = agent_command(
             "run", timeout=CONFIG["limits"]["timeoutMs"] // 1000 + 20,
             payload={
                 "id": case["id"], "input": case["input"], "fixture": case["fixture"],
-                "workDir": temp_dir, "traceFile": str(case_dir / "trace.json"),
+                "workDir": temp_dir, "traceFile": str(case_dir / "trace.json"), **profile,
             },
         )
         return AgentResult.model_validate_json(result)

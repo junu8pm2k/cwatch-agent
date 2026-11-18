@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_adapter import load_manifest, run_agent
+from agent_adapter import CONFIG, load_manifest, run_agent
 from metrics import score
 from reporting import BenchmarkReport
 
@@ -25,7 +25,7 @@ def report():
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
 def test_benchmark_case(case, report):
     with report.record(case) as entry:
-        if not os.getenv("JUDGE_API_KEY", "").strip():
+        if any("rubric" in CONFIG["metrics"][name] for name in case["metrics"]) and not os.getenv("JUDGE_API_KEY", "").strip():
             raise RuntimeError("missing JUDGE_API_KEY")
         result = run_agent(case, report.case_dir(case["id"]))
         entry["agent"] = result.model_dump()

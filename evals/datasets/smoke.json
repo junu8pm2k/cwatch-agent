@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "53fdc3c6a156590910dba93385b8cf556ed654147adf7dbe10b0b1cf550e8a3c"
+    "revision": "d2b4deac685eaedf3a778cad215867e220c020d9d343bc89136c482531e22d08"
   },
   "suite": "smoke",
-  "sha256": "1261275b8bd5b439cb4c853a003ff9b52372f8e3d927087b9e74b3dbb1db7ec1",
+  "sha256": "76d015bdd93d7cea61bf75f9a3d9ced9ecf0d49c436964270f9d6cf1a3017d4a",
   "cases": [
     {
       "id": "inventory-count",
@@ -50,6 +50,85 @@
           "path": "orders.txt"
         },
         "answer": "Order CW-104 has shipped. The carrier reference is SIM-8374."
+      }
+    },
+    {
+      "id": "sop-review-export-scope",
+      "itemId": "cwatch-bench-v23-sop-review-export-scope",
+      "category": "review-main",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "smoke"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "sop",
+        "reference": "skills/competitor-review/SKILL.md",
+        "stage": "main"
+      },
+      "input": "请核对 C1 是否得到 M1 支持，引用材料中的适用角色，并给一句可直接替换的表述。只依据给定材料。",
+      "fixture": "review-export-scope.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "C1 把工作区管理员权限扩大到了所有成员，M1 只支持管理员在会话页发起导出，无法确认普通成员的权限。替换文案保留管理员和会话页，并把依据归于合成摘录。"
+      }
+    },
+    {
+      "id": "sop-review-format-stop",
+      "itemId": "cwatch-bench-v23-sop-review-format-stop",
+      "category": "review-stop",
+      "metrics": [
+        "tool_correctness",
+        "json_equals"
+      ],
+      "tags": [
+        "smoke"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "sop",
+        "reference": "skills/competitor-review/SKILL.md",
+        "stage": "stop"
+      },
+      "input": "本轮仅转录，不做证据审阅，不调用任何工具。只输出一个 JSON 对象，claim 为 C1 冒号后的完整文本，material 为 M1 冒号后的完整文本，保留标点。不要输出代码围栏或其他文字。",
+      "fixture": "review-format-only.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "no-tools",
+        "answer": "输出只包含 claim 和 material 两个字段。逐字保留材料，且不调用工具。",
+        "json": {
+          "claim": "所有成员均可导出会话。",
+          "material": "仅工作区管理员可发起会话导出。"
+        }
+      }
+    },
+    {
+      "id": "sop-review-product-gap",
+      "itemId": "cwatch-bench-v23-sop-review-product-gap",
+      "category": "review-branch",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "smoke"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "sop",
+        "reference": "skills/competitor-review/SKILL.md",
+        "stage": "branch"
+      },
+      "input": "请评估 C1，明确区分材料涉及的产品和主张中的产品。给出当前能确认的结论与需补充的证据。",
+      "fixture": "review-product-gap.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "M1 说明 console 管理控制台支持导出，C1 针对 desktop 桌面端，现有材料无法确认其是否支持或不支持。需要对应 desktop 的产品说明或验证记录。"
       }
     }
   ]
