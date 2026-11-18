@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "d2b4deac685eaedf3a778cad215867e220c020d9d343bc89136c482531e22d08"
+    "revision": "dfe5f6d147132a1e02bb6f788cdbad12596b4e5fb5276cc93c76c816005ce127"
   },
   "suite": "smoke",
-  "sha256": "76d015bdd93d7cea61bf75f9a3d9ced9ecf0d49c436964270f9d6cf1a3017d4a",
+  "sha256": "9ff6804ce39ffd87e539d5db6f4b0a51ad7e1bd5ec611da95aee0f25876b7580",
   "cases": [
     {
       "id": "inventory-count",
@@ -20,7 +20,7 @@
         "smoke"
       ],
       "dataClass": "synthetic",
-      "input": "Use the read tool with the exact relative path inventory.txt. How many units of SKU ALPHA-7 are available? Answer briefly in English using the file.",
+      "input": "请使用 read 工具读取相对路径 inventory.txt。SKU ALPHA-7 的可用库存有多少件？请依据文件内容用中文简短回答。",
       "fixture": "inventory.txt",
       "expected": {
         "tool": "read",
@@ -42,7 +42,7 @@
         "smoke"
       ],
       "dataClass": "synthetic",
-      "input": "Use the read tool with the exact relative path orders.txt. What is the status and carrier reference of order CW-104? Answer briefly in English using the file.",
+      "input": "请使用 read 工具读取相对路径 orders.txt。订单 CW-104 的状态是什么，承运参考号是多少？请依据文件内容用中文简短回答。",
       "fixture": "orders.txt",
       "expected": {
         "tool": "read",
