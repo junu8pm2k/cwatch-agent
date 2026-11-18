@@ -18,6 +18,7 @@
     "packages/**/*.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts",
+    "evals/**/*.ts",
     "examples/**/*.ts"
   ]
 }

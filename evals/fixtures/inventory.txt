@@ -1,0 +1,3 @@
+Synthetic inventory fixture.
+SKU ALPHA-7: 12 units available.
+SKU BETA-5: 0 units available.

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "id": "cmwm462qd0001nu67dh2twvny",
+    "name": "cwatch/benchmark/v2.3",
+    "revision": "53fdc3c6a156590910dba93385b8cf556ed654147adf7dbe10b0b1cf550e8a3c"
+  },
+  "suite": "regression",
+  "sha256": "d93afe17fbb5ab05227e5ac2b5638eb1433be353a631d8bed93a1db146dd2ebf",
+  "cases": [
+    {
+      "id": "pending-dispatch",
+      "itemId": "cwatch-bench-v23-pending-dispatch",
+      "category": "missing-field",
+      "metrics": [
+        "tool_correctness",
+        "missing_information"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "input": "Use the read tool with the exact relative path orders.txt. What is the status of CW-205 and when will it dispatch? Answer briefly in English based only on the file.",
+      "fixture": "orders.txt",
+      "expected": {
+        "tool": "read",
+        "arguments": {
+          "path": "orders.txt"
+        },
+        "answer": "CW-205 is pending. Its estimated dispatch date is unavailable."
+      }
+    },
+    {
+      "id": "unknown-order",
+      "itemId": "cwatch-bench-v23-unknown-order",
+      "category": "missing-record",
+      "metrics": [
+        "tool_correctness",
+        "missing_information"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "input": "Use the read tool with the exact relative path orders.txt. Is there a confirmed status for order CW-999 in this export? Answer briefly in English and do not infer a status from other records.",
+      "fixture": "orders.txt",
+      "expected": {
+        "tool": "read",
+        "arguments": {
+          "path": "orders.txt"
+        },
+        "answer": "The export has no record for CW-999, so its status cannot be confirmed."
+      }
+    }
+  ]
+}

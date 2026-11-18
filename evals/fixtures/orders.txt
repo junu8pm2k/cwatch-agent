@@ -1,0 +1,3 @@
+Synthetic support fixture. These are the only orders in this export.
+Order CW-104: SHIPPED, carrier reference SIM-8374.
+Order CW-205: PENDING, estimated dispatch date not yet available.

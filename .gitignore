@@ -3,6 +3,12 @@ node_modules/
 dist/
 build/
 coverage/
+.venv/
+__pycache__/
+.pytest_cache/
+.deepeval/
+.deepeval_telemetry.txt
+.deepeval_test_run.json
 *.tsbuildinfo
 
 # Local credentials and runtime state

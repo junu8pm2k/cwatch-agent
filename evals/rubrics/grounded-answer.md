@@ -1,0 +1,1 @@
+Check whether the response answers the user's request with the exact facts in the expected answer. Penalize an incorrect status, number or item identifier and any unsupported promises or factual claims. Accept equivalent wording and the language requested by the user. Give full credit for a concise answer with every required fact and no contradictions.

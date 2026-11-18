@@ -1,0 +1,15 @@
+/evals/datasets/ @junu8pm2k
+/evals/fixtures/ @junu8pm2k
+/evals/rubrics/ @junu8pm2k
+/evals/config.json @junu8pm2k
+/evals/benchmark*.ts @junu8pm2k
+/evals/sync.ts @junu8pm2k
+/evals/*.py @junu8pm2k
+/skills/general-agent/ @junu8pm2k
+/package.json @junu8pm2k
+/package-lock.json @junu8pm2k
+/.python-version @junu8pm2k
+/pyproject.toml @junu8pm2k
+/uv.lock @junu8pm2k
+/.github/workflows/agent-eval.yml @junu8pm2k
+/.github/CODEOWNERS @junu8pm2k

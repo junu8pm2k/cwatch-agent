@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "id": "cmwm462qd0001nu67dh2twvny",
+    "name": "cwatch/benchmark/v2.3",
+    "revision": "53fdc3c6a156590910dba93385b8cf556ed654147adf7dbe10b0b1cf550e8a3c"
+  },
+  "suite": "smoke",
+  "sha256": "1261275b8bd5b439cb4c853a003ff9b52372f8e3d927087b9e74b3dbb1db7ec1",
+  "cases": [
+    {
+      "id": "inventory-count",
+      "itemId": "cwatch-bench-v23-inventory-count",
+      "category": "tool-calling",
+      "metrics": [
+        "tool_correctness",
+        "grounded_answer"
+      ],
+      "tags": [
+        "smoke"
+      ],
+      "dataClass": "synthetic",
+      "input": "Use the read tool with the exact relative path inventory.txt. How many units of SKU ALPHA-7 are available? Answer briefly in English using the file.",
+      "fixture": "inventory.txt",
+      "expected": {
+        "tool": "read",
+        "arguments": {
+          "path": "inventory.txt"
+        },
+        "answer": "There are 12 units of ALPHA-7 available."
+      }
+    },
+    {
+      "id": "order-status",
+      "itemId": "cwatch-bench-v23-order-status",
+      "category": "tool-calling",
+      "metrics": [
+        "tool_correctness",
+        "grounded_answer"
+      ],
+      "tags": [
+        "smoke"
+      ],
+      "dataClass": "synthetic",
+      "input": "Use the read tool with the exact relative path orders.txt. What is the status and carrier reference of order CW-104? Answer briefly in English using the file.",
+      "fixture": "orders.txt",
+      "expected": {
+        "tool": "read",
+        "arguments": {
+          "path": "orders.txt"
+        },
+        "answer": "Order CW-104 has shipped. The carrier reference is SIM-8374."
+      }
+    }
+  ]
+}

@@ -36,7 +36,7 @@ function usageDetails(step: TraceStep): Record<string, number> {
 }
 
 /** Project the existing public audit view; do not read private SDK transcripts. */
-export function langfusePayload(document: StructuredTrace, config: Pick<LangfuseConfig, 'environment'>): { traceId: string; spans: OtlpSpan[] } {
+export function langfusePayload(document: StructuredTrace, config: Pick<LangfuseConfig, 'environment'>, metadata: Record<string, string> = {}): { traceId: string; spans: OtlpSpan[] } {
   if (!document.integrity.valid || !document.integrity.complete) throw Error('langfuse_export: complete valid trace required');
   const traceId = identity(document.runId, 32);
   const agentPrompts = record(document.steps.find(step => step.kind === 'run')?.attributes.agentPrompts);
@@ -57,6 +57,11 @@ export function langfusePayload(document: StructuredTrace, config: Pick<Langfuse
       attribute('langfuse.observation.input', step.input), attribute('langfuse.observation.output', step.output),
       attribute('langfuse.observation.level', failed ? 'ERROR' : step.status === 'partial' ? 'WARNING' : 'DEFAULT'),
     ];
+    if (step.kind === 'run') {
+      for (const [key, value] of Object.entries(metadata)) {
+        attributes.push(attribute('langfuse.trace.metadata.' + key, value), attribute('langfuse.observation.metadata.' + key, value));
+      }
+    }
     if (step.error) attributes.push(attribute('langfuse.observation.status_message', step.error.message));
     if (Object.keys(agentPrompts).length) {
       attributes.push(attribute('langfuse.observation.metadata.agentPrompts', agentPrompts), attribute('langfuse.observation.metadata.agentPromptSnapshot', agentPrompts.snapshotSha256));
@@ -81,6 +86,20 @@ export function langfusePayload(document: StructuredTrace, config: Pick<Langfuse
   return { traceId, spans };
 }
 
+export async function sendLangfuseTrace(config: LangfuseConfig, spans: ReturnType<typeof langfusePayload>['spans'], transport: typeof fetch = fetch): Promise<void> {
+  const body = JSON.stringify({ resourceSpans: [{ resource: { attributes: [attribute('service.name', 'cwatch')] },
+    scopeSpans: [{ scope: { name: 'cwatch.langfuse', version: '1' }, spans }] }] });
+  const response = await transport(config.baseUrl + '/api/public/otel/v1/traces', {
+    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(config.timeoutMs),
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + Buffer.from(config.publicKey + ':' + config.secretKey).toString('base64'), 'x-langfuse-ingestion-version': '4' }, body,
+  });
+  const text = await response.text();
+  if (!response.ok) throw Error('langfuse_export: HTTP ' + response.status);
+  const payload = text.trim() ? record(JSON.parse(text)) : {};
+  const partial = record(payload.partialSuccess);
+  if (Number(partial.rejectedSpans ?? 0) > 0 || partial.errorMessage) throw Error('langfuse_export: OTLP partial rejection');
+}
+
 /** Awaited by the host at run termination. Remote failure must not change task success. */
 export async function exportToLangfuse(trace: Trace, env: NodeJS.ProcessEnv = process.env, transport: typeof fetch = fetch): Promise<LangfuseExportResult> {
   const redactor = new Redactor(Object.entries(env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(key)).map(([, value]) => value ?? ''));
@@ -98,18 +117,7 @@ export async function exportToLangfuse(trace: Trace, env: NodeJS.ProcessEnv = pr
     const document = redactor.clean(trace.redactor.clean(trace.exportStructured()));
     const { traceId, spans } = langfusePayload(document, config);
     exportedTraceId = traceId;
-    const body = JSON.stringify({ resourceSpans: [{ resource: { attributes: [attribute('service.name', 'cwatch')] },
-      scopeSpans: [{ scope: { name: 'cwatch.langfuse', version: '1' }, spans }] }] });
-    const response = await transport(config.baseUrl + '/api/public/otel/v1/traces', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(config.timeoutMs),
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + Buffer.from(config.publicKey + ':' + config.secretKey).toString('base64'), 'x-langfuse-ingestion-version': '4' }, body,
-    });
-    // Read the body under the same timeout. Never expose remote response text or auth headers.
-    const text = await response.text();
-    if (!response.ok) throw Error('langfuse_export: HTTP ' + response.status);
-    const payload = text.trim() ? record(JSON.parse(text)) : {};
-    const partial = record(payload.partialSuccess);
-    if (Number(partial.rejectedSpans ?? 0) > 0 || partial.errorMessage) throw Error('langfuse_export: OTLP partial rejection');
+    await sendLangfuseTrace(config, spans, transport);
     result = { status: 'exported', traceId, spanCount: spans.length };
   } catch (error) {
     // Config/transport errors may contain user-controlled URLs; expose known safe messages only.
