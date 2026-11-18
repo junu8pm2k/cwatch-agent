@@ -5,7 +5,7 @@
 | Langfuse 字段 | 内容 |
 | --- | --- |
 | Input | 中文任务指令 `instruction`、固定材料 `fixture`，业务题使用 `profile: "competitor-review"` |
-| Expected output | `answer` 记录成功标准，`toolPolicy` 规定读取审阅清单或在转录任务中直接停止，可用 `json` 指定精确输出 |
+| Expected output | 中文参考答案 `answer` 记录成功标准，`toolPolicy` 规定读取审阅清单或在转录任务中直接停止，可用 `json` 指定精确输出 |
 | Metadata | 稳定的 `caseId`、`category`、必需 `metrics`、`tags`（`smoke` 或 `regression`）及 `dataClass: "synthetic"`，业务题通过 `origin` 追溯 SOP 或原始失败运行 |
 
 | 来源 | 场景 | 集合 | 判定 |
