@@ -27,10 +27,13 @@ function profileForm(task=currentProfile().task){
   for(const id of ['competitor-name','competitor-id','product','domains','start-date','end-date'])$<HTMLInputElement>(id).required=domain;
   $<HTMLTextAreaElement>('instruction').required=!domain;
   $('page-title').textContent=domain?'竞品调查':'通用 Agent';
-  $('page-description').textContent=domain?'追踪变化，让结论有据可查。':'交代目标，开始协作。';
   $('task-title').textContent=domain?'调查设置':'任务设置';
-  $('intro-title').textContent=domain?'看清变化，再做判断。':'今天，想弄清什么？';
-  $('intro-description').textContent=domain?'从公开来源收集线索，把产品变化整理成有依据的结论。':'从一个问题开始，让资料、思路和答案连接起来。';
+  $('intro-title').textContent=domain?'调查竞品动态':'交给 Agent 一项任务';
+  $('intro-description').textContent=domain?'选定产品、时间范围和来源，生成带证据的调查报告。':'描述你要完成的事，然后选择 Agent 可以用的来源和权限。';
+  const selectedProfile = $<HTMLSelectElement>('profile').value;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('#task-suggestions [data-template]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.template === selectedProfile));
+  }
   $('start-run').innerHTML=(domain?'开始调查':'开始任务')+' <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>';
   $('cancel-run').textContent=domain?'停止调查':'停止任务';
   $('tab-report').textContent=domain?'调查报告':'任务结果';
@@ -53,7 +56,7 @@ function modeChanged(resetInstruction=false){
     input.value=replay?example:instructionDraft;
   }
   $('mode-note').textContent=replay?'当前为固定样例，切换真实运行可编辑任务。':configured?'使用已配置的模型，任务描述与来源均可调整。':'请先在本机 .env 配置模型并重启服务。';
-  $('start-note').textContent=replay?'演示使用固定脚本与合成数据，不调用外部服务。':'将使用模型与来源服务，按实际用量消耗额度。';
+  $('start-note').textContent=replay?'演示使用合成数据，全程在本机运行。':'真实运行会调用已配置的模型和所选来源。';
   $<HTMLButtonElement>('start-run').disabled=state.submitting||(!replay&&!configured);
 }
 function renderHistory(){
@@ -202,7 +205,8 @@ $('run-form').addEventListener('submit',event=>{
       if(investigation(task)&&Date.parse(task.window.start)>=Date.parse(task.window.end))throw Error('结束日期须晚于开始日期。');
       if(investigation(task)&&!task.allowedSources.length)throw Error('请至少选择一个采集来源。');
       const input:RunStartInput={profile:profile.id,mode:mode(),permission:$<HTMLSelectElement>('permission').value as RunStartInput['permission'],...(!investigation(task)&&!replay?{conversation:true}:{}),task,skills:[...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(input=>input.value),limits:{timeoutMs:Number($<HTMLInputElement>('timeout').value)*1000,maxTokens:Number($<HTMLInputElement>('tokens').value)}};
-      const run=await api<RunSnapshot>('/api/runs',input);state.runs.unshift(run);selectRun(run);announce('调查已启动。');
+      const run=await api<RunSnapshot>('/api/runs',input);state.runs.unshift(run);selectRun(run);
+      $('run-title').focus();announce(investigation(task)?'调查已启动。':'任务已启动。');
     }catch(error){alertError(error);}finally{state.submitting=false;modeChanged();}
   })();
 });

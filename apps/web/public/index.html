@@ -14,19 +14,41 @@
     <div class="sidebar-bottom"><span class="workspace-avatar" aria-hidden="true">C</span><span>本地工作区<small><span class="dot"></span> 记录保存在你的电脑</small></span></div>
   </aside>
   <main id="main">
-    <header class="page-header"><div><h1 id="page-title">通用 Agent</h1><p id="page-description">交代目标，开始协作。</p></div><div class="header-actions"><span class="connection" id="connection"><span class="dot"></span>正在连接</span><button class="button secondary" id="new-run"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>新建任务</button></div></header>
+    <header class="page-header"><h1 id="page-title">通用 Agent</h1><div class="header-actions"><span class="connection" id="connection"><span class="dot"></span>正在连接</span><button class="button secondary" id="new-run"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>新建任务</button></div></header>
     <div id="alert" class="alert" role="alert" hidden></div>
     <section id="connections-panel" class="connections-panel" hidden aria-label="来源与连接"></section>
     <div class="mobile-history"><label for="history-select">任务记录</label><select id="history-select"><option value="">新建任务</option></select><button class="button secondary" id="mobile-sources" aria-expanded="false" aria-controls="connections-panel">连接</button></div>
-    <div class="workbench">
+    <div class="workbench" data-has-run="false">
+      <section class="run-panel" aria-labelledby="run-title">
+        <div class="run-heading"><div><span id="run-label" class="run-label">准备就绪</span><h2 id="run-title" tabindex="-1">一份有来源的情报简报</h2></div><button id="cancel-run" class="button danger" hidden>停止调查</button></div>
+        <div id="pipeline" class="pipeline" aria-label="调查阶段"></div>
+        <div class="run-stats" id="run-stats"><div><span>工具调用</span><strong id="stat-tools">—</strong></div><div><span>模型轮次</span><strong id="stat-turns">—</strong></div><div><span>Token 用量</span><strong id="stat-tokens">—</strong></div><div><span>运行用时</span><strong id="stat-time">—</strong></div></div>
+        <div class="tabs" role="tablist" aria-label="调查详情"><button id="tab-process" role="tab" aria-selected="true" aria-controls="panel-process" data-tab="process">运行过程</button><button id="tab-report" role="tab" aria-selected="false" aria-controls="panel-report" data-tab="report">调查报告</button><button id="tab-approvals" role="tab" aria-selected="false" aria-controls="panel-approvals" data-tab="approvals">待处理审批 <span id="approval-count" class="count-badge">0</span></button></div>
+        <div id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="tab-panel"><div id="process-content"></div></div>
+        <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" class="tab-panel" hidden>
+        <section id="conversation" class="conversation" aria-label="会话" hidden>
+          <h3>对话</h3>
+          <div id="conversation-messages" aria-label="对话记录"></div>
+          <form id="message-form">
+            <label class="field" for="follow-up">继续追问<textarea id="follow-up" rows="3" maxlength="24000" required placeholder="补充要求，或继续询问上一轮的内容"></textarea></label>
+            <p id="conversation-note" class="field-note"></p>
+            <div class="conversation-actions"><button id="send-message" class="button primary" type="submit">发送追问</button><button id="end-conversation" class="button secondary" type="button">结束会话</button></div>
+          </form>
+        </section>
+          <div id="report-content"></div>
+        </div>
+        <div id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" class="tab-panel" hidden><div id="approval-content"></div></div>
+
+        <div class="run-footer"><span id="run-footer-text">每次工具调用均经过权限检查并留下记录。</span><span id="provenance-label">仅生成本地草稿</span></div>
+      </section>
       <section class="task-panel" aria-labelledby="task-title">
         <div class="task-intro">
-          <span class="intro-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M31 10a15 15 0 1 0 0 20M20 10v10l7 4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="32" cy="7" r="3" fill="currentColor"/></svg></span>
-          <h2 id="intro-title">今天，想弄清什么？</h2>
-          <p id="intro-description">从一个问题开始，让资料、思路和答案连接起来。</p>
+          <h2 id="intro-title">交给 Agent 一项任务</h2>
+          <p id="intro-description">描述你要完成的事，然后选择 Agent 可以用的来源和权限。</p>
         </div>
-        <div class="panel-heading"><h2 id="task-title">任务设置</h2></div>
+        <div class="composer-column">
         <form id="run-form">
+          <div class="panel-heading"><h2 id="task-title">任务设置</h2></div>
           <div class="composer-body">
           <div class="field" id="agent-fields"><label class="sr-only" for="instruction">任务描述</label><textarea id="instruction" name="instruction" rows="4" maxlength="24000" placeholder="描述你想完成的事，也可以附上材料和输出要求…" aria-describedby="mode-note"></textarea></div>
           <div id="investigation-fields">
@@ -47,34 +69,14 @@
           <div class="form-footer"><button class="button primary" type="submit" id="start-run">开始任务</button></div>
           </div>
         </form>
-        <p id="start-note" class="start-note">演示无需模型密钥，也不会调用外部服务。</p>
-        <div class="task-suggestions" id="task-suggestions" aria-label="选择一个起点">
-          <button type="button" data-template="agent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg><span>阅读与整理<small>先读懂这个项目</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
-          <button type="button" data-template="standard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品研究<small>看看产品有哪些变化</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
-          <button type="button" data-template="web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg><span>公开资料<small>从网页中收集线索</small></span><span class="suggestion-arrow" aria-hidden="true">↗</span></button>
+        <p id="start-note" class="start-note">演示使用合成数据，全程在本机运行。</p>
         </div>
-      </section>
-      <section class="run-panel" aria-labelledby="run-title">
-        <div class="run-heading"><div><span id="run-label" class="run-label">准备就绪</span><h2 id="run-title">一份有来源的情报简报</h2></div><button id="cancel-run" class="button danger" hidden>停止调查</button></div>
-        <div id="pipeline" class="pipeline" aria-label="调查阶段"></div>
-        <div class="run-stats" id="run-stats"><div><span>工具调用</span><strong id="stat-tools">—</strong></div><div><span>模型轮次</span><strong id="stat-turns">—</strong></div><div><span>Token 用量</span><strong id="stat-tokens">—</strong></div><div><span>运行用时</span><strong id="stat-time">—</strong></div></div>
-        <div class="tabs" role="tablist" aria-label="调查详情"><button id="tab-process" role="tab" aria-selected="true" aria-controls="panel-process" data-tab="process">运行过程</button><button id="tab-report" role="tab" aria-selected="false" aria-controls="panel-report" data-tab="report">调查报告</button><button id="tab-approvals" role="tab" aria-selected="false" aria-controls="panel-approvals" data-tab="approvals">待处理审批 <span id="approval-count" class="count-badge">0</span></button></div>
-        <div id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="tab-panel"><div id="process-content"></div></div>
-        <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" class="tab-panel" hidden>
-        <section id="conversation" class="conversation" aria-label="会话" hidden>
-          <h3>对话</h3>
-          <div id="conversation-messages" aria-label="对话记录"></div>
-          <form id="message-form">
-            <label class="field" for="follow-up">继续追问<textarea id="follow-up" rows="3" maxlength="24000" required placeholder="补充要求，或继续询问上一轮的内容"></textarea></label>
-            <p id="conversation-note" class="field-note"></p>
-            <div class="conversation-actions"><button id="send-message" class="button primary" type="submit">发送追问</button><button id="end-conversation" class="button secondary" type="button">结束会话</button></div>
-          </form>
+        <section class="task-suggestions" id="task-suggestions" aria-labelledby="suggestions-title">
+          <h3 id="suggestions-title">从模板开始</h3>
+          <button type="button" data-template="agent" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg><span>阅读与整理<small>先读懂这个项目</small></span></button>
+          <button type="button" data-template="standard" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品研究<small>看看产品有哪些变化</small></span></button>
+          <button type="button" data-template="web" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg><span>公开资料<small>从网页中收集线索</small></span></button>
         </section>
-          <div id="report-content"></div>
-        </div>
-        <div id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" class="tab-panel" hidden><div id="approval-content"></div></div>
-
-        <div class="run-footer"><span id="run-footer-text">每次工具调用均经过权限检查并留下记录。</span><span id="provenance-label">仅生成本地草稿</span></div>
       </section>
     </div>
     <footer class="page-footer"><span id="model-status">模型配置检查中</span></footer>
