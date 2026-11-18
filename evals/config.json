@@ -1,10 +1,12 @@
 {
   "dataset": "cwatch/benchmark/v2.3",
   "agent": { "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1" },
-  "judge": { "version": "v1", "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1", "temperature": 0, "timeoutSeconds": 45, "maxTokens": 2048 },
-  "limits": { "maxSteps": 6, "maxToolCalls": 4, "maxOutputTokens": 2048, "maxTokens": 30000, "timeoutMs": 90000, "modelTimeoutMs": 45000, "toolTimeoutMs": 5000 },
+  "judge": { "version": "v3", "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1", "temperature": 0, "timeoutSeconds": 60, "maxTokens": 6144 },
+  "limits": { "maxSteps": 6, "maxToolCalls": 4, "maxOutputTokens": 4096, "maxTokens": 30000, "timeoutMs": 120000, "modelTimeoutMs": 60000, "toolTimeoutMs": 5000 },
   "metrics": {
     "tool_correctness": { "threshold": 1 },
+    "json_equals": { "threshold": 1 },
+    "evidence_review": { "threshold": 0.8, "rubric": "evidence-review.md" },
     "grounded_answer": { "threshold": 0.8, "rubric": "grounded-answer.md" },
     "missing_information": { "threshold": 0.8, "rubric": "missing-information.md" }
   }

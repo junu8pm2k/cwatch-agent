@@ -21,6 +21,8 @@
 !skills/
 !skills/general-agent/
 !skills/general-agent/SKILL.md
+!skills/competitor-review/
+!skills/competitor-review/**
 **/node_modules
 **/.env
 **/.env.*

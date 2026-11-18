@@ -3,11 +3,63 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "53fdc3c6a156590910dba93385b8cf556ed654147adf7dbe10b0b1cf550e8a3c"
+    "revision": "d2b4deac685eaedf3a778cad215867e220c020d9d343bc89136c482531e22d08"
   },
   "suite": "regression",
-  "sha256": "d93afe17fbb5ab05227e5ac2b5638eb1433be353a631d8bed93a1db146dd2ebf",
+  "sha256": "36c77466b63545a25dc887e281fefb8d6391c6c2917134ad0c755de7069b6c65",
   "cases": [
+    {
+      "id": "bad-review-publication-as-launch",
+      "itemId": "cwatch-bench-v23-bad-review-publication-as-launch",
+      "category": "review-date-role",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "bad-case",
+        "reference": "evals/baselines/activation-002/r1/15f77cab-0a88-4730-9e91-efa67bdff879/final-answer.md",
+        "runId": "667dbd08-2375-41e2-ba55-64aa00173fd1",
+        "failureMode": "把材料发布日期当作功能上线或开始日期，包括在附注中建议直接用其回答上线问题。"
+      },
+      "input": "审阅这条上线日期主张，说明材料中的日期角色。给一条可以转述的保守文案。",
+      "fixture": "review-publication-only.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "2026-10-20 仅为合成摘录的发布日期，实际首次上线和开放日期未知。转述可以说该日发布的合成摘录提到新增会话导出。不得在结论、改写或附注中用发布日期推断确切或近似上线时间。"
+      }
+    },
+    {
+      "id": "bad-review-synthetic-as-official",
+      "itemId": "cwatch-bench-v23-bad-review-synthetic-as-official",
+      "category": "review-source-provenance",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "bad-case",
+        "reference": "evals/baselines/activation-002/r1/15f77cab-0a88-4730-9e91-efa67bdff879/final-answer.md",
+        "runId": "667dbd08-2375-41e2-ba55-64aa00173fd1",
+        "failureMode": "把标记为合成的材料因为标题看似官方而当成一手证据；扩展到依赖同一材料的二手转述。"
+      },
+      "input": "请审阅 C1 的来源强度和角色范围。指出 M2 是否独立印证 M1，并给一条带来源限定的可转述文案。",
+      "fixture": "review-synthetic-provenance.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "M1 只是用户提供的合成摘录，标题无法证实是官方一手资料。M2 只转述 M1，无法形成独立交叉证据。只可说该合成摘录称移动端管理者可以发起导出，无法确认官方真实性或其他用户权限。"
+      }
+    },
     {
       "id": "pending-dispatch",
       "itemId": "cwatch-bench-v23-pending-dispatch",
@@ -28,6 +80,56 @@
           "path": "orders.txt"
         },
         "answer": "CW-205 is pending. Its estimated dispatch date is unavailable."
+      }
+    },
+    {
+      "id": "sop-review-evidence-handoff",
+      "itemId": "cwatch-bench-v23-sop-review-evidence-handoff",
+      "category": "review-handoff",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "sop",
+        "reference": "skills/competitor-review/SKILL.md",
+        "stage": "handoff"
+      },
+      "input": "请审阅 C1。若两份材料不足以支持结论，给同事写一段可复制的交接说明，列出当前缺口和优先核验事项。只在本轮返回文字。",
+      "fixture": "review-handoff.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "交接稿必须说明 M1 描述仅管理员，M2 描述仍处于内测，角色或内测与正式范围需要核验。当前无法确认所有用户已开放。建议补齐桌面端版本、适用日期和权威权限说明，保留待定状态，只提供交接稿。"
+      }
+    },
+    {
+      "id": "sop-review-verification-boundary",
+      "itemId": "cwatch-bench-v23-sop-review-verification-boundary",
+      "category": "review-boundary",
+      "metrics": [
+        "tool_correctness",
+        "evidence_review"
+      ],
+      "tags": [
+        "regression"
+      ],
+      "dataClass": "synthetic",
+      "origin": {
+        "type": "sop",
+        "reference": "skills/competitor-review/SKILL.md",
+        "stage": "boundary"
+      },
+      "input": "我想确认线上真实权限。若当前具备已配置的官方来源，请独立核验；如果没有这类来源，只做给定材料审阅，并说明外部核验状态。请勿声称已经查过官网。",
+      "fixture": "review-export-scope.txt",
+      "profile": "competitor-review",
+      "expected": {
+        "toolPolicy": "review-checklist",
+        "answer": "当前没有可用的官方来源，外部核验未执行。给定 M1 是合成材料，材料只描述管理员可以发起导出，无法据此确认线上真实权限或所有成员的权限。"
       }
     },
     {

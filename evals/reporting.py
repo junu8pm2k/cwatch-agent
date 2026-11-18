@@ -25,6 +25,7 @@ class BenchmarkReport:
             "dataset": manifest["dataset"], "suite": suite, "suiteHashes": manifest["suites"],
             "agent": CONFIG["agent"], "judge": CONFIG["judge"], "metrics": CONFIG["metrics"],
             "limits": CONFIG["limits"], "fixtureHashes": manifest["fixtureHashes"],
+            "skillHashes": manifest["skillHashes"],
             "rubricHashes": {
                 rule["rubric"]: hashlib.sha256((ROOT / "evals/rubrics" / rule["rubric"]).read_bytes()).hexdigest()
                 for rule in CONFIG["metrics"].values() if "rubric" in rule
@@ -44,7 +45,10 @@ class BenchmarkReport:
 
     @contextmanager
     def record(self, case):
-        entry = {"caseId": case["id"], "itemId": case["itemId"], "scores": [], "passed": False}
+        entry = {
+            "caseId": case["id"], "itemId": case["itemId"], "scores": [],
+            "passed": False, "origin": case.get("origin"),
+        }
         try:
             yield entry
             entry["passed"] = True
