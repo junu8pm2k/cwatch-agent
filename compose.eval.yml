@@ -1,0 +1,24 @@
+services:
+  eval:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.eval
+    environment:
+      - BENCHMARK_AGENT_API_KEY
+      - JUDGE_API_KEY
+      - BENCHMARK_RUN_ID
+      - BENCHMARK_COMMIT
+      - BENCHMARK_TREE_STATE
+      - BENCHMARK_SUITE
+      - BENCHMARK_ENV=docker
+      - BENCHMARK_RUN_DIR=/report
+      - DEEPEVAL_DISABLE_DOTENV=1
+      - DEEPEVAL_TELEMETRY_OPT_OUT=YES
+      - DEEPEVAL_CACHE_FOLDER=/report/.deepeval
+      - CONFIDENT_METRIC_LOGGING_ENABLED=false
+      - PYTHONUTF8=1
+      - PYTEST_ADDOPTS=--junitxml=/report/junit.xml
+    volumes:
+      - type: bind
+        source: ${BENCHMARK_RUN_DIR:?Use npm run eval:docker}
+        target: /report

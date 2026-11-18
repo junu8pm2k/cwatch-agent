@@ -1,0 +1,47 @@
+name: Agent Benchmark
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-benchmark-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: DeepEval benchmark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+      - name: Install locked dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          python -m pip install uv==0.12.22
+          uv sync --locked
+      - name: Run benchmark
+        run: npm run eval:ci
+        env:
+          BENCHMARK_AGENT_API_KEY: ${{ secrets.BENCHMARK_AGENT_API_KEY }}
+          JUDGE_API_KEY: ${{ secrets.BENCHMARK_JUDGE_API_KEY }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: agent-benchmark-report
+          path: |
+            artifacts/benchmark/*/report.json
+            artifacts/benchmark/*/junit.xml
+          if-no-files-found: warn
