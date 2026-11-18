@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "dfe5f6d147132a1e02bb6f788cdbad12596b4e5fb5276cc93c76c816005ce127"
+    "revision": "22c117fd428fcd616ed20f26f143eae97270977d2220af8d04a254d23d803541"
   },
   "suite": "smoke",
-  "sha256": "9ff6804ce39ffd87e539d5db6f4b0a51ad7e1bd5ec611da95aee0f25876b7580",
+  "sha256": "4a9b2a900f33dbabc51ad9473cdc7aaa482e44d58c3304789f092fe8bcdc8311",
   "cases": [
     {
       "id": "inventory-count",
@@ -27,7 +27,7 @@
         "arguments": {
           "path": "inventory.txt"
         },
-        "answer": "There are 12 units of ALPHA-7 available."
+        "answer": "SKU ALPHA-7 的可用库存为 12 件。"
       }
     },
     {
@@ -49,7 +49,7 @@
         "arguments": {
           "path": "orders.txt"
         },
-        "answer": "Order CW-104 has shipped. The carrier reference is SIM-8374."
+        "answer": "订单 CW-104 已发货，承运参考号为 SIM-8374。"
       }
     },
     {

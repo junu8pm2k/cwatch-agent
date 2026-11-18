@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "dfe5f6d147132a1e02bb6f788cdbad12596b4e5fb5276cc93c76c816005ce127"
+    "revision": "22c117fd428fcd616ed20f26f143eae97270977d2220af8d04a254d23d803541"
   },
   "suite": "regression",
-  "sha256": "b65c5474fcefa7e38abe3b6a415dddfeed9bd209f803ba0f8c943486e560f5a4",
+  "sha256": "86fbfa1030d47367b456bb68b2e6d1b80a35335027c62ed7f54858d8e60a256b",
   "cases": [
     {
       "id": "bad-review-publication-as-launch",
@@ -79,7 +79,7 @@
         "arguments": {
           "path": "orders.txt"
         },
-        "answer": "CW-205 is pending. Its estimated dispatch date is unavailable."
+        "answer": "订单 CW-205 处于待处理状态，预计发货日期暂无。"
       }
     },
     {
@@ -151,7 +151,7 @@
         "arguments": {
           "path": "orders.txt"
         },
-        "answer": "The export has no record for CW-999, so its status cannot be confirmed."
+        "answer": "这份导出记录中没有订单 CW-999，因此无法确认该订单的状态。"
       }
     }
   ]
