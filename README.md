@@ -183,9 +183,9 @@ Live 会话还默认维护独立的 `session-memory/<runId>.json`：窗口达到
 
 本机评测需要 **Python 3.12.15**、uv，以及 `.env` 中的 `API_KEY` 和 `JUDGE_API_KEY`。结果写入 `artifacts/benchmark/<run-id>/`。
 
-用例在 Langfuse 的 `cwatch/benchmark/v2.3` 中维护，更新后同步到 [`evals/datasets/`](evals/datasets/) 并审核差异。PR Benchmark 从提交的快照运行两套用例。 [评测指南](evals/README.md) · [Benchmark CI](.github/workflows/agent-eval.yml)
+用例在 Langfuse 的 `cwatch/benchmark/v2.3` 中维护，更新后同步到 [`evals/datasets/`](evals/datasets/) 并审核差异。PR Benchmark 从提交的快照运行两套用例。 [评测指南](evals/README.md)
 
-工程检查单独运行 `npm run verify`，覆盖项目结构、类型和自动化测试。
+GitHub Actions 在提交到 `main` 或向 `main` 发起 PR 时运行 `npm run verify`，并用 Chromium 并行运行 `npm run test:web` 与 `npm run test:browser`。DeepEval Benchmark 在 PR 中运行。 [项目检查工作流](.github/workflows/ci.yaml)
 
 ## 工程测试与五条主线演示
 

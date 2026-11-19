@@ -25,7 +25,7 @@ check('contract','Real browser cancellation closes its process and produces no l
   const h=await browserHarness('hold'),controller=new AbortController();
   const running=h.executor.execute('session__browser_tool',{url:fixtureUrl},controller.signal);
   try {
-    await h.seen.promise;controller.abort(new Error('browser_operator_cancelled'));await assert.rejects(running,/browser_operator_cancelled/);
+    await Promise.race([h.seen.promise,running]);controller.abort(new Error('browser_operator_cancelled'));await assert.rejects(running,/browser_operator_cancelled/);
     await h.registry.close();assert.equal(h.isClosed(),true);const events=h.finish();h.release.resolve();
     await Promise.resolve();assert.deepEqual(h.data.lines(h.trace.key),events);
   } finally {controller.abort();h.release.resolve();await running.catch(()=>{});await h.registry.close();}
