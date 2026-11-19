@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "22c117fd428fcd616ed20f26f143eae97270977d2220af8d04a254d23d803541"
+    "revision": "3baadbfee0ceb600d98585d4e4fc589baca20dd75f0019559193e2abc4f1d570"
   },
   "suite": "regression",
-  "sha256": "86fbfa1030d47367b456bb68b2e6d1b80a35335027c62ed7f54858d8e60a256b",
+  "sha256": "d391da6c1a62e09cb2f78a073637a20807f57841032342b87178b3d0c0b15d22",
   "cases": [
     {
       "id": "bad-review-publication-as-launch",
@@ -85,7 +85,7 @@
     {
       "id": "sop-review-evidence-handoff",
       "itemId": "cwatch-bench-v23-sop-review-evidence-handoff",
-      "category": "review-handoff",
+      "category": "review-evidence-gap",
       "metrics": [
         "tool_correctness",
         "evidence_review"
