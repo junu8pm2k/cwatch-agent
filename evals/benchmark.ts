@@ -18,7 +18,10 @@ function run(command: string, parameters: string[], env = process.env) {
 
 async function main() {
   if (mode === 'host' && args.length) {
-    process.exitCode = run(process.execPath, ['--use-env-proxy', '--experimental-transform-types', 'scripts/eval-run.ts', ...args]);
+    if (args.length !== 1 || args[0] !== '--help') {
+      throw Error('eval:run reads the Benchmark snapshots. Use BENCHMARK_SUITE to choose all, smoke, or regression.');
+    }
+    console.log('npm run eval:run\nSet BENCHMARK_SUITE to all (default), smoke, or regression.');
     return;
   }
   if (mode === 'publish') {

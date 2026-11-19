@@ -3,7 +3,7 @@ import { Redactor } from '@cwatch/shared/sessions/trace';
 import type { LangfuseConfig } from '@cwatch/shared/config/langfuse';
 
 export type LangfuseTransport = typeof fetch;
-const pageSchema = z.object({data:z.array(z.unknown()),meta:z.object({totalPages:z.number().optional(),cursor:z.string().nullable().optional()}).passthrough().optional()}).passthrough();
+const pageSchema = z.object({data:z.array(z.unknown()),meta:z.object({totalPages:z.number().optional()}).passthrough().optional()}).passthrough();
 
 /** Credentials remain in the host; errors never include request bodies or authentication headers. */
 export class LangfuseClient {
@@ -30,19 +30,6 @@ export class LangfuseClient {
       const separator=path.includes('?')?'&':'?',value=pageSchema.parse(await this.request(path+separator+new URLSearchParams({page:String(page),limit:'100'})));
       result.push(...value.data);
       if(value.meta?.totalPages!==undefined?page>=value.meta.totalPages:value.data.length<100)return result;
-    }
-    throw Error('langfuse_pagination_limit');
-  }
-  async scores(traceId:string):Promise<unknown[]> {
-    return this.cursorPages('/api/public/v3/scores',{traceId,fields:'details,subject'});
-  }
-  async cursorPages(path:string,parameters:Record<string,string>={}):Promise<unknown[]> {
-    const result:unknown[]=[],seen=new Set<string>();let cursor:string|undefined;
-    for(let page=0;page<1000;page++){
-      const query=new URLSearchParams({...parameters,limit:'100',...(cursor?{cursor}:{})});
-      const value=pageSchema.parse(await this.request(path+'?'+query));result.push(...value.data);
-      const next=value.meta?.cursor;if(!next)return result;
-      if(seen.has(next))throw Error('langfuse_repeated_score_cursor');seen.add(next);cursor=next;
     }
     throw Error('langfuse_pagination_limit');
   }

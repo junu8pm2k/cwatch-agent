@@ -5,7 +5,7 @@ import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { langfusePayload, sendLangfuseTrace } from '@cwatch/shared/sessions/langfuse';
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { Redactor } from '@cwatch/shared/sessions/trace';
-import { LangfuseClient } from '../scripts/evaluation/langfuse-client.ts';
+import { LangfuseClient } from '../scripts/langfuse-client.ts';
 import { digest, readJson } from './benchmark-contract.ts';
 
 const runId = z.string().regex(/^[0-9a-zA-Z_-]{1,80}$/);
