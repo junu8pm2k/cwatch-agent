@@ -3,10 +3,10 @@
   "dataset": {
     "id": "cmwm462qd0001nu67dh2twvny",
     "name": "cwatch/benchmark/v2.3",
-    "revision": "22c117fd428fcd616ed20f26f143eae97270977d2220af8d04a254d23d803541"
+    "revision": "3baadbfee0ceb600d98585d4e4fc589baca20dd75f0019559193e2abc4f1d570"
   },
   "suite": "smoke",
-  "sha256": "4a9b2a900f33dbabc51ad9473cdc7aaa482e44d58c3304789f092fe8bcdc8311",
+  "sha256": "ca9bb2d6031e20587eb5dc445d3f5700db47ac2970655e99ad6f77349c18a715",
   "cases": [
     {
       "id": "inventory-count",
@@ -55,7 +55,7 @@
     {
       "id": "sop-review-export-scope",
       "itemId": "cwatch-bench-v23-sop-review-export-scope",
-      "category": "review-main",
+      "category": "review-scope",
       "metrics": [
         "tool_correctness",
         "evidence_review"
@@ -109,7 +109,7 @@
     {
       "id": "sop-review-product-gap",
       "itemId": "cwatch-bench-v23-sop-review-product-gap",
-      "category": "review-branch",
+      "category": "review-scope",
       "metrics": [
         "tool_correctness",
         "evidence_review"

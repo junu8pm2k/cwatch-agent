@@ -2,6 +2,8 @@
 
 用例在 Langfuse 的 `cwatch/benchmark/v2.3` Dataset 中维护。业务题先从[竞品证据审阅 SOP](../skills/competitor-review/SKILL.md)拆任务，再从已记录的真实失效补边界。用例材料采用合成数据。
 
+Langfuse 的 `cwatch/competitor-review/test` Dataset 收录开发测试题。正式门禁继续读取 `cwatch/benchmark/v2.3`，用 `smoke` 和 `regression` 标签选择运行范围。开发测试和正式门禁用同一套 `category` 业务分类。常用分类包括 `review-scope`（产品与角色范围）、`review-date-role`（日期判断）、`review-source-provenance`（证据来源）、`review-conflict`（证据冲突）和 `review-evidence-gap`（缺证与交接）。
+
 两条历史失效用例引用同一份原始回答作为题目来源。 [原始回答](baselines/activation-002/r1/15f77cab-0a88-4730-9e91-efa67bdff879/final-answer.md)
 
 | Langfuse 字段 | 内容 |
@@ -50,7 +52,9 @@ Agent 须正常完成并给出非空回答。每条 Case 的全部必需指标�
 
 ## 本地证据审阅测试
 
-运行 `npm run eval:run -- --review-tests`，用现有 Agent 和 Judge 验证六个合成场景。报告、JUnit 与 Trace 保存在 `artifacts/review-tests/<run-id>/`。这组测试通过独立入口运行，使用本地题单。
+运行 `npm run eval:run -- --review-tests`，用现有 Agent 和 Judge 验证十二个合成场景。报告、JUnit 与 Trace 保存在 `artifacts/review-tests/<run-id>/`。这组测试通过独立入口运行，使用本地题单。
+
+本地 Runner 从 [review-tests.json](datasets/review-tests.json) 读取题单。每题的材料放在 `evals/fixtures/<case-id>.txt`。Langfuse 开发测试 Dataset 中的每道题也包含完整材料，方便直接查看。`eval:sync` 同步的是正式门禁快照。六道 `review-sop-*` 基础题直接对应审阅 SOP，每题只考一个判断。两道回收站题只改变第二份材料的套餐，用于检查 Agent 能否区分同口径冲突和适用范围不同。
 
 复跑单题时添加 `--case <case-id>`，例如 `npm run eval:run -- --review-tests --case review-conflicting-evidence`。
 
