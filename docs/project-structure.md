@@ -1,6 +1,6 @@
 # 项目目录与 Craft 对照
 
-2026-10-29 清理说明：内置 eval case、题单、材料及对应评测归档已删除。下文中的旧案例数量、路径与成绩仅描述历史；当前状态见 [评测状态](evaluation.md)。
+当前 Agent 评测使用 DeepEval Benchmark。工程测试由 `npm test` 执行。 [评测入口](evaluation.md)
 
 本项目按 Craft 的 apps/cli、packages/core、packages/shared、packages/server-core 职责组织为 npm workspaces。使用 Node.js 24 和现有依赖版本，根目录保留启动、验证、示例和数据目录。
 
@@ -51,7 +51,7 @@
 │  ├─ harness.ts                          # 原有辅助文件名保留
 │  └─ fixtures/
 ├─ scripts/
-│  ├─ eval.ts                             # 原有评测入口
+│  ├─ eval.ts                             # npm test 工程测试入口
 │  ├─ eval-browser.ts
 │  ├─ check-structure.ts                  # 包导出、依赖方向与资源路径门禁
 │  └─ probe*.ts

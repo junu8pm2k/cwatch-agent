@@ -14,7 +14,7 @@
 
 > **竞品采集 Tool Calling 门禁** 选择执行前裁决承载 ActionPolicy，分析 runPreToolUseChecks 的模式、来源与审批分支，按 pre_tool_use_response 控制调用；为采集、修改和外发定义参数规则及拒绝后无执行的验收。
 
-实现：`packages/shared/src/agent/backend/pi/tool-hooks.ts:buildProxyTools/wrapToolsWithHooks/wrapSingleTool`、`packages/shared/src/agent/core/pre-tool-use.ts:runPreToolUseChecks`、`packages/shared/src/agent/pre-tool-use.ts:requestPreToolUseApproval/PreToolUseResponse`、`packages/shared/src/agent/core/permission-manager.ts:ActionPolicy/ApprovalManager` 和 `packages/shared/src/tools/executor.ts:ToolExecutor.execute`。主子进程 IPC 的 pre_tool_use_request/response 与 tool_execute_request/response 关联任务、SDK toolCallId、绑定、参数哈希与执行记录；explore/ask/allow-all 在执行前与每阶段复查，业务前置条件也统一检查。参考的是 Craft 结构和命名，代码为本项目独立实现。演示 `npm run eval`，查看权限/审批用例和独立 executions。拒绝、未批准、超时、参数改变、未激活和越界经执行计数验证为零；生效模式在批准后重查。状态：当前产品入口已验证；无旁路 HTTP 端点。不能由这些结果声称 Craft 全后端或操作系统沙箱安全。
+实现：`packages/shared/src/agent/backend/pi/tool-hooks.ts:buildProxyTools/wrapToolsWithHooks/wrapSingleTool`、`packages/shared/src/agent/core/pre-tool-use.ts:runPreToolUseChecks`、`packages/shared/src/agent/pre-tool-use.ts:requestPreToolUseApproval/PreToolUseResponse`、`packages/shared/src/agent/core/permission-manager.ts:ActionPolicy/ApprovalManager` 和 `packages/shared/src/tools/executor.ts:ToolExecutor.execute`。主子进程 IPC 的 pre_tool_use_request/response 与 tool_execute_request/response 关联任务、SDK toolCallId、绑定、参数哈希与执行记录；explore/ask/allow-all 在执行前与每阶段复查，业务前置条件也统一检查。参考的是 Craft 结构和命名，代码为本项目独立实现。演示 `npm test`，查看权限/审批用例和独立 executions。拒绝、未批准、超时、参数改变、未激活和越界经执行计数验证为零；生效模式在批准后重查。状态：当前产品入口已验证；无旁路 HTTP 端点。不能由这些结果声称 Craft 全后端或操作系统沙箱安全。
 
 ## C Context Engineering
 

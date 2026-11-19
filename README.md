@@ -1,6 +1,6 @@
 # Cwatch
 
-2026-10-29：GitHub API 接入已移除并停用，默认来源只使用官网与网页工具。eval case 及其归档已随后清空；详见 [停用说明](docs/github-api-disabled.md)。
+2026-10-29：GitHub API 接入已移除并停用，默认来源只使用官网与网页工具。详见 [停用说明](docs/github-api-disabled.md)。
 
 当前自带工具的完整清单、用途和清理记录见 [工具清单](docs/tools.md)。
 
@@ -12,9 +12,7 @@ Cwatch 默认提供「通用 Agent + Skill」：输入任务 → 加载所选 Sk
 
 后端的进程边界、模块职责、当前能力与缺口见 [后端现状说明](docs/backend-overview.md)。
 
-Agent 行为提示词可同步到 Langfuse 的 `cwatch/agent`，拉取指定版本后用原 Case 实际运行并记录版本。命令与比较流程见 [Agent 提示词评测](docs/agent-prompts.md)。
-
-也可在 Langfuse Dataset 页面通过 Webhook 启动完整 Agent 评测并查看实验结果；[启动和操作说明](docs/langfuse-experiments.md)。本地评测和 GitHub Actions 继续独立运行。
+Agent 行为提示词可同步到 Langfuse 的 `cwatch/agent`，拉取指定版本供本地 CLI 或 Web 真实运行。 [Agent 提示词管理](docs/agent-prompts.md)
 
 ## 项目结构
 
@@ -173,34 +171,31 @@ Live 会话还默认维护独立的 `session-memory/<runId>.json`：窗口达到
 
 稳定规则、Skill 和任务字典位于提示前缀，工具定义确定排序，首轮与续轮保留相同 SDK 静态后缀。业务请求的短期缓存控制由 SDK 按供应商能力映射，程序接口可设 promptCache:none；Trace 分别记录前缀/工具指纹和供应商归一化的缓存读/创建用量，不把指纹相同或缓存零值当作命中证明。缓存只处理重复输入复用，不能替代 Session Memory、完整转录或 Compact；命中 tokens 仍完整纳入窗口与预算，不宣称未知端点的缓存收益。
 
-## 测试与五条主线演示
+## Agent Benchmark
 
-```powershell
-npm run verify
-npm run eval
-```
+当前题集包含 **5 条 Smoke 和 6 条 Regression**，覆盖工具调用、竞品证据审阅和已知失效。DeepEval 结合程序检查与 StepFun Judge 判定结果。每条 Case 使用独立的 Agent 进程和临时工作目录。
 
-测试用例统一命名为 `tests/*.test.ts`，`harness.ts` 等辅助文件和夹具保持原名；仍由 `scripts/eval.ts` 显式导入运行。
+| 操作 | 命令 |
+| --- | --- |
+| 在本机使用仓库快照跑评测 | `npm run eval:run` |
+| 从 Langfuse 更新仓库快照 | `npm run eval:sync` |
+| 在一次性容器中评测，并回传 Trace 和评分 | `npm run eval:docker` |
 
-2026-10-29：所有内置 eval case、题单、材料、候选、历史副本和对应评测归档已清理，当前内置 Case 为 0。普通工程测试与通用评测框架保留；Case 执行/审核需显式提供 `--dataset`，覆盖清单需显式提供 `--index`。说明见 [评测状态](docs/evaluation.md)。
+本机评测需要 **Python 3.12.15**、uv，以及 `.env` 中的 `API_KEY` 和 `JUDGE_API_KEY`。结果写入 `artifacts/benchmark/<run-id>/`。
 
-评测维度统一为 Outcome（结果）、Trajectory（过程）、Evidence（证据）、Safety（安全）、Cost（成本）；结果、证据、安全为 P0，过程、成本为 P1。体验要求归入结果和交互过程。定义见 [五类评测维度](docs/evaluation-dimensions.md)。
+用例在 Langfuse 的 `cwatch/benchmark/v2.3` 中维护，更新后同步到 [`evals/datasets/`](evals/datasets/) 并审核差异。PR Benchmark 从提交的快照运行两套用例。 [评测指南](evals/README.md) · [Benchmark CI](.github/workflows/agent-eval.yml)
 
-评分器分工固定为：结果/证据=代码+Rubric，过程=Rubric+人工，安全=代码+人工，成本=代码。Rubric 指参考结构化量表的 LLM-as-a-Judge，人工不再对结果和证据打分，代码只记录过程事实。
+工程检查单独运行 `npm run verify`，覆盖项目结构、类型和自动化测试。
 
-三类评分已提供独立入口：`eval:score` 汇总规则、LLM 与人工结果，`eval:judge` 使用专用模型配置评分，`eval:human` 创建/提交逐次运行的人工评分。指定评委逐项判定后统一按 100 分负分制计算，P0 硬失败不能被其他分数抵消，缺失评分保留待复核，原证据与报告不改写。配置、量表与命令见 [三类评分器](docs/quality-grading.md)。
+## 工程测试与五条主线演示
 
-原四类场景题库及自动生成脚本已删除，`eval:scenarios` / `eval:scenarios:model` 不再提供。
-
-统一负分制：100 分起、80 分达标，结果不符扣 100；过程由 Rubric 与人工确认，步骤遵循性、中间输出、工具/知识库调用各按不符步骤/项扣 10；分析耗时超过 5 分钟后每开始 1 分钟扣 10。所有计划 Trial 全部达标才取平均，否则用例分为 0。建议显式提供题单并运行 `--repeat 5`，逐次完成评委记录后用 `eval:score` 汇总；原始 Case 命令不再接受 `--score-gate`。报告保留 pass@k、pass^k 和类型容忍度。原必过项与人工审核状态单列，见 [负分制与稳定性](docs/penalty-scoring.md)。
-
-`npm run verify` 执行项目结构、TypeScript、工程测试和离线评测流水线测试。工程结果写入 `artifacts/eval/latest.json` 与 `latest.md`，任何失败退出非零。GitHub Actions 在 push 和 PR 时只运行这套常规测试。浏览器、网页和真实 Agent 回归可在本地按需运行，真实 Agent 回归命令见 [自动回归集](evals/regression/README.md)。
+工程报告写入 `artifacts/eval/latest.json` 和 `latest.md`。GitHub Actions 在 push 和 PR 时运行常规检查。浏览器和 Web 工程测试可在本地按需运行。
 
 1. 来源 Hub：运行 demo，查看 Trace 中唯一 binding、original_name、builtin/mcp/workflow 三类 channel；实际本地 MCP 协议测试及 probe:sources 独立验证。
-2. 执行门禁：eval 的权限/审批用例逐项断言真实执行次数；拒绝为零。
-3. Context：查看落盘计划、plan-submissions.jsonl、调查 Skill；eval 覆盖缺口、预算、文件/回调失败。
+2. 执行门禁：工程测试的权限与审批用例逐项断言真实执行次数；拒绝为零。
+3. Context：查看落盘计划、plan-submissions.jsonl、调查 Skill。工程测试覆盖缺口、预算、文件/回调失败。
 4. Runtime：inspect、replay、recover 与取消/迟到/重启用例；查看独立执行账本与历史版本。
-5. Eval：contract、semantic、integration 分组输出。Pi SDK 还通过本地 HTTP/SSE 固定提供方跑完整循环，与 ReplayModel 的决策逐步一致；它是协议测试，不能替代真实模型质量评测。
+5. 工程测试：contract、semantic、integration 分组输出。Pi SDK 还通过本地 HTTP/SSE 固定提供方跑完整循环，与 ReplayModel 的决策逐步一致；它是协议测试，不能替代真实模型质量评测。
 
 更多定位见 `docs/architecture.md`、`docs/resume-implementation-map.md`、`docs/implementation-gap.md`。原简历与历史审计不改写、不将本次开发冒充历史参与或生产效果。
 

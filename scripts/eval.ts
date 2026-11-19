@@ -25,6 +25,7 @@ import '../tests/api-http.test.ts';
 import '../tests/source-coverage.test.ts';
 import '../tests/structured-trace.test.ts';
 import '../tests/langfuse.test.ts';
+import '../tests/agent-prompts.test.ts';
 import '../tests/browser-source.test.ts';
 import '../tests/domain-dataset.test.ts';
 import '../tests/extensions.test.ts';

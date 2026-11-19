@@ -29,7 +29,7 @@ export async function pushAgentPrompts(client: LangfuseClient, root: string, opt
     const created = remotePrompt.parse(await client.request('/api/public/v2/prompts', { name: source.name, type: 'text', prompt: text,
       labels: [label], tags: ['cwatch', 'agent', 'agent-guidance'],
       config: { purpose: 'agent_guidance', key: source.key, sourceFile: source.file, skill: source.skill, resource: source.resource,
-        note: 'Full Skill entry/resource used by the Agent runtime. Pull a frozen snapshot before eval; never a Judge prompt or Case input.' },
+        note: 'Full Skill entry or resource used by the Agent runtime with a pinned prompt snapshot.' },
       commitMessage: 'Sync actual Agent guidance from ' + source.file }));
     results.push({ key: source.key, name: source.name, version: created.version, action: previous ? 'updated' : 'created' });
   }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { check, store } from './harness.ts';
 import { Trace, Redactor, validateTrace, type TraceEvent } from '@cwatch/shared/sessions/trace';
@@ -9,8 +9,6 @@ import { ReplayModel } from '@cwatch/shared/agent/models';
 import { ActionPolicy, ApprovalManager } from '@cwatch/shared/agent/core/permission-manager';
 import { runAgent } from '@cwatch/server-core/runtime/agent';
 import { type Decision, type SourceClient } from '@cwatch/core/types';
-import { collectProjection } from '../scripts/evaluation/grader.ts';
-import type { WorkerObservation } from '../scripts/evaluation/contracts.ts';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
 import { startWebServer } from '../apps/web/src/server.ts';
 
@@ -81,12 +79,11 @@ check('contract','Projection write failures are surfaced without losing the dura
   trace.emit('run_started');trace.emit('run_completed');assert.deepEqual(observed,['run_started','run_completed']);assert.deepEqual(validateTrace(data.lines(trace.key)),[]);
   assert.match(trace.structuredError!,/projection_failed/);assert.ok(!trace.structuredError!.includes('private-fixture'));assert.equal(existsSync(data.path(trace.structuredKey)),false);
 });
-check('contract','Eval rejects structured trace tampering and the schema rejects orphaned parent IDs',async()=>{
-  const f=await fixture(),observation:WorkerObservation={runId:f.result.runId,status:f.result.status,tracePath:f.result.traceArtifacts!.eventsPath,structuredTracePath:f.result.traceArtifacts!.structuredPath,
-    facts:{driver:'runtime'},usage:{mode:'fixture',mainTaskTokens:null,maintenanceTokens:null,physicalModelRequests:0,completeness:'not_applicable'}};
-  assert.equal(collectProjection(f.data.root,observation).trace.valid,true);
-  const altered=structuredClone(f.doc);altered.summary.toolExecutions++;f.data.write(observation.structuredTracePath!,altered);
-  const projection=collectProjection(f.data.root,observation);assert.equal(projection.trace.valid,false);assert.ok(projection.trace.errors.includes('structured_trace_mismatch'));
+check('contract','Structured Trace export rebuilds the projection and the schema rejects orphaned parent IDs',async()=>{
+  const f=await fixture(),trace=new Trace(f.data,f.result.taskId,f.result.runId);
+  const altered=structuredClone(f.doc);altered.summary.toolExecutions++;f.data.write(trace.structuredKey,altered);
+  assert.deepEqual(trace.exportStructured(),f.doc);
+  assert.deepEqual(f.data.read(trace.structuredKey,null),f.doc);
   const orphan=structuredClone(f.doc);orphan.steps.find(s=>s.kind==='tool')!.parentStepId='nonexistent';assert.equal(StructuredTraceSchema.safeParse(orphan).success,false);
 });
 check('integration','Workbench serves structured traces through the existing local-origin HTTP boundary',async()=>{

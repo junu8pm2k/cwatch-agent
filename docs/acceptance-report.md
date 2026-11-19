@@ -2,7 +2,7 @@
 
 2026-10-29 清理说明：内置 eval case、题单、材料及对应评测归档已删除。下文中的旧案例数量、路径与成绩仅描述历史；当前状态见 [评测状态](evaluation.md)。
 
-2026-10-30：下文引用的旧演示、来源探测、界面验收 Trace 和日志也已清理；不再随项目保留。仅保留三份 [紧凑历史审计摘要](../artifacts/history-summary/README.md)。历史数字不代表当前验收状态，当前 Case 1 报告从 [评测入口](../artifacts/agent-eval/latest-evaluation.json) 查看。
+下文的数字记录历史验收。当前评测和报告入口见 [Agent Benchmark](../evals/README.md)，历史验收证据见 [审计摘要](../artifacts/history-summary/README.md)。
 
 - 任务终态自动导出 `cwatch.structured-trace.v1` JSON；模型轮次、工具与后端阶段关联，保存权限、用量、耗时和归一化错误。原 JSONL 保留为审计来源，支持历史转换和 Web 查询。
 - 评分器按原始事件和 SHA-256 重建视图，拒绝被篡改或不一致的结构化文件。导出写入失败不丢失原始终态，未知请求次数、价格与辅助请求耗时保留 null。

@@ -68,6 +68,6 @@ sources: Map<真实来源 slug, { active, revision, client }>
 
 此前命名迁移将旧本地 `mcp__session__*` 分类改为 `workflow__*` / `session__*`，将 `mcp__official__web_fetch` 改为 `official__web_fetch`。真正的 MCP 工具名保持不变。提示词、当前运行脚本、fixture、来源指南、上下文回查入口和探针同步更新；不注册旧名称别名，不重写已保存历史 Trace。用户自己的 Replay 脚本需要同步更新本地工具名。
 
-验证命令：`npm run verify`（结构、类型、命名分发契约、权限、会话归档与真实 Pi 子进程回归）；浏览器集成另用 `npm run eval:browser`。
+`npm run verify` 覆盖结构、类型、命名分发契约、权限、会话归档与 Pi 子进程回归。浏览器集成使用 `npm run test:browser`。
 
 2026-10-21 验证通过：`npm run verify` 为 398/398（contract 288、semantic 30、integration 80），`npm run eval:browser` 为 6/6。日志分别见 `artifacts/tool-prefix-verify.log` 和 `artifacts/tool-prefix-browser.log`；这些固定回归与本机集成不代表真实模型准确率。

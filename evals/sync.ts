@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { Redactor } from '@cwatch/shared/sessions/trace';
-import { LangfuseClient } from '../scripts/evaluation/langfuse-client.ts';
+import { LangfuseClient } from '../scripts/langfuse-client.ts';
 import { benchmarkCase, compareCases, digest, fixturePath, itemExpected, itemInput, itemMetadata, suites } from './benchmark-contract.ts';
 import config from './config.json' with { type: 'json' };
 

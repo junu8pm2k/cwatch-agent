@@ -1,8 +1,0 @@
-{
-  "privateReadDenied": true,
-  "childProcessDenied": true,
-  "networkIsolation": "not_os_verified",
-  "credentialEnvironment": "not_inherited",
-  "outputCanaryLeaked": false,
-  "configuredSecretLeaked": false
-}

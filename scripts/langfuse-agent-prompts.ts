@@ -4,8 +4,8 @@ import { writeFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { Redactor } from '@cwatch/shared/sessions/trace';
-import { LangfuseClient } from './evaluation/langfuse-client.ts';
-import { pushAgentPrompts, pullAgentPrompts, saveAgentPromptSnapshot } from './evaluation/agent-prompts.ts';
+import { LangfuseClient } from './langfuse-client.ts';
+import { pushAgentPrompts, pullAgentPrompts, saveAgentPromptSnapshot } from './agent-prompts.ts';
 
 try {
   const { values } = parseArgs({ options: { mode: { type: 'string', default: 'push' }, label: { type: 'string', default: 'prompt-eval' },
