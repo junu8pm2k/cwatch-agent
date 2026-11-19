@@ -82,4 +82,6 @@ npm run typecheck:workspaces
 
 Web 浏览器验收使用已安装 Edge/Chromium；找不到时运行 npm run browser:install，或用 EVAL_BROWSER_EXECUTABLE 指定浏览器路径。
 
-verify 覆盖 RunService 和 HTTP 契约；verify:web 覆盖真实浏览器的启动、引用与报告下载、刷新恢复、审批通过/拒绝、取消、手机布局、键盘 Tab 与不可信文本，以及真实 Pi worker + stdio MCP + 本地模型 HTTP/SSE 协议桩。它们不请求付费模型，不能当作真实模型质量验收。结果位于 artifacts/web-eval/latest.json/latest.md，截图与诊断 ZIP 只保留本地。
+GitHub Actions 为两套 Playwright 测试安装同版本的 Chromium 和系统依赖，再并行运行 `npm run test:web` 与 `npm run test:browser`。在工作流的 Artifacts 中可以下载 `playwright-web` 和 `playwright-browser`，查看各自的报告和 Trace。 [项目检查工作流](../.github/workflows/ci.yaml)
+
+`verify` 覆盖 RunService 和 HTTP 契约。`verify:web` 覆盖真实浏览器的任务启动、引用与报告下载、刷新恢复、审批与取消、手机布局、键盘操作及不可信文本渲染。真实模式用例在本机启动 Pi worker，并通过 HTTP/SSE 协议桩提供模型响应。本地报告位于 `artifacts/web-eval/`。

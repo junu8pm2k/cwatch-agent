@@ -12,5 +12,5 @@
 /.python-version @junu8pm2k
 /pyproject.toml @junu8pm2k
 /uv.lock @junu8pm2k
-/.github/workflows/agent-eval.yml @junu8pm2k
+/.github/workflows/ci.yaml @junu8pm2k
 /.github/CODEOWNERS @junu8pm2k

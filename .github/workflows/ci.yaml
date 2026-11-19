@@ -1,17 +1,26 @@
 name: 项目检查
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
-# GitHub-hosted Ubuntu runners execute jobs in the same Node 24 / Debian image.
-# Trixie's fd supports the SDK's --no-require-git; Bookworm's fd 8.6 does not.
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   regression:
     name: 工程检查
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Trixie's fd supports the SDK's --no-require-git.
     container:
-      image: node:24-trixie
+      image: node:24.21.0-trixie
     steps:
       - name: 拉取代码
         uses: actions/checkout@v6
@@ -36,3 +45,85 @@ jobs:
         with:
           name: 工程检查产物
           path: artifacts/
+
+  playwright:
+    name: Playwright · ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: Web 工作台
+            script: test:web
+            artifact: playwright-web
+            paths: artifacts/web-eval/
+          - suite: 浏览器工具
+            script: test:browser
+            artifact: playwright-browser
+            paths: |
+              artifacts/browser-eval/
+              artifacts/test-work/*/browser-trace.zip
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - name: 安装项目依赖
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: 安装 Chromium 与系统依赖
+        run: npm run browser:install -- --with-deps --no-shell
+      - name: 运行 Playwright 测试
+        run: npm run ${{ matrix.script }}
+        env:
+          LANGFUSE_ENABLED: 'false'
+          # Hosted Ubuntu runners can restrict Chromium's user namespaces.
+          # This override is read only by the synthetic browser fixture.
+          EVAL_BROWSER_NO_SANDBOX: '1'
+      - name: 归档 Playwright 报告与诊断产物
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: warn
+
+  benchmark:
+    name: DeepEval benchmark
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+      - name: 安装锁定的 Benchmark 依赖
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          python -m pip install uv==0.12.22
+          uv sync --locked
+      - name: 运行 DeepEval Benchmark
+        run: npm run eval:ci
+        env:
+          BENCHMARK_AGENT_API_KEY: ${{ secrets.BENCHMARK_AGENT_API_KEY }}
+          JUDGE_API_KEY: ${{ secrets.BENCHMARK_JUDGE_API_KEY }}
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: agent-benchmark-report
+          path: |
+            artifacts/benchmark/*/report.json
+            artifacts/benchmark/*/junit.xml
+          if-no-files-found: warn

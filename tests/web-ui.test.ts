@@ -84,7 +84,10 @@ async function browserHarness(name:string,options:Partial<RunServiceOptions>={})
   const errors:string[]=[];mkdirSync('artifacts/web-eval',{recursive:true});
   try{browser=await chromium.launch({executablePath:browserExecutable(),headless:true});context=await browser.newContext({viewport:{width:1440,height:1080}});await context.tracing.start({screenshots:true,snapshots:true});page=await context.newPage();page.on('pageerror',error=>errors.push(String(error)));}catch(error){await browser?.close();await app.close();throw error;}
   return{app,service,page,ui:new WorkbenchPage(page,app.origin),errors,
-    close:async()=>{try{await context!.tracing.stop({path:resolve('artifacts/web-eval/trace-'+name+'.zip')});await browser!.close();}finally{await app.close();}},
+    close:async()=>{
+      try{await context!.tracing.stop({path:resolve('artifacts/web-eval/trace-'+name+'.zip')});}
+      finally{try{await browser!.close();}finally{await app.close();}}
+    },
   };
 }
 check('integration','Web UI starts a real offline investigation, shows citations, downloads its report and restores after refresh',async()=>{
