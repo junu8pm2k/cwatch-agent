@@ -46,6 +46,11 @@ function printBenchmarkSummary(reportPath: string) {
   return summary;
 }
 
+async function publishRun(runDir: string, runId: string) {
+  await publishBenchmark(runDir, runId);
+  console.log('Langfuse upload receipt: ' + resolve(runDir, 'langfuse.json'));
+}
+
 async function main() {
   const reviewTests = mode === 'host' && args[0] === '--review-tests';
   let reviewCaseId = '';
@@ -71,8 +76,7 @@ async function main() {
       throw Error('Usage: npm run eval:publish -- <run-id> [--review-tests]');
     }
     const directory = args[1] === '--review-tests' ? 'artifacts/review-tests' : 'artifacts/benchmark';
-    await publishBenchmark(resolve(directory, id), id);
-    console.log('Langfuse upload receipt: ' + resolve(directory, id, 'langfuse.json'));
+    await publishRun(resolve(directory, id), id);
     return;
   }
   if (!['host', 'ci', 'docker'].includes(mode) || (args.length && !reviewTests)) throw Error('invalid benchmark command');
@@ -108,8 +112,15 @@ async function main() {
     : run('uv', ['run', '--locked', 'deepeval', 'test', 'run', 'evals/test_agent.py'], env);
   process.exitCode = exit;
   const summary = printBenchmarkSummary(resolve(runDir, 'report.json'));
+  if (mode === 'host' && summary) {
+    try {
+      if (readLangfuseConfig()) await publishRun(runDir, runId);
+    } catch (error) {
+      console.warn('Langfuse upload warning: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  }
   if (exit === 0 && (!summary?.complete || summary.passed !== summary.expected)) throw Error('incomplete or failed benchmark gate');
-  if (mode === 'docker' && summary) await publishBenchmark(runDir, runId);
+  if (mode === 'docker' && summary) await publishRun(runDir, runId);
 }
 
 main().catch(error => {

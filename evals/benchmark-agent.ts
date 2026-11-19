@@ -83,6 +83,7 @@ async function main() {
   } else {
     copyFileSync(fixturePath(input.fixture), join(workspace, input.fixture));
   }
+  // The benchmark runner publishes the trace with evaluation scores.
   process.env.LANGFUSE_ENABLED = 'false';
   const model = PiModel.fromEnvironment({
     MODEL_PROVIDER: config.agent.provider,

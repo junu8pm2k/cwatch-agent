@@ -39,7 +39,7 @@ npm run eval:docker
 
 - `eval:sync` 固定 Langfuse 读取时间，分页拉取后校验用例和完整性。每个 JSON 快照用临时文件原子替换，读取端会拒绝混合版本或校验和不一致的快照。可用 `npm run eval:sync -- --version <UTC-timestamp>` 获取指定历史版本。同步时间、版本时间和校验和记录在 `artifacts/benchmark/sync.json`。
 - `eval:docker` 用一次性容器执行快照。每个 Case 启用新的 Agent 进程和工作目录，仅提供该 Case 的固定夹具。容器退出后由宿主机上传 Trace 和评分，因此可使用仅监听宿主机回环地址的 Langfuse。容器只接收模型凭据。
-- `eval:run` 使用本机 Node 24、Python 3.12.15 和 uv 从已同步快照运行评测。评分需要模型 API 连接。使用 `npm run eval:run -- --help` 查看可选用例集合。
+- `eval:run` 使用本机 Node 24、Python 3.12.15 和 uv 从已同步快照运行评测。配置 Langfuse 后，评测结束会自动上传已有 Trace 和评分，包括失败用例的记录。上传失败会打印警告，命令退出状态仍以评测本身为准。使用 `npm run eval:run -- --help` 查看可选用例集合。
 - `eval:publish -- <run-id>` 重试本地 Trace 和 Score 上传，使用稳定 ID。报告、JUnit 和上传结果都在 `artifacts/benchmark/<run-id>/`。Langfuse 中可按 Trace ID 查看，评分名称以 `benchmark.` 开头。
 
 默认执行两个集合，也可通过 `BENCHMARK_SUITE=smoke` 或 `BENCHMARK_SUITE=regression` 选择。GitHub Actions 使用 `eval:ci` 直接在 Runner 上执行同一套 DeepEval。为仓库配置 `BENCHMARK_AGENT_API_KEY` 和 `BENCHMARK_JUDGE_API_KEY`，并将 **DeepEval benchmark** 设为合并必需检查。来自 Fork 的 PR 缺少仓库密钥时会报告失败，维护者可在可信分支复跑。Dataset、Rubric、夹具和阈值变更由 CODEOWNERS 审查。
@@ -58,4 +58,4 @@ Agent 须正常完成并给出非空回答。每条 Case 的全部必需指标�
 
 复跑单题时添加 `--case <case-id>`，例如 `npm run eval:run -- --review-tests --case review-conflicting-evidence`。
 
-运行 `npm run eval:publish -- <run-id> --review-tests` 将已有结果发布到 Langfuse。Sessions 的 Scores 显示 `benchmark.case_passed`，用例名和运行 ID 共同标识 Session。打开 Trace 可查看最终回答、工具轨迹和已有的单项评分。如果 Agent 在生成最终回答前失败，Trace 的 Output 会显示失败原因和评分状态。
+配置 Langfuse 后，整组审阅和单题复跑都会在评测结束时自动上传。可用 `npm run eval:publish -- <run-id> --review-tests` 重试已有结果的上传。Sessions 的 Scores 显示 `benchmark.case_passed`，用例名和运行 ID 共同标识 Session。打开 Trace 可查看最终回答、工具轨迹和已有的单项评分。如果 Agent 在生成最终回答前失败且已留下 Trace，Trace 的 Output 会显示失败原因和评分状态。

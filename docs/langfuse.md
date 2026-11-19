@@ -42,4 +42,4 @@ npm start -- trace --out artifacts/live-web --run <runId> --langfuse
 
 在 Langfuse 的 `cwatch/benchmark/v2.3` Dataset 中更新用例后，执行 `npm run eval:sync`，审核并提交仓库快照。DeepEval 从快照运行程序检查和语义评分。
 
-`npm run eval:docker` 完成后，由宿主机向 Langfuse 上传 Trace 和 `benchmark.*` 分数。可用 `npm run eval:publish -- <run-id>` 重试上传。 [Benchmark 操作指南](../evals/README.md)
+本机和容器评测完成后，由宿主机向已配置的 Langfuse 上传 Trace 和 `benchmark.*` 分数。`npm run eval:publish -- <run-id>` 用于重试正式 Benchmark 的上传，本地审阅题重试时加 `--review-tests`。 [Benchmark 操作指南](../evals/README.md)
