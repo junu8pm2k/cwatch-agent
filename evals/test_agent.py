@@ -11,10 +11,15 @@ if os.getenv("API_KEY") or os.getenv("CONFIDENT_API_KEY"):
     raise RuntimeError("Run through npm run eval:run, eval:docker or eval:ci to isolate model credentials.")
 
 SUITE = os.getenv("BENCHMARK_SUITE", "all")
-if SUITE not in ("all", "smoke", "regression"):
-    raise ValueError("BENCHMARK_SUITE must be all, smoke or regression")
-MANIFEST = load_manifest()
-CASES = [case for case in MANIFEST["cases"] if SUITE == "all" or SUITE in case["tags"]]
+if SUITE not in ("all", "smoke", "regression", "review-tests"):
+    raise ValueError("BENCHMARK_SUITE must be all, smoke, regression or review-tests")
+MANIFEST = load_manifest(SUITE)
+CASES = [case for case in MANIFEST["cases"] if SUITE in ("all", "review-tests") or SUITE in case["tags"]]
+REVIEW_CASE_ID = os.getenv("BENCHMARK_REVIEW_CASE_ID")
+if SUITE == "review-tests" and REVIEW_CASE_ID:
+    CASES = [case for case in CASES if case["id"] == REVIEW_CASE_ID]
+    if not CASES:
+        raise ValueError(f"Unknown review test case: {REVIEW_CASE_ID}")
 
 
 @pytest.fixture(scope="session")

@@ -36,7 +36,9 @@ function usageDetails(step: TraceStep): Record<string, number> {
 }
 
 /** Project the existing public audit view; do not read private SDK transcripts. */
-export function langfusePayload(document: StructuredTrace, config: Pick<LangfuseConfig, 'environment'>, metadata: Record<string, string> = {}): { traceId: string; spans: OtlpSpan[] } {
+export function langfusePayload(
+  document: StructuredTrace, config: Pick<LangfuseConfig, 'environment'>, metadata: Record<string, string> = {}, sessionId = document.taskId,
+): { traceId: string; spans: OtlpSpan[] } {
   if (!document.integrity.valid || !document.integrity.complete) throw Error('langfuse_export: complete valid trace required');
   const traceId = identity(document.runId, 32);
   const agentPrompts = record(document.steps.find(step => step.kind === 'run')?.attributes.agentPrompts);
@@ -48,7 +50,7 @@ export function langfusePayload(document: StructuredTrace, config: Pick<Langfuse
     const failed = Boolean(step.error) || ['failed', 'blocked', 'cancelled'].includes(step.status);
     const attributes = [
       attribute('langfuse.observation.type', step.kind === 'model' ? 'generation' : step.kind === 'tool' ? 'tool' : step.kind === 'run' ? 'agent' : 'span'),
-      attribute('langfuse.trace.name', 'cwatch.agent'), attribute('langfuse.session.id', document.taskId),
+      attribute('langfuse.trace.name', 'cwatch.agent'), attribute('langfuse.session.id', sessionId),
       attribute('langfuse.environment', config.environment), attribute('langfuse.trace.metadata.runId', document.runId),
       attribute('langfuse.trace.metadata.taskId', document.taskId), attribute('langfuse.trace.metadata.mode', document.input.mode),
       attribute('langfuse.observation.metadata.stepId', step.stepId), attribute('langfuse.observation.metadata.status', step.status),
