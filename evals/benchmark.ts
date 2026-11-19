@@ -7,6 +7,7 @@ import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { readJson } from './benchmark-contract.ts';
 import { publishBenchmark } from './benchmark-publish.ts';
+import { loadReviewTestCases } from './review-tests.ts';
 
 const [mode, ...args] = process.argv.slice(2);
 
@@ -46,23 +47,39 @@ function printBenchmarkSummary(reportPath: string) {
 }
 
 async function main() {
-  if (mode === 'host' && args.length) {
+  const reviewTests = mode === 'host' && args[0] === '--review-tests';
+  let reviewCaseId = '';
+  if (reviewTests && args.length > 1) {
+    if (args.length !== 3 || args[1] !== '--case') {
+      throw Error('Usage: npm run eval:run -- --review-tests [--case <case-id>]');
+    }
+    reviewCaseId = args[2];
+    if (!loadReviewTestCases().some(item => item.id === reviewCaseId)) {
+      throw Error('Unknown review test case: ' + reviewCaseId);
+    }
+  }
+  if (mode === 'host' && args.length && !reviewTests) {
     if (args.length !== 1 || args[0] !== '--help') {
       throw Error('eval:run reads the Benchmark snapshots. Use BENCHMARK_SUITE to choose all, smoke, or regression.');
     }
-    console.log('npm run eval:run\nSet BENCHMARK_SUITE to all (default), smoke, or regression.');
+    console.log('npm run eval:run\nSet BENCHMARK_SUITE to all (default), smoke, or regression.\nnpm run eval:run -- --review-tests [--case <case-id>] runs the local review tests.');
     return;
   }
   if (mode === 'publish') {
     const id = z.uuid().parse(args[0]);
-    await publishBenchmark(resolve('artifacts/benchmark', id), id);
+    if (args.length > 2 || (args.length === 2 && args[1] !== '--review-tests')) {
+      throw Error('Usage: npm run eval:publish -- <run-id> [--review-tests]');
+    }
+    const directory = args[1] === '--review-tests' ? 'artifacts/review-tests' : 'artifacts/benchmark';
+    await publishBenchmark(resolve(directory, id), id);
+    console.log('Langfuse upload receipt: ' + resolve(directory, id, 'langfuse.json'));
     return;
   }
-  if (!['host', 'ci', 'docker'].includes(mode) || args.length) throw Error('invalid benchmark command');
-  const suite = z.enum(['all', 'smoke', 'regression']).parse(process.env.BENCHMARK_SUITE || 'all');
+  if (!['host', 'ci', 'docker'].includes(mode) || (args.length && !reviewTests)) throw Error('invalid benchmark command');
+  const suite = reviewTests ? 'review-tests' : z.enum(['all', 'smoke', 'regression']).parse(process.env.BENCHMARK_SUITE || 'all');
   if (mode === 'docker' && !readLangfuseConfig()) throw Error('eval:docker requires Langfuse project keys');
   const runId = randomUUID();
-  const runDir = resolve('artifacts/benchmark', runId);
+  const runDir = resolve(reviewTests ? 'artifacts/review-tests' : 'artifacts/benchmark', runId);
   mkdirSync(runDir, { recursive: true });
   const git = (arguments_: string[]) => spawnSync('git', arguments_, { encoding: 'utf8' });
   const dirty = git(['status', '--porcelain']);
@@ -76,6 +93,7 @@ async function main() {
     BENCHMARK_COMMIT: commit.status === 0 ? commit.stdout.trim() : process.env.GITHUB_SHA || 'unavailable',
     BENCHMARK_TREE_STATE: dirty.status === 0 ? dirty.stdout.trim() ? 'dirty' : 'clean' : 'unavailable',
     BENCHMARK_SUITE: suite,
+    BENCHMARK_REVIEW_CASE_ID: reviewCaseId,
     BENCHMARK_ENV: mode,
     DEEPEVAL_DISABLE_DOTENV: '1',
     DEEPEVAL_TELEMETRY_OPT_OUT: 'YES',

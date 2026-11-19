@@ -10,7 +10,8 @@ import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Trace, Redactor } from '@cwatch/shared/sessions/trace';
 import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { SkillStore } from '@cwatch/shared/skills/storage';
-import { fixturePath, loadSnapshots, reviewProfile } from './benchmark-contract.ts';
+import { digest, fixturePath, loadSnapshots, reviewProfile } from './benchmark-contract.ts';
+import { loadReviewTestCases } from './review-tests.ts';
 import config from './config.json' with { type: 'json' };
 
 const redactor = new Redactor([process.env.API_KEY ?? '']);
@@ -24,10 +25,28 @@ const requestSchema = z.strictObject({
   traceFile: z.string().min(1),
 });
 
+function manifestSource(reviewTests: boolean) {
+  if (reviewTests) {
+    const cases = loadReviewTestCases();
+    const revision = digest(cases);
+    return {
+      dataset: { id: 'local-review-tests', name: 'local/competitor-review-tests', revision },
+      suites: { 'review-tests': revision },
+      cases,
+    };
+  }
+  const { snapshots, cases } = loadSnapshots();
+  return {
+    dataset: snapshots[0].dataset,
+    suites: Object.fromEntries(snapshots.map(({ suite, sha256 }) => [suite, sha256])),
+    cases,
+  };
+}
+
 async function main() {
   const command = process.argv[2];
   if (command === 'manifest') {
-    const { snapshots, cases } = loadSnapshots();
+    const { dataset, suites, cases } = manifestSource(process.argv[3] === 'review-tests');
     const fixtures = [...new Set(cases.map(item => item.fixture))].sort();
     const skillFiles = [
       'skills/general-agent/SKILL.md',
@@ -35,8 +54,8 @@ async function main() {
       'skills/competitor-review/references/checklist.md',
     ];
     console.log(JSON.stringify({
-      dataset: snapshots[0].dataset,
-      suites: Object.fromEntries(snapshots.map(({ suite, sha256 }) => [suite, sha256])),
+      dataset,
+      suites,
       cases: cases.map(item => {
         if (!('profile' in item)) return item;
         const input = item.input + '\n\n【固定输入材料】\n' + readFileSync(fixturePath(item.fixture), 'utf8').trim();

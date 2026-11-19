@@ -27,7 +27,7 @@ class AgentResult(BaseModel):
     error: str | None
 
 
-def agent_command(command, *, payload=None, timeout=30):
+def agent_command(command, *args, payload=None, timeout=30):
     inherited = {
         "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP",
         "TMPDIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
@@ -43,7 +43,7 @@ def agent_command(command, *, payload=None, timeout=30):
         env["USERPROFILE"] = payload["workDir"]
     try:
         result = subprocess.run(
-            (*NODE_AGENT, command), input=json.dumps(payload) if payload is not None else "",
+            (*NODE_AGENT, command, *args), input=json.dumps(payload) if payload is not None else "",
             capture_output=True, encoding="utf-8", cwd=ROOT, env=env, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -53,8 +53,8 @@ def agent_command(command, *, payload=None, timeout=30):
     return result.stdout
 
 
-def load_manifest():
-    return json.loads(agent_command("manifest"))
+def load_manifest(suite):
+    return json.loads(agent_command("manifest", suite))
 
 
 def run_agent(case, case_dir):

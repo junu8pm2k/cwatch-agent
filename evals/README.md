@@ -47,3 +47,11 @@ npm run eval:docker
 Agent 须正常完成并给出非空回答。每条 Case 的全部必需指标都要单独达标。程序检查必须拿到 `1.0`，语义评分至少为 `0.8`。缺少评分、执行失败或任一指标低于阈值，该 Case 即失败。整轮通过要求所有选中的 Case 通过。 [阈值配置](config.json)
 
 日志末尾的 `Benchmark (all selected cases)` 与 `report.json` 覆盖整套用例，并列出失败用例。DeepEval 自带的通过率只统计提交给它打分的语义评测记录。
+
+## 本地证据审阅测试
+
+运行 `npm run eval:run -- --review-tests`，用现有 Agent 和 Judge 验证六个合成场景。报告、JUnit 与 Trace 保存在 `artifacts/review-tests/<run-id>/`。这组测试通过独立入口运行，使用本地题单。
+
+复跑单题时添加 `--case <case-id>`，例如 `npm run eval:run -- --review-tests --case review-conflicting-evidence`。
+
+运行 `npm run eval:publish -- <run-id> --review-tests` 将已有结果发布到 Langfuse。Sessions 的 Scores 显示 `benchmark.case_passed`，用例名和运行 ID 共同标识 Session。打开 Trace 可查看最终回答、工具轨迹和已有的单项评分。如果 Agent 在生成最终回答前失败，Trace 的 Output 会显示失败原因和评分状态。
