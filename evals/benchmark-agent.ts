@@ -98,7 +98,10 @@ async function main() {
     MODEL_ID: config.agent.model,
     BASE_URL: config.agent.baseUrl,
     API_KEY: process.env.API_KEY,
-  }, { reasoningEffort: z.enum(['low', 'medium', 'high']).optional().parse(config.agent.reasoningEffort) });
+  }, {
+    reasoningEffort: z.enum(['low', 'medium', 'high']).optional().parse(config.agent.reasoningEffort),
+    providerMaxRetries: z.int().min(0).max(2).parse(config.agent.providerMaxRetries),
+  });
   const registry = new ToolRegistry();
   const since = performance.now();
   try {

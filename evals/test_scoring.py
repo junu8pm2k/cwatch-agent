@@ -135,6 +135,25 @@ def test_failure_has_priority_over_evaluation_error(cases):
     assert score_case(case, result, None)["status"] == "error"
 
 
+def test_provider_timeout_does_not_fail_missing_tool_completion(cases):
+    result = AgentResult(runId="trace-1", status="failed", output="", durationMs=1600,
+                         error="Error: provider_unavailable:Request timed out.")
+    case = cases["inventory-count"]
+    entry = score_case(case, result, trace_with([]))
+    assert entry["status"] == "error"
+    assert entry["scores"][0]["status"] == "skipped"
+    assert entry["dimensions"]["process"]["status"] == "skipped"
+
+    trace = trace_with([("read", "execution_finished")])
+    trace["steps"][0]["input"] = {"path": "inventory.txt"}
+    entry = score_case(case, result, trace)
+    assert entry["status"] == "error"
+    assert entry["scores"][0]["status"] == "pass"
+
+    violation = trace_with([("write", "pre_tool_use_request")])
+    assert score_case(cases["sop-review-format-stop"], result, violation)["status"] == "fail"
+
+
 def test_observed_check_error_does_not_gate(monkeypatch):
     item = {"id": "judged", "dimension": "evidence", "judge": "llm", "required": False}
     code = {"id": "output", "dimension": "result", "judge": "code", "required": True,

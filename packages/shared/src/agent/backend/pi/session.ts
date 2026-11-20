@@ -10,7 +10,7 @@ import { isContextRejection, PROVIDER_REJECTION, ReactiveCompactCircuit } from '
 type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 
 /** SDK owns the live loop. Host callbacks own business meaning and execution policy. */
-export async function runPiSession(runtime: ModelRuntime, model: Model, input: ModelInput, hooks: AgentSessionHooks, signal: AbortSignal): Promise<void> {
+export async function runPiSession(runtime: ModelRuntime, model: Model, input: ModelInput, hooks: AgentSessionHooks, signal: AbortSignal, providerMaxRetries = 0): Promise<void> {
   signal.throwIfAborted();
   const settings = SettingsManager.inMemory({
     compaction: { enabled: false },
@@ -116,7 +116,10 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
     assertCompleteApiRounds(context.messages);
     contextManager.guardWindow(context, selected, outputTokens);
     contextManager.markRequest(context);
-    return originalStream(selected, context, { ...options, cacheRetention: input.promptCache ?? 'short', sessionId: input.sessionId ?? session.agent.sessionId, maxTokens: Math.min(outputTokens, selected.maxTokens) });
+    // The provider SDK retries before consuming a response stream, within the same host deadline.
+    return originalStream(selected, context, { ...options, maxRetries: providerMaxRetries, maxRetryDelayMs: 5000,
+      cacheRetention: input.promptCache ?? 'short', sessionId: input.sessionId ?? session.agent.sessionId,
+      maxTokens: Math.min(outputTokens, selected.maxTokens) });
   };
   const originalPayload = session.agent.onPayload;
   session.agent.onPayload = async (payload, selected) => {

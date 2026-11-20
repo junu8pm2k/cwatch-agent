@@ -63,7 +63,7 @@ async function run(config: ModelConfig, input: ModelInput) {
       },
     };
     const { runtime, model } = await createPiRuntime(config.provider, config.modelId, config, controller.signal);
-    await runPiSession(runtime, model, input, hooks, controller.signal);
+    await runPiSession(runtime, model, input, hooks, controller.signal, config.providerMaxRetries);
     controller.signal.throwIfAborted();
     await send({ type: 'completed' });
     process.exit(0);
