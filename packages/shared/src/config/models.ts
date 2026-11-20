@@ -3,6 +3,7 @@ export interface ModelConfig {
   modelId: string;
   apiKey: string;
   baseUrl?: string;
+  reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 /** Parse host-only configuration; never include this object in model context or traces. */

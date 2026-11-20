@@ -19,6 +19,7 @@ export type CompetitorTask = z.infer<typeof TaskSchema>;
 export const GenericTaskSchema = z.object({
   kind: z.literal('agent'), taskId: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
   instruction: z.string().trim().min(1).max(24000),
+  responseCharacterLimit: z.int().min(1).max(32_000).optional(),
   allowedSources: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).max(64).default([]),
   context: z.record(z.string(), z.unknown()).optional(),
 }).strict();

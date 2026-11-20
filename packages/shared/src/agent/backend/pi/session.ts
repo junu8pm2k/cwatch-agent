@@ -28,6 +28,9 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   let outputTokens = input.maxOutputTokens ?? 4096;
   let responseChars = 0;
   let terminal = false;
+  const responseCharacterLimit = !('kind' in input.state.task) ? undefined : input.state.task.responseCharacterLimit;
+  let revisionLength: number | undefined;
+  let revisingResponse = false;
   let currentStable = input.stable, prepareUserPrompt = false;
   let pendingRejection = false;
   const circuit = new ReactiveCompactCircuit();
@@ -68,7 +71,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
     }
     if (event.type !== 'tool_execution_end' && event.type !== 'message_end') return;
     // A final answer must stop the SDK loop synchronously, before the host acknowledgement arrives.
-    if (event.type === 'message_end' && event.message.role === 'assistant' && !event.message.content.some(item => item.type === 'toolCall')) terminal = !isContextRejection(event.message);
+    if (event.type === 'message_end' && event.message.role === 'assistant' && (revisingResponse || !event.message.content.some(item => item.type === 'toolCall'))) terminal = !isContextRejection(event.message);
     eventQueue = eventQueue.then(async () => {
       await contextManager.flush();
       if (fatal || signal.aborted) return;
@@ -81,8 +84,18 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
         contextManager.recordUsage(event.message.usage);
         await hooks.onUsage(event.message.usage);
         const decision = decodePiMessage(event.message);
-        await hooks.onDecision(decision);
         circuit.success();
+        if (revisingResponse && decision.kind !== 'respond') throw new Error('response_revision_requires_text');
+        if (responseCharacterLimit !== undefined && decision.kind === 'respond') {
+          // Match Python str.isspace() in the benchmark, and count Unicode code points.
+          const length = [...decision.text].filter(character => !/[\p{White_Space}\u001c-\u001f]/u.test(character)).length;
+          if (length > responseCharacterLimit) {
+            if (revisingResponse) throw new Error(`response_character_limit: ${length}/${responseCharacterLimit} after one revision`);
+            revisionLength = length;
+            return;
+          }
+        }
+        await hooks.onDecision(decision);
         terminal = decision.kind === 'respond';
       }
       if (event.type === 'tool_execution_end') {
@@ -126,7 +139,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       currentStable = next.stable;
       outputTokens = next.maxOutputTokens ?? 4096;
       // New/replaced bindings are not silently granted within an existing session.
-      const activeBindings = next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+      const activeBindings = revisingResponse ? [] : next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
       session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
       contextManager.setToolResultPolicy(resultPolicy(activeBindings));
       const update = await originalPrepare?.(turn, sdkSignal);
@@ -180,7 +193,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
           const next = await hooks.beforeModel();
           currentStable = next.stable;
           outputTokens = next.maxOutputTokens ?? 4096;
-          const activeBindings = next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+          const activeBindings = revisingResponse ? [] : next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
           session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
           contextManager.setToolResultPolicy(resultPolicy(activeBindings));
           session.agent.state.systemPrompt = systemPromptFor(next.stable);
@@ -208,6 +221,20 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       if (fatal) throw fatal;
       if (!terminal) throw new Error('no_progress: session ended without a verified response');
       await contextManager.flush();
+      if (revisionLength !== undefined && responseCharacterLimit !== undefined) {
+        await contextManager.archive('cwatch.response_revision', { length: revisionLength, limit: responseCharacterLimit });
+        const next = await hooks.beforeModel();
+        currentStable = next.stable;
+        outputTokens = next.maxOutputTokens ?? 4096;
+        session.setActiveToolsByName([]);
+        contextManager.setToolResultPolicy(resultPolicy([]));
+        const target = Math.max(1, Math.floor(responseCharacterLimit * 0.7));
+        userPrompt = `The previous draft has ${revisionLength} non-whitespace characters. Rewrite it to fit the user's maximum of ${responseCharacterLimit}; aim for ${target}. Preserve every requested part, language, format, and essential evidence. State each value and scope once. Return only the revised answer, without calling tools.`;
+        revisionLength = undefined;
+        revisingResponse = true;
+        prepareUserPrompt = true;
+        continue;
+      }
       if (!hooks.nextUserMessage) break;
       const message = await hooks.nextUserMessage();
       signal.throwIfAborted();
@@ -218,7 +245,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       const activeBindings = next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
       session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
       contextManager.setToolResultPolicy(resultPolicy(activeBindings));
-      userPrompt = message; prepareUserPrompt = true;
+      userPrompt = message; prepareUserPrompt = true; revisingResponse = false;
     }
   } finally {
     signal.removeEventListener('abort', abort);

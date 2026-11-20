@@ -93,6 +93,10 @@ export function validateTrace(events: TraceEvent[], forbiddenSecrets: string[] =
       if (!expectingDecision || requestedIteration !== e.data.iteration || rejectedEntries.has(e.data.entryId) || e.data.reason !== 'context_length_exceeded') errors.push('invalid provider rejection');
       rejectedEntries.add(e.data.entryId); expectingDecision = false;
     }
+    if (e.type === 'response_revision_requested') {
+      if (!expectingDecision || requestedIteration !== e.data.iteration || queuedCalls.length) errors.push('invalid response revision request');
+      expectingDecision = false;
+    }
     if (e.type === 'decision_made') {
       if (!expectingDecision) errors.push('decision without request');
       if (queuedCalls.length) errors.push('decision with unfinished tool batch');

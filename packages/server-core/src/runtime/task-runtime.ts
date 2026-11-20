@@ -176,6 +176,9 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         for (const entry of entries) if (entry.type === 'custom' && entry.customType === 'cwatch.provider_rejection') {
           const data = z.object({ entryId: z.string().min(1), reason: z.literal('context_length_exceeded') }).strict().parse(entry.data);
           trace.emit('provider_rejected', { iteration: state.iteration, ...data });
+        } else if (entry.type === 'custom' && entry.customType === 'cwatch.response_revision') {
+          const data = z.object({ length: z.int().positive(), limit: z.int().positive() }).strict().parse(entry.data);
+          trace.emit('response_revision_requested', { iteration: state.iteration, ...data });
         }
       },
       sessionMemory: request => {
