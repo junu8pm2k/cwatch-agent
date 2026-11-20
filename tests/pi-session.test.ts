@@ -26,12 +26,13 @@ interface Options {
   runtime?: RuntimeOptions; client?: CountingClient; task?: CompetitorTask;
   agentTask?: GenericTask;
   reasoningEffort?: 'low';
+  providerMaxRetries?: number;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } } | null;
   signal?: AbortSignal; policy?: ActionPolicy; approvals?: ApprovalManager;
   setup?: (registry: ToolRegistry, data: FileStore, source: CountingClient) => Promise<void>;
   memoryResponse?: string;
   memorySteps?: Step[];
-  providerError?: (request: any) => { status: number; message: string; code?: string } | undefined;
+  providerError?: (request: any, index: number) => { status: number; message: string; code?: string } | undefined;
   onRequest?: (request: any, index: number, registry: ToolRegistry, data: FileStore) => Promise<void> | void;
 }
 async function sessionCase(steps: Step[], options: Options = {}) {
@@ -48,7 +49,7 @@ async function sessionCase(steps: Step[], options: Options = {}) {
       const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const request = JSON.parse(Buffer.concat(chunks).toString('utf8')); requests.push(request);
       await options.onRequest?.(request, requests.length, registry, data);
-      const injected = options.providerError?.(request);
+      const injected = options.providerError?.(request, requests.length);
       if (injected) { res.writeHead(injected.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: injected.message, code: injected.code, type: 'invalid_request_error' } })); return; }
       const summaryRequest = !options.agentTask && !request.tools?.length;
       const memoryRequest = JSON.stringify(request.messages[0]).includes('SESSION MEMORY UPDATE.');
@@ -84,7 +85,8 @@ async function sessionCase(steps: Step[], options: Options = {}) {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   try {
-    const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-session-' + ++providerSequence, MODEL_ID: 'fixture-session', API_KEY: 'fixture-session-key', BASE_URL: 'http://127.0.0.1:' + address.port + '/v1' }, { reasoningEffort: options.reasoningEffort });
+    const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-session-' + ++providerSequence, MODEL_ID: 'fixture-session', API_KEY: 'fixture-session-key', BASE_URL: 'http://127.0.0.1:' + address.port + '/v1' },
+      { reasoningEffort: options.reasoningEffort, providerMaxRetries: options.providerMaxRetries });
     // The investigation must use the SDK session, never fall back to completeSimple/decide.
     model.decide = async () => { throw new Error('single-step Pi path must not run'); };
     // Most cases isolate business/compaction behavior; memory cases explicitly enable maintenance.
@@ -111,6 +113,18 @@ check('integration', 'Pi AgentSession owns complete tool loop, usage and normali
   assert.equal(actual.state.observations.length, 5); assert.equal(actual.state.decisions.length, 6);
   assert.equal(actual.requests[1].messages.filter((message: any) => message.role === 'tool').length, 1);
   assert.equal((actual.events.find(event => event.type === 'usage_reported')!.data.modelUsage as unknown[]).length, 6);
+});
+
+check('integration', 'provider transport retries a transient HTTP failure within the same turn without replaying tools', async () => {
+  const agentTask: GenericTask = { kind: 'agent', taskId: 'retry-provider', instruction: 'Read the source and report the result.',
+    allowedSources: ['official'] };
+  const actual = await sessionCase([call('mcp__official__op'), done], { agentTask, providerMaxRetries: 2,
+    providerError: (_request, index) => index === 2 ? { status: 503, message: 'Service temporarily unavailable' } : undefined });
+  assert.equal(actual.result.status, 'complete', actual.result.error);
+  assert.equal(actual.requests.length, 3);
+  assert.deepEqual(actual.requests[1].messages, actual.requests[2].messages);
+  assert.equal(actual.source.calls.length, 1);
+  assert.equal(actual.events.filter(event => event.type === 'model_requested').length, 2);
 });
 
 check('integration', 'an oversized final answer is revised without rerunning tools and only the verified reply is delivered', async () => {

@@ -4,6 +4,7 @@ export interface ModelConfig {
   apiKey: string;
   baseUrl?: string;
   reasoningEffort?: 'low' | 'medium' | 'high';
+  providerMaxRetries?: number;
 }
 
 /** Parse host-only configuration; never include this object in model context or traces. */

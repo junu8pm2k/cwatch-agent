@@ -58,7 +58,10 @@ def score_case(case, result, trace, *, launch_error=None, trace_error=None):
         else:
             try:
                 passed, reason, references = code_check(item["rule"], output, trace)
-                scores[item["id"]] = score_entry(item, value=int(passed), reason=reason, references=references)
+                if not passed and execution["status"] == "error" and item["rule"]["type"] == "tool_succeeded":
+                    scores[item["id"]] = score_entry(item, state="skipped", reason="Agent execution error left the required tool completion unverified.", references=references)
+                else:
+                    scores[item["id"]] = score_entry(item, value=int(passed), reason=reason, references=references)
             except (KeyError, TypeError, ValueError) as error:
                 scores[item["id"]] = score_entry(item, state="error", reason=str(error))
 

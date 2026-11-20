@@ -31,14 +31,15 @@ export function encodePiRequest(input: ModelInput) {
 }
 export class PiModel implements ModelPort {
   get traceModel() {
-    const reasoningEffort = this.config?.reasoningEffort;
-    return { provider: this.provider, id: this.modelId, ...(reasoningEffort ? { reasoningEffort } : {}) };
+    const { reasoningEffort, providerMaxRetries } = this.config ?? {};
+    return { provider: this.provider, id: this.modelId, ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(providerMaxRetries !== undefined ? { providerMaxRetries } : {}) };
   }
   readonly tokenUsageRequired = true;
   usage?: unknown;
   private runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime;
-  constructor(readonly provider: string, readonly modelId: string, private onUsage?: (value: unknown) => void, runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime, private config?: Pick<ModelConfig, 'apiKey' | 'baseUrl' | 'reasoningEffort'>) { this.runtime = runtime; }
-  static fromEnvironment(env: NodeJS.ProcessEnv = process.env, options?: Pick<ModelConfig, 'reasoningEffort'>): PiModel {
+  constructor(readonly provider: string, readonly modelId: string, private onUsage?: (value: unknown) => void, runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime, private config?: Omit<ModelConfig, 'provider' | 'modelId'>) { this.runtime = runtime; }
+  static fromEnvironment(env: NodeJS.ProcessEnv = process.env, options?: Pick<ModelConfig, 'reasoningEffort' | 'providerMaxRetries'>): PiModel {
     const config = { ...readModelConfig(env), ...options };
     if (config.reasoningEffort && !config.baseUrl) throw new Error('model_config: explicit reasoning effort requires an OpenAI-compatible BASE_URL');
     return new PiModel(config.provider, config.modelId, undefined, undefined, config);
