@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
@@ -18,8 +18,9 @@ const redactor = new Redactor([process.env.API_KEY ?? '']);
 const fileDigest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const requestSchema = z.strictObject({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/),
-  input: z.string().trim().min(1).max(8000),
+  input: z.string().trim().min(1).max(4000),
   fixture: z.string(),
+  fixtureSha256: z.string().regex(/^[0-9a-f]{64}$/),
   profile: reviewProfile.optional(),
   workDir: z.string().min(1),
   traceFile: z.string().min(1),
@@ -53,16 +54,12 @@ async function main() {
       'skills/competitor-review/SKILL.md',
       'skills/competitor-review/references/checklist.md',
     ];
+    const materials = Object.fromEntries(fixtures.map(name => [name, readFileSync(fixturePath(name))]));
     console.log(JSON.stringify({
       dataset,
       suites,
-      cases: cases.map(item => {
-        if (!('profile' in item)) return item;
-        const input = item.input + '\n\n【固定输入材料】\n' + readFileSync(fixturePath(item.fixture), 'utf8').trim();
-        if (input.length > 8000) throw Error('benchmark instruction and material exceed limit: ' + item.id);
-        return { ...item, input };
-      }),
-      fixtureHashes: Object.fromEntries(fixtures.map(name => [name, fileDigest(fixturePath(name))])),
+      cases: cases.map(item => ({ ...item, material: materials[item.fixture].toString('utf8') })),
+      fixtureHashes: Object.fromEntries(fixtures.map(name => [name, createHash('sha256').update(materials[name]).digest('hex')])),
       skillHashes: Object.fromEntries(skillFiles.map(path => [path, fileDigest(path)])),
       nodeVersion: process.version,
     }));
@@ -72,6 +69,10 @@ async function main() {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
   const input = requestSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+  const material = readFileSync(fixturePath(input.fixture));
+  if (createHash('sha256').update(material).digest('hex') !== input.fixtureSha256) throw Error('benchmark fixture changed after manifest');
+  const instruction = input.profile ? input.input + '\n\n【固定输入材料】\n' + material.toString('utf8').trim() : input.input;
+  if (instruction.length > 8000) throw Error('benchmark instruction and material exceed limit: ' + input.id);
   const workspace = join(input.workDir, 'workspace');
   const store = new FileStore(join(input.workDir, 'runtime'));
   mkdirSync(workspace);
@@ -81,7 +82,7 @@ async function main() {
     skills.installDirectory(resolve('skills/competitor-review'));
     userSkills = skills.select(['competitor-review']);
   } else {
-    copyFileSync(fixturePath(input.fixture), join(workspace, input.fixture));
+    writeFileSync(join(workspace, input.fixture), material, { flag: 'wx' });
   }
   // The benchmark runner publishes the trace with evaluation scores.
   process.env.LANGFUSE_ENABLED = 'false';
@@ -94,20 +95,16 @@ async function main() {
   const registry = new ToolRegistry();
   const since = performance.now();
   try {
-    const result = await runAgent({ kind: 'agent', taskId: input.id, instruction: input.input, allowedSources: [] },
+    const result = await runAgent({ kind: 'agent', taskId: input.id, instruction, allowedSources: [] },
       model, registry, store, 'live', {
         ...config.limits, workspaceRoot: workspace, sessionMemory: false, promptCache: 'none',
         userSkills, builtinTools: input.profile === undefined,
         skillPath: resolve('skills/general-agent/SKILL.md'), secrets: [process.env.API_KEY ?? ''],
       }, AbortSignal.timeout(config.limits.timeoutMs), new ActionPolicy('explore'));
     const trace = new Trace(store, input.id, result.runId, redactor).exportStructured();
-    if (!trace.integrity.valid || !trace.integrity.complete) throw Error('agent emitted an incomplete trace');
     writeFileSync(input.traceFile, JSON.stringify(trace) + '\n', { flag: 'wx' });
-    const tools = trace.steps.filter(step => step.kind === 'tool' && step.correlation.requestId).map(step => ({
-      name: step.name, arguments: step.input, status: step.status, hadError: Boolean(step.error),
-    }));
     console.log(JSON.stringify(redactor.clean({
-      runId: result.runId, status: result.status, output: result.response ?? '', tools,
+      runId: result.runId, status: result.status, output: result.response ?? '',
       durationMs: Math.round(performance.now() - since), error: result.error ?? null,
     })));
   } finally {

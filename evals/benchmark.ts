@@ -17,9 +17,10 @@ const reportSchema = z.object({
     executed: z.int().nonnegative(),
     passed: z.int().nonnegative(),
     failed: z.int().nonnegative(),
+    errors: z.int().nonnegative(),
     complete: z.boolean(),
   }),
-  cases: z.array(z.object({ caseId: z.string(), passed: z.boolean(), error: z.string().optional() })),
+  cases: z.array(z.object({ caseId: z.string(), status: z.enum(['pass', 'fail', 'error']), error: z.string().optional() })),
 });
 
 function run(command: string, parameters: string[], env = process.env) {
@@ -36,12 +37,12 @@ function printBenchmarkSummary(reportPath: string) {
   }
   const { summary, cases } = reportSchema.parse(readJson(reportPath));
   const notRun = summary.expected - summary.executed;
-  console.log(`Benchmark (all selected cases) passed ${summary.passed}/${summary.expected} (${summary.failed} failed, ${notRun} not run).`);
+  console.log(`Benchmark (all selected cases) passed ${summary.passed}/${summary.expected} (${summary.failed} failed, ${summary.errors} evaluation errors, ${notRun} not run).`);
   const redactor = new Redactor(Object.entries(process.env)
     .filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(key)).map(([, value]) => value ?? ''));
-  for (const item of cases.filter(item => !item.passed)) {
+  for (const item of cases.filter(item => item.status !== 'pass')) {
     const reason = item.error && redactor.clean(item.error).split(/\r?\n/, 1)[0].trim().slice(0, 500);
-    console.error(`FAIL ${item.caseId}${reason ? ' — ' + reason : ''}`);
+    console.error(`${item.status.toUpperCase()} ${item.caseId}${reason ? ' — ' + reason : ''}`);
   }
   return summary;
 }
@@ -51,7 +52,21 @@ async function publishRun(runDir: string, runId: string) {
   console.log('Langfuse upload receipt: ' + resolve(runDir, 'langfuse.json'));
 }
 
+function evaluationEnvironment() {
+  // DeepEval treats API_KEY as a Confident AI credential.
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(API_KEY$|LANGFUSE_|CWATCH_AGENT_PROMPT_SNAPSHOT$|CONFIDENT_|DEEPEVAL_)/i.test(key))),
+    DEEPEVAL_DISABLE_DOTENV: '1', DEEPEVAL_TELEMETRY_OPT_OUT: 'YES',
+    CONFIDENT_METRIC_LOGGING_ENABLED: 'false', PYTHONUTF8: '1',
+  };
+}
+
 async function main() {
+  if (['check', 'calibrate'].includes(mode) && args.length === 0) {
+    const env = { ...evaluationEnvironment(), BENCHMARK_LIVE_CALIBRATION: mode === 'calibrate' ? '1' : '0' };
+    process.exitCode = run('uv', ['run', '--locked', 'pytest', '-p', 'no:deepeval', '-q', 'evals/test_scoring.py'], env);
+    return;
+  }
   const reviewTests = mode === 'host' && args[0] === '--review-tests';
   let reviewCaseId = '';
   if (reviewTests && args.length > 1) {
@@ -81,7 +96,6 @@ async function main() {
   }
   if (!['host', 'ci', 'docker'].includes(mode) || (args.length && !reviewTests)) throw Error('invalid benchmark command');
   const suite = reviewTests ? 'review-tests' : z.enum(['all', 'smoke', 'regression']).parse(process.env.BENCHMARK_SUITE || 'all');
-  if (mode === 'docker' && !readLangfuseConfig()) throw Error('eval:docker requires Langfuse project keys');
   const runId = randomUUID();
   const runDir = resolve(reviewTests ? 'artifacts/review-tests' : 'artifacts/benchmark', runId);
   mkdirSync(runDir, { recursive: true });
@@ -89,8 +103,7 @@ async function main() {
   const dirty = git(['status', '--porcelain']);
   const commit = git(['rev-parse', 'HEAD']);
   const env = {
-    // DeepEval treats API_KEY as a Confident AI credential. Give it a benchmark-specific name.
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(API_KEY$|LANGFUSE_|CWATCH_AGENT_PROMPT_SNAPSHOT$|CONFIDENT_|DEEPEVAL_)/i.test(key))),
+    ...evaluationEnvironment(),
     BENCHMARK_AGENT_API_KEY: process.env.BENCHMARK_AGENT_API_KEY ?? process.env.API_KEY,
     BENCHMARK_RUN_ID: runId,
     BENCHMARK_RUN_DIR: runDir,
@@ -99,20 +112,16 @@ async function main() {
     BENCHMARK_SUITE: suite,
     BENCHMARK_REVIEW_CASE_ID: reviewCaseId,
     BENCHMARK_ENV: mode,
-    DEEPEVAL_DISABLE_DOTENV: '1',
-    DEEPEVAL_TELEMETRY_OPT_OUT: 'YES',
     DEEPEVAL_CACHE_FOLDER: resolve(runDir, '.deepeval'),
-    CONFIDENT_METRIC_LOGGING_ENABLED: 'false',
-    PYTHONUTF8: '1',
     PYTEST_ADDOPTS: '--junitxml="' + resolve(runDir, 'junit.xml') + '"',
   };
   console.log('Benchmark report directory: ' + runDir);
   const exit = mode === 'docker'
     ? run('docker', ['compose', '-f', 'compose.eval.yml', 'run', '--build', '--rm', '-T', 'eval'], env)
-    : run('uv', ['run', '--locked', 'deepeval', 'test', 'run', 'evals/test_agent.py'], env);
+    : run('uv', ['run', '--locked', 'pytest', '-p', 'no:deepeval', '-q', '--durations=10', 'evals/test_agent.py'], env);
   process.exitCode = exit;
   const summary = printBenchmarkSummary(resolve(runDir, 'report.json'));
-  if (mode === 'host' && summary) {
+  if (mode !== 'ci' && summary && process.env.BENCHMARK_PUBLISH !== '0') {
     try {
       if (readLangfuseConfig()) await publishRun(runDir, runId);
     } catch (error) {
@@ -120,7 +129,6 @@ async function main() {
     }
   }
   if (exit === 0 && (!summary?.complete || summary.passed !== summary.expected)) throw Error('incomplete or failed benchmark gate');
-  if (mode === 'docker' && summary) await publishRun(runDir, runId);
 }
 
 main().catch(error => {

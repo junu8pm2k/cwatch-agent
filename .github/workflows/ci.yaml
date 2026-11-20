@@ -114,7 +114,9 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           python -m pip install uv==0.12.22
           uv sync --locked
-      - name: 运行 DeepEval Benchmark
+      - name: 验证离线评分规则和固定样本
+        run: npm run eval:check
+      - name: 运行正式 Agent Benchmark
         run: npm run eval:ci
         env:
           BENCHMARK_AGENT_API_KEY: ${{ secrets.BENCHMARK_AGENT_API_KEY }}

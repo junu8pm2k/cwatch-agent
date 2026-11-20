@@ -1,90 +1,48 @@
-import asyncio
 import json
 import math
 import os
 from functools import lru_cache
+from time import perf_counter
 
-from deepeval import assert_test
-from deepeval.metrics import GEval
-from deepeval.models import DeepEvalBaseLLM
-from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from openai import OpenAI, OpenAIError
+from pydantic import BaseModel, ConfigDict
 
 from agent_adapter import CONFIG, ROOT
 
 
-class BenchmarkJudge(DeepEvalBaseLLM):
-    def load_model(self):
-        api_key = os.getenv("JUDGE_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("missing JUDGE_API_KEY")
-        config = CONFIG["judge"]
-        return OpenAI(api_key=api_key, base_url=config["baseUrl"],
-                      timeout=config["timeoutSeconds"], max_retries=0)
+class Finding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    def get_model_name(self):
-        config = CONFIG["judge"]
-        return f'{config["provider"]}/{config["model"]}'
+    checks: dict[str, str]
+    references: list[str]
+    reason: str
 
-    def generate(self, prompt, schema=None):
-        config = CONFIG["judge"]
-        response_format = {"type": "json_object"}
-        if schema is not None:
-            fields = schema.model_json_schema()
-            fields["additionalProperties"] = False
-            response_format = {
-                "type": "json_schema",
-                "json_schema": {"name": schema.__name__, "schema": fields, "strict": True},
-            }
-        try:
-            result = self.model.chat.completions.create(
-                model=config["model"], temperature=config["temperature"],
-                max_tokens=config["maxTokens"],
-                messages=[{"role": "user", "content": prompt}],
-                response_format=response_format,
-            )
-        except OpenAIError as error:
-            status = getattr(error, "status_code", None)
-            raise RuntimeError(f"Judge API request failed ({status or type(error).__name__})") from None
-        if not result.choices:
-            raise RuntimeError("Judge returned no completion")
-        choice = result.choices[0]
-        if choice.finish_reason != "stop":
-            raise RuntimeError(f"Judge completion ended with {choice.finish_reason}")
-        if not choice.message.content:
-            raise RuntimeError("Judge returned empty JSON content")
-        return schema.model_validate_json(choice.message.content) if schema else choice.message.content
 
-    async def a_generate(self, prompt, schema=None):
-        return await asyncio.to_thread(self.generate, prompt, schema)
+JUDGE_RUBRIC = (ROOT / "evals/rubrics/judge.md").read_text(encoding="utf-8")
+TRACE_RULES = {"tool_succeeded", "tool_policy", "tool_dependency"}
+TOOL_EVENT_TYPES = {"request": "pre_tool_use_request", "execution": "execution_started"}
+CHECK_OUTCOMES = {"must": ("met", "missing"), "fatal": ("clear", "triggered"), "minor": ("clear", "triggered")}
 
 
 @lru_cache(maxsize=1)
-def judge():
-    return BenchmarkJudge()
+def judge_client():
+    config = CONFIG["judge"]
+    api_key = os.getenv("JUDGE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("missing JUDGE_API_KEY")
+    return OpenAI(api_key=api_key, base_url=config["baseUrl"], timeout=config["timeoutSeconds"], max_retries=0)
 
 
-def tool_score(case, result):
-    expected = case["expected"]
-    policy = expected.get("toolPolicy")
-    if policy == "no-tools":
-        return (0.0, "Agent requested a tool for a stop-only task") if result.tools else (1.0, "Agent stopped without requesting a tool")
-    if policy == "review-checklist":
-        checklist = {"skill": "competitor-review", "path": "references/checklist.md"}
-        if any(tool.name != "session__read_skill_resource" or tool.hadError or tool.status != "completed"
-               or tool.arguments is None or any(tool.arguments.get(k) != v for k, v in checklist.items())
-               for tool in result.tools):
-            return 0.0, "Review attempted a tool action outside the evidence checklist"
-        return (1.0, "Review read its evidence checklist") if result.tools else (0.0, "Review did not read its evidence checklist")
-    matching = [
-        tool for tool in result.tools
-        if tool.name == expected["tool"] and tool.status == "completed"
-        and not tool.hadError and tool.arguments is not None
-        and all(tool.arguments.get(key) == value for key, value in expected["arguments"].items())
-    ]
-    return (1.0, "Expected tool and arguments executed successfully") if matching else (
-        0.0, f'No successful {expected["tool"]} call had the expected arguments',
-    )
+def score_entry(criterion, *, value=None, reason, references=(), state=None):
+    maximum = 1 if criterion["judge"] == "code" else 3
+    threshold = 1 if maximum == 1 else 2
+    return {
+        "name": criterion["id"], "dimension": criterion["dimension"], "judge": criterion["judge"],
+        "required": criterion["required"], "value": value, "max": maximum, "threshold": threshold,
+        "status": state or ("pass" if value >= threshold else "fail"),
+        "reason": reason, "references": list(references),
+    }
+
 
 def unique_object(pairs):
     value = dict(pairs)
@@ -93,38 +51,193 @@ def unique_object(pairs):
     return value
 
 
-def json_score(case, result):
-    try:
-        actual = json.loads(result.output, object_pairs_hook=unique_object)
-    except ValueError:
-        return 0.0, "Output is not one valid JSON object with unique keys"
-    if actual != case["expected"]["json"]:
-        return 0.0, "JSON fields differ from the exact expected values"
-    return 1.0, "JSON fields exactly preserve the provided text"
+def reject_constant(value):
+    raise ValueError(f"invalid JSON constant {value}")
 
 
-def score(name, case, result):
-    definition = CONFIG["metrics"][name]
-    threshold = definition["threshold"]
-    if name == "tool_correctness":
-        value, reason = tool_score(case, result)
-    elif name == "json_equals":
-        value, reason = json_score(case, result)
-    else:
-        rubric = (ROOT / "evals/rubrics" / definition["rubric"]).read_text(encoding="utf-8").strip()
-        metric = GEval(
-            name=name, evaluation_steps=[rubric], threshold=threshold, model=judge(), async_mode=False,
-            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-        )
-        test_case = LLMTestCase(
-            name=case["id"], input=case["input"], expected_output=case["expected"]["answer"], actual_output=result.output,
-        )
+def json_equal(actual, expected):
+    # Python treats booleans as integers. The rubric applies JSON value equality.
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return type(actual) is type(expected) and actual == expected
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+        return (not isinstance(actual, float) or math.isfinite(actual)) and actual == expected
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(json_equal(actual[key], value) for key, value in expected.items())
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(json_equal(a, b) for a, b in zip(actual, expected))
+    return actual == expected
+
+
+def tool_matches(step, target):
+    arguments = step["input"]
+    return step["name"] == target["name"] and all(
+        isinstance(arguments, dict) and key in arguments and json_equal(arguments[key], value)
+        for key, value in target.get("arguments", {}).items()
+    )
+
+
+def tool_success(step):
+    return (step["status"] == "completed" and step["error"] is None
+            and step["resultStatus"] in (None, "ok", "success", "completed", "success_with_data", "success_empty"))
+
+
+def refs_for(rows):
+    return [f'trace:{event["eventId"]}' for event, _ in rows]
+
+
+def code_check(rule, output, trace):
+    kind = rule["type"]
+    if kind == "json_equals":
         try:
-            assert_test(test_case, [metric], run_async=False)
-        except AssertionError:
-            if metric.error or metric.score is None or metric.score >= threshold:
-                raise
-        value, reason = metric.score, metric.reason
-    if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1 or not reason:
-        raise RuntimeError("missing or invalid score for " + name)
-    return {"name": name, "value": value, "reason": reason, "threshold": threshold, "passed": value >= threshold}
+            actual = json.loads(output, object_pairs_hook=unique_object, parse_constant=reject_constant)
+        except (RecursionError, ValueError):
+            return False, "回答必须是一个有效且键唯一的 JSON 对象。", ["answer"]
+        return json_equal(actual, rule["value"]), "比较了完整 JSON 对象与预期字段和值。", ["answer"]
+    if kind == "max_characters":
+        count = sum(not char.isspace() for char in output)
+        return count <= rule["limit"], f'回答含 {count} 个非空白字符，上限为 {rule["limit"]}。', ["answer"]
+
+    if trace is None:
+        raise ValueError("此规则需要经过校验的完整 Trace。")
+    steps = {step["stepId"]: step for step in trace["steps"] if step["kind"] == "tool"}
+    events = [(event, steps[event["stepId"]]) for event in trace["events"] if event["stepId"] in steps]
+
+    if kind == "tool_succeeded":
+        requests = [(event, step) for event, step in events
+                    if event["type"] == TOOL_EVENT_TYPES["request"] and tool_matches(step, rule["tool"])]
+        completions = [(event, step) for event, step in events
+                       if event["type"] == "execution_finished" and tool_matches(step, rule["tool"]) and tool_success(step)]
+        successful = {step["stepId"] for _, step in completions}
+        failed_requests = [(event, step) for event, step in requests if step["stepId"] not in successful]
+        if not rule.get("allowFailedAttempts", True) and failed_requests:
+            return False, "检测到指定工具的未成功请求。", refs_for(failed_requests)
+        if completions:
+            return True, "指定工具和参数成功执行。", refs_for(completions)
+        return False, "完整 Trace 中没有符合条件的成功执行。", refs_for(requests) or ["trace"]
+
+    if kind == "tool_policy":
+        selected = [(event, step) for event, step in events if event["type"] == TOOL_EVENT_TYPES[rule["stage"]]]
+        is_deny = rule["policy"] == "deny"
+        violations = [(event, step) for event, step in selected
+                      if any(tool_matches(step, target) for target in rule["tools"]) == is_deny]
+        stage = "请求" if rule["stage"] == "request" else "执行"
+        if violations:
+            return False, f"发现 {len(violations)} 次违反策略的工具{stage}。", refs_for(violations)
+        return True, f"已检查 {len(selected)} 次工具{stage}，均符合策略。", ["trace"]
+
+    if kind == "tool_dependency":
+        before = [(event, step) for event, step in events if event["type"] == "execution_finished"
+                  and tool_matches(step, rule["before"]) and tool_success(step)]
+        after = [(event, step) for event, step in events if event["type"] == TOOL_EVENT_TYPES[rule["afterStage"]]
+                 and tool_matches(step, rule["after"])]
+        cutoff = min((event["sequence"] for event, _ in before), default=None)
+        early = [(event, step) for event, step in after if cutoff is None or event["sequence"] <= cutoff]
+        if early:
+            return False, "依赖动作发生时，前置动作尚未成功。", refs_for(early)
+        return True, "已发生的依赖动作均满足前置条件。", refs_for(before + after) or ["trace"]
+
+    raise ValueError(f"unsupported code rule: {kind}")
+
+
+def semantic_input(case, criteria, output, trace):
+    answer = {f"answer:L{index}": line for index, line in enumerate(output.splitlines(), 1)}
+    material = {f"material:L{index}": line for index, line in enumerate(case["material"].splitlines(), 1)}
+    references = {"answer", *answer, *material}
+    payload = {"task": case["input"], "fixture": case["fixture"], "answer": answer, "material": material, "criteria": criteria}
+    if any(item.get("useTrace") for item in criteria):
+        tool_steps = {step["stepId"]: step for step in trace["steps"] if step["kind"] == "tool"}
+        events = {
+            f'trace:{event["eventId"]}': {"type": event["type"], "tool": tool_steps[event["stepId"]]["name"],
+                                         "status": event["status"]}
+            for event in trace["events"] if event["stepId"] in tool_steps
+            and event["type"] in {"pre_tool_use_request", "execution_started", "execution_finished", "approval_resolved"}
+        }
+        payload["trace"] = events
+        references.update({"trace", *events})
+    return payload, references
+
+
+def checks_for(criterion):
+    return [(f"{field}-{index}", field, index, text) for field in CHECK_OUTCOMES
+            for index, text in enumerate(criterion.get(field, []), 1)]
+
+
+def finding_schema(criterion):
+    schema = Finding.model_json_schema()
+    properties = {key: {"type": "string", "enum": list(CHECK_OUTCOMES[field]), "description": text}
+                  for key, field, _, text in checks_for(criterion)}
+    schema["properties"]["checks"] = {"type": "object", "properties": properties, "required": list(properties),
+                                       "additionalProperties": False}
+    return schema
+
+
+def score_finding(criterion, finding, references):
+    checks = checks_for(criterion)
+    if set(finding.checks) != {key for key, _, _, _ in checks}:
+        raise ValueError("Judge omitted or added a rubric check")
+    detected = {"fatal": [], "missing": [], "minor": []}
+    for key, field, index, _ in checks:
+        acceptable, defect = CHECK_OUTCOMES[field]
+        outcome = finding.checks[key]
+        if outcome == defect:
+            detected["missing" if field == "must" else field].append(index)
+        elif outcome != acceptable:
+            raise ValueError(f"Judge returned an invalid outcome for {key}")
+    allowed = references if criterion.get("useTrace") else {ref for ref in references if not ref.startswith("trace")}
+    if not finding.reason.strip() or not finding.references or not set(finding.references) <= allowed:
+        raise ValueError("Judge returned missing or invalid references")
+    value = 0 if detected["fatal"] else 1 if detected["missing"] else 2 if detected["minor"] else 3
+    return score_entry(criterion, value=value, reason=finding.reason.strip()[:2000], references=finding.references) | {
+        "findings": detected,
+    }
+
+
+def semantic_scores(case, criteria, output, trace):
+    usage = {"requests": 0, "inputTokens": None, "outputTokens": None, "totalTokens": None, "durationMs": None, "actualCost": None}
+    if not criteria:
+        return {}, usage
+    started = perf_counter()
+    try:
+        payload, references = semantic_input(case, criteria, output, trace)
+        config = CONFIG["judge"]
+        client = judge_client()
+        ids = [item["id"] for item in criteria]
+        schema = {"type": "object", "properties": {item["id"]: finding_schema(item) for item in criteria},
+                  "required": ids, "additionalProperties": False}
+        usage["requests"] = 1
+        response = client.chat.completions.create(
+            model=config["model"], temperature=config["temperature"], max_tokens=config["maxTokens"],
+            messages=[{"role": "system", "content": JUDGE_RUBRIC},
+                      {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            response_format={"type": "json_schema", "json_schema": {
+                "name": "Assessment", "schema": schema, "strict": True}},
+        )
+        if response.usage:
+            usage.update(inputTokens=response.usage.prompt_tokens, outputTokens=response.usage.completion_tokens,
+                         totalTokens=response.usage.total_tokens)
+        if not response.choices or response.choices[0].finish_reason != "stop" or not response.choices[0].message.content:
+            raise RuntimeError("Judge did not return a completed assessment")
+        assessment = json.loads(response.choices[0].message.content, object_pairs_hook=unique_object, parse_constant=reject_constant)
+        if not isinstance(assessment, dict) or assessment.keys() - set(ids):
+            raise RuntimeError("Judge returned an invalid criterion map")
+        scores = {}
+        for criterion in criteria:
+            try:
+                if criterion["id"] not in assessment:
+                    raise ValueError("Judge omitted the criterion")
+                finding = Finding.model_validate(assessment[criterion["id"]])
+                scores[criterion["id"]] = score_finding(criterion, finding, references)
+            except ValueError as error:
+                scores[criterion["id"]] = score_entry(criterion, state="error", reason=str(error))
+        return scores, usage
+    except OpenAIError as error:
+        reason = f'Judge API request failed ({getattr(error, "status_code", None) or type(error).__name__})'
+    except RuntimeError as error:
+        reason = str(error)
+    except (RecursionError, ValueError):
+        reason = "Judge returned an invalid assessment"
+    finally:
+        usage["durationMs"] = round((perf_counter() - started) * 1000)
+    return {item["id"]: score_entry(item, state="error", reason=reason) for item in criteria}, usage

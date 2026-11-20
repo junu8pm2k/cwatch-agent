@@ -40,6 +40,6 @@ npm start -- trace --out artifacts/live-web --run <runId> --langfuse
 
 ## Agent Benchmark
 
-在 Langfuse 的 `cwatch/benchmark/v2.3` Dataset 中更新用例后，执行 `npm run eval:sync`，审核并提交仓库快照。DeepEval 从快照运行程序检查和语义评分。
+v3 的正式题集在仓库维护。编辑后执行 `npm run eval:sync`，审核并提交快照。使用 `npm run eval:sync -- --dataset <name>` 可以显式导入符合 v3 格式的 Langfuse Dataset。
 
-本机和容器评测完成后，由宿主机向已配置的 Langfuse 上传 Trace 和 `benchmark.*` 分数。`npm run eval:publish -- <run-id>` 用于重试正式 Benchmark 的上传，本地审阅题重试时加 `--review-tests`。 [Benchmark 操作指南](../evals/README.md)
+本机和容器评测完成后，由宿主机向已配置的 Langfuse 上传 Trace 和 `benchmark.*` 分数。Code Judge 保留 `0–1`，LLM Judge 保留 `0–3`，各分项元数据记录满分、阈值和判定依据，Trace 记录 Case 状态。仅执行本地回归时可设置 `BENCHMARK_PUBLISH=0`。`npm run eval:publish -- <run-id>` 用于重试上传，本地审阅题加 `--review-tests`。 [Benchmark 操作指南](../evals/README.md)
