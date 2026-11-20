@@ -3,13 +3,24 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { langfusePayload, sendLangfuseTrace } from '@cwatch/shared/sessions/langfuse';
-import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
+import { StructuredTraceSchema, type StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { LangfuseClient } from '../scripts/langfuse-client.ts';
 import { digest, readJson } from './benchmark-contract.ts';
 
 const runId = z.string().regex(/^[0-9a-zA-Z_-]{1,80}$/);
-const resultSchema = z.object({
+const reportScore = z.union([
+  z.object({ name: z.string().regex(/^[a-z_]+$/), value: z.number().min(0).max(1), reason: z.string(), passed: z.boolean() }),
+  z.object({
+    name: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/), value: z.int().min(0).max(3).nullable(), max: z.union([z.literal(1), z.literal(3)]),
+    threshold: z.union([z.literal(1), z.literal(2)]), dimension: z.enum(['result', 'process', 'evidence', 'safety']),
+    required: z.boolean(), judge: z.enum(['code', 'llm']), status: z.enum(['pass', 'fail', 'error', 'skipped']),
+    reason: z.string(), references: z.array(z.string()),
+  }).refine(score => score.value === null
+    ? score.status === 'error' || score.status === 'skipped'
+    : score.value <= score.max && score.status === (score.value >= score.threshold ? 'pass' : 'fail')),
+]);
+export const resultSchema = z.object({
   runId: z.uuid(),
   commitSha: z.string().min(1),
   startedAt: z.iso.datetime({ offset: true }),
@@ -20,12 +31,11 @@ const resultSchema = z.object({
     caseId: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/),
     itemId: z.string().min(1),
     passed: z.boolean(),
+    status: z.enum(['pass', 'fail', 'error']).optional(),
     error: z.string().optional(),
     agent: z.object({ runId, output: z.string().optional() }).optional(),
-    scores: z.array(z.object({
-      name: z.string().regex(/^[a-z_]+$/), value: z.number().min(0).max(1), reason: z.string(), passed: z.boolean(),
-    })),
-  })),
+    scores: z.array(reportScore),
+  }).refine(item => item.status === undefined || item.passed === (item.status === 'pass'))),
 });
 
 export function reviewTestMissingAnswerView(document: StructuredTrace, reason: string): StructuredTrace {
@@ -63,18 +73,19 @@ export async function publishBenchmark(runDir: string, expectedRunId: string) {
   const timestamp = new Date(report.startedAt).toISOString();
   const redactor = new Redactor(Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(key)).map(([, value]) => value ?? ''));
   const client = new LangfuseClient(connection, fetch, redactor);
-  const results: Array<{ caseId: string; sessionId?: string; traceId?: string; scoreCount?: number; error?: string }> = [];
+  const results: Array<{ caseId: string; status: string; sessionId?: string; traceId?: string; scoreCount?: number; error?: string }> = [];
   for (const item of report.cases) {
-    const result: typeof results[number] = { caseId: item.caseId };
+    const result: typeof results[number] = { caseId: item.caseId, status: item.status ?? (item.passed ? 'pass' : 'fail') };
     results.push(result);
     if (!item.agent) continue; // A failed launch has no Agent trace.
     try {
-      const document = redactor.clean(readJson(join(runDir, 'cases', item.caseId, 'trace.json'))) as StructuredTrace;
+      const document = StructuredTraceSchema.parse(redactor.clean(readJson(join(runDir, 'cases', item.caseId, 'trace.json'))));
       if (document.runId !== item.agent.runId || document.taskId !== item.caseId) throw Error('benchmark trace identity mismatch');
       const metadata = {
         agent_name: 'cwatch', case_id: item.caseId, run_id: report.runId, commit_sha: report.commitSha,
         judge_version: report.judge.version, dataset_name: report.dataset.name,
         dataset_revision: report.dataset.revision, dataset_item_id: item.itemId,
+        case_status: result.status,
       };
       // Keep each local test run's Session verdict independent of reruns of the same case.
       const sessionId = reviewTests ? item.caseId + '-' + report.runId : document.taskId;
@@ -86,25 +97,27 @@ export async function publishBenchmark(runDir: string, expectedRunId: string) {
       const { traceId, spans } = langfusePayload(traceView, connection, metadata, sessionId);
       await sendLangfuseTrace(connection, spans);
       result.traceId = traceId;
-      const scores = item.scores.map(score => ({
+      const scores = item.scores.flatMap(score => score.value === null ? [] : [{
         id: digest([traceId, score.name]).slice(0, 32),
         traceId, name: 'benchmark.' + score.name, value: score.value, dataType: 'NUMERIC',
         comment: redactor.clean(score.reason).slice(0, 2000), environment: connection.environment, timestamp,
-        metadata: { ...metadata, passed: score.passed },
-      }));
+        metadata: 'passed' in score ? { ...metadata, passed: score.passed } : {
+          ...metadata, passed: score.status === 'pass', score_status: score.status, dimension: score.dimension,
+          judge: score.judge, required: score.required, max: score.max, threshold: score.threshold,
+          references: redactor.clean(score.references),
+        },
+      }]);
       const verdictScores = [];
-      if (reviewTests) {
-        result.sessionId = sessionId;
+      if (reviewTests) result.sessionId = sessionId;
+      if (reviewTests || item.status) {
         const reason = item.passed ? 'All required benchmark checks passed.' : failure;
         const verdict = {
           name: 'benchmark.case_passed', value: Number(item.passed), dataType: 'BOOLEAN',
           comment: redactor.clean(reason).split(/\r?\n/, 1)[0].slice(0, 2000),
           environment: connection.environment, timestamp, metadata: { ...metadata, passed: item.passed },
         };
-        verdictScores.push(
-          { ...verdict, id: digest([traceId, verdict.name]).slice(0, 32), traceId },
-          { ...verdict, id: digest([sessionId, verdict.name]).slice(0, 32), sessionId },
-        );
+        verdictScores.push({ ...verdict, id: digest([traceId, verdict.name]).slice(0, 32), traceId });
+        if (reviewTests) verdictScores.push({ ...verdict, id: digest([sessionId, verdict.name]).slice(0, 32), sessionId });
       }
       const publishedScores = [...scores, ...verdictScores];
       await client.writeScores(publishedScores);

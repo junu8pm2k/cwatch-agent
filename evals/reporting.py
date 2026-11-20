@@ -2,12 +2,12 @@ import hashlib
 import json
 import os
 import platform
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib.metadata import version
 from uuid import uuid4
 
 from agent_adapter import CONFIG, ROOT
+from metrics import JUDGE_RUBRIC
 
 
 def now():
@@ -19,20 +19,20 @@ class BenchmarkReport:
         self.directory = directory
         self.cases = {}
         self.metadata = {
+            "schemaVersion": 2,
             "runId": os.environ["BENCHMARK_RUN_ID"],
             "commitSha": os.environ["BENCHMARK_COMMIT"],
             "treeState": os.environ["BENCHMARK_TREE_STATE"],
             "dataset": manifest["dataset"], "suite": suite, "suiteHashes": manifest["suites"],
-            "agent": CONFIG["agent"], "judge": CONFIG["judge"], "metrics": CONFIG["metrics"],
+            "agent": CONFIG["agent"], "judge": CONFIG["judge"],
             "limits": CONFIG["limits"], "fixtureHashes": manifest["fixtureHashes"],
             "skillHashes": manifest["skillHashes"],
-            "rubricHashes": {
-                rule["rubric"]: hashlib.sha256((ROOT / "evals/rubrics" / rule["rubric"]).read_bytes()).hexdigest()
-                for rule in CONFIG["metrics"].values() if "rubric" in rule
-            },
+            "rubricHashes": {"judge.md": hashlib.sha256(JUDGE_RUBRIC.encode("utf-8")).hexdigest()},
+            "scorerHashes": {path: hashlib.sha256((ROOT / "evals" / path).read_bytes()).hexdigest()
+                             for path in ("metrics.py", "evaluation.py")},
             "environment": {
                 "kind": os.environ["BENCHMARK_ENV"], "platform": platform.platform(),
-                "python": platform.python_version(), "node": manifest["nodeVersion"], "deepEval": version("deepeval"),
+                "python": platform.python_version(), "node": manifest["nodeVersion"], "pytest": version("pytest"),
             },
             "startedAt": now(), "expectedCaseIds": [case["id"] for case in cases],
         }
@@ -43,27 +43,15 @@ class BenchmarkReport:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    @contextmanager
-    def record(self, case):
-        entry = {
-            "caseId": case["id"], "itemId": case["itemId"], "scores": [],
-            "passed": False, "origin": case.get("origin"),
-        }
-        try:
-            yield entry
-            entry["passed"] = True
-        except Exception as error:
-            entry["error"] = str(error)
-            raise
-        finally:
-            self.cases[case["id"]] = entry
-            self.write()
+    def record(self, entry):
+        self.cases[entry["caseId"]] = entry
+        self.write()
 
     def write(self):
         count = len(self.metadata["expectedCaseIds"])
-        passed = sum(entry["passed"] for entry in self.cases.values())
-        summary = {"expected": count, "executed": len(self.cases), "passed": passed,
-                   "failed": len(self.cases) - passed, "complete": len(self.cases) == count}
+        summary = {"expected": count, "executed": len(self.cases), "complete": len(self.cases) == count}
+        for key, status in (("passed", "pass"), ("failed", "fail"), ("errors", "error")):
+            summary[key] = sum(entry["status"] == status for entry in self.cases.values())
         destination = self.directory / "report.json"
         temporary = destination.with_suffix(f".{uuid4()}.tmp")
         temporary.write_text(

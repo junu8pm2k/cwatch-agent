@@ -20,6 +20,8 @@
     "eval:sync": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types evals/sync.ts",
     "eval:run": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types evals/benchmark.ts host",
     "eval:ci": "node --experimental-transform-types evals/benchmark.ts ci",
+    "eval:check": "node --experimental-transform-types evals/benchmark.ts check",
+    "eval:calibrate": "node --env-file-if-exists=.env --experimental-transform-types evals/benchmark.ts calibrate",
     "eval:docker": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types evals/benchmark.ts docker",
     "eval:publish": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types evals/benchmark.ts publish",
     "probe:sources": "node --use-env-proxy --experimental-transform-types scripts/probe.ts",

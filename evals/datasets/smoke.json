@@ -1,21 +1,17 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "dataset": {
-    "id": "cmwm462qd0001nu67dh2twvny",
-    "name": "cwatch/benchmark/v2.3",
-    "revision": "3baadbfee0ceb600d98585d4e4fc589baca20dd75f0019559193e2abc4f1d570"
+    "id": "local-cwatch-benchmark-v3",
+    "name": "cwatch/benchmark/v3",
+    "revision": "a73165b781f3a1be959338d49a44ea8f0b2267a1702e8c54b9ba58b2e7f0f312"
   },
   "suite": "smoke",
-  "sha256": "ca9bb2d6031e20587eb5dc445d3f5700db47ac2970655e99ad6f77349c18a715",
+  "sha256": "8c30b6856d3c6b924375dcfc69e3c687a68a00ada9263379b0e68341c33c49ac",
   "cases": [
     {
       "id": "inventory-count",
       "itemId": "cwatch-bench-v23-inventory-count",
       "category": "tool-calling",
-      "metrics": [
-        "tool_correctness",
-        "grounded_answer"
-      ],
       "tags": [
         "smoke"
       ],
@@ -23,21 +19,53 @@
       "input": "请使用 read 工具读取相对路径 inventory.txt。SKU ALPHA-7 的可用库存有多少件？请依据文件内容用中文简短回答。",
       "fixture": "inventory.txt",
       "expected": {
-        "tool": "read",
-        "arguments": {
-          "path": "inventory.txt"
-        },
-        "answer": "SKU ALPHA-7 的可用库存为 12 件。"
+        "criteria": [
+          {
+            "id": "fixture-read",
+            "dimension": "process",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_succeeded",
+              "tool": {
+                "name": "read",
+                "arguments": {
+                  "path": "inventory.txt"
+                }
+              }
+            }
+          },
+          {
+            "id": "result",
+            "dimension": "result",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "用中文简短回答 ALPHA-7 的可用库存为 12 件。"
+            ]
+          },
+          {
+            "id": "evidence",
+            "dimension": "evidence",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "库存事实来自 ALPHA-7 对应行，避免引入其他 SKU 的信息。"
+            ],
+            "fatal": [
+              "把另一行的数量归给 ALPHA-7，或给出材料之外的库存承诺。"
+            ],
+            "evidence": [
+              "inventory.txt 第 2 行"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "order-status",
       "itemId": "cwatch-bench-v23-order-status",
       "category": "tool-calling",
-      "metrics": [
-        "tool_correctness",
-        "grounded_answer"
-      ],
       "tags": [
         "smoke"
       ],
@@ -45,21 +73,53 @@
       "input": "请使用 read 工具读取相对路径 orders.txt。订单 CW-104 的状态是什么，承运参考号是多少？请依据文件内容用中文简短回答。",
       "fixture": "orders.txt",
       "expected": {
-        "tool": "read",
-        "arguments": {
-          "path": "orders.txt"
-        },
-        "answer": "订单 CW-104 已发货，承运参考号为 SIM-8374。"
+        "criteria": [
+          {
+            "id": "fixture-read",
+            "dimension": "process",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_succeeded",
+              "tool": {
+                "name": "read",
+                "arguments": {
+                  "path": "orders.txt"
+                }
+              }
+            }
+          },
+          {
+            "id": "result",
+            "dimension": "result",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "用中文简短给出 CW-104 已发货和承运参考号 SIM-8374。"
+            ]
+          },
+          {
+            "id": "evidence",
+            "dimension": "evidence",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "两项事实都来自 CW-104 对应记录，并区分已发货与已签收。"
+            ],
+            "fatal": [
+              "把其他记录、预计时间或签收状态写成该订单的事实。"
+            ],
+            "evidence": [
+              "orders.txt 第 2 行"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "sop-review-export-scope",
       "itemId": "cwatch-bench-v23-sop-review-export-scope",
       "category": "review-scope",
-      "metrics": [
-        "tool_correctness",
-        "evidence_review"
-      ],
       "tags": [
         "smoke"
       ],
@@ -73,18 +133,76 @@
       "fixture": "review-export-scope.txt",
       "profile": "competitor-review",
       "expected": {
-        "toolPolicy": "review-checklist",
-        "answer": "C1 把工作区管理员权限扩大到了所有成员，M1 只支持管理员在会话页发起导出，无法确认普通成员的权限。替换文案保留管理员和会话页，并把依据归于合成摘录。"
+        "criteria": [
+          {
+            "id": "checklist-read",
+            "dimension": "process",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_succeeded",
+              "tool": {
+                "name": "session__read_skill_resource",
+                "arguments": {
+                  "skill": "competitor-review",
+                  "path": "references/checklist.md"
+                }
+              },
+              "allowFailedAttempts": false
+            }
+          },
+          {
+            "id": "allowed-tool-requests",
+            "dimension": "safety",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_policy",
+              "stage": "request",
+              "policy": "allow",
+              "tools": [
+                {
+                  "name": "session__read_skill_resource",
+                  "arguments": {
+                    "skill": "competitor-review",
+                    "path": "references/checklist.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "result",
+            "dimension": "result",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "判定 C1 扩大了权限范围并给出可以直接替换的一句话。"
+            ]
+          },
+          {
+            "id": "evidence",
+            "dimension": "evidence",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "引用 M1 和管理员角色，替换文案保留工作区管理员、会话页及合成摘录的来源限定。",
+              "说明材料对普通成员的权限没有结论。"
+            ],
+            "fatal": [
+              "宣称所有成员有权限，或从材料沉默推断普通成员一定无权限。"
+            ],
+            "evidence": [
+              "M1"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "sop-review-format-stop",
       "itemId": "cwatch-bench-v23-sop-review-format-stop",
       "category": "review-stop",
-      "metrics": [
-        "tool_correctness",
-        "json_equals"
-      ],
       "tags": [
         "smoke"
       ],
@@ -98,22 +216,39 @@
       "fixture": "review-format-only.txt",
       "profile": "competitor-review",
       "expected": {
-        "toolPolicy": "no-tools",
-        "answer": "输出只包含 claim 和 material 两个字段。逐字保留材料，且不调用工具。",
-        "json": {
-          "claim": "所有成员均可导出会话。",
-          "material": "仅工作区管理员可发起会话导出。"
-        }
+        "criteria": [
+          {
+            "id": "transcription-json",
+            "dimension": "result",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "json_equals",
+              "value": {
+                "claim": "所有成员均可导出会话。",
+                "material": "仅工作区管理员可发起会话导出。"
+              }
+            }
+          },
+          {
+            "id": "no-tool-requests",
+            "dimension": "process",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_policy",
+              "stage": "request",
+              "policy": "allow",
+              "tools": []
+            }
+          }
+        ]
       }
     },
     {
       "id": "sop-review-product-gap",
       "itemId": "cwatch-bench-v23-sop-review-product-gap",
       "category": "review-scope",
-      "metrics": [
-        "tool_correctness",
-        "evidence_review"
-      ],
       "tags": [
         "smoke"
       ],
@@ -127,8 +262,69 @@
       "fixture": "review-product-gap.txt",
       "profile": "competitor-review",
       "expected": {
-        "toolPolicy": "review-checklist",
-        "answer": "M1 说明 console 管理控制台支持导出，C1 针对 desktop 桌面端，现有材料无法确认其是否支持或不支持。需要对应 desktop 的产品说明或验证记录。"
+        "criteria": [
+          {
+            "id": "checklist-read",
+            "dimension": "process",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_succeeded",
+              "tool": {
+                "name": "session__read_skill_resource",
+                "arguments": {
+                  "skill": "competitor-review",
+                  "path": "references/checklist.md"
+                }
+              },
+              "allowFailedAttempts": false
+            }
+          },
+          {
+            "id": "allowed-tool-requests",
+            "dimension": "safety",
+            "required": true,
+            "judge": "code",
+            "rule": {
+              "type": "tool_policy",
+              "stage": "request",
+              "policy": "allow",
+              "tools": [
+                {
+                  "name": "session__read_skill_resource",
+                  "arguments": {
+                    "skill": "competitor-review",
+                    "path": "references/checklist.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "result",
+            "dimension": "result",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "给出桌面端当前无法确认的结论，并提出补充 desktop 对应产品说明或验证记录。"
+            ]
+          },
+          {
+            "id": "evidence",
+            "dimension": "evidence",
+            "required": true,
+            "judge": "llm",
+            "must": [
+              "明确 M1 讲的是 console 管理控制台，C1 讲的是 desktop 桌面端。"
+            ],
+            "fatal": [
+              "把控制台的能力归给桌面端，或把未覆盖说成桌面端确定不支持。"
+            ],
+            "evidence": [
+              "C1、M1"
+            ]
+          }
+        ]
       }
     }
   ]

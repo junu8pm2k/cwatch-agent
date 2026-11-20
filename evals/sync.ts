@@ -5,10 +5,9 @@ import { z } from 'zod';
 import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { LangfuseClient } from '../scripts/langfuse-client.ts';
-import { benchmarkCase, compareCases, digest, fixturePath, itemExpected, itemInput, itemMetadata, suites } from './benchmark-contract.ts';
-import config from './config.json' with { type: 'json' };
+import { benchmarkCase, datasetIdentity, itemExpected, itemInput, itemMetadata, loadSnapshots, makeSnapshots } from './benchmark-contract.ts';
 
-const datasetSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
+const remoteDataset = datasetIdentity.loose();
 const remoteItem = z.object({
   id: z.string().min(1), datasetId: z.string().min(1), datasetName: z.string().min(1),
   status: z.enum(['ACTIVE', 'ARCHIVED']), input: z.unknown(), expectedOutput: z.unknown(), metadata: z.unknown(),
@@ -21,7 +20,7 @@ const secretValues = Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SE
 const redactor = new Redactor(secretValues);
 const redact = (error: unknown) => redactor.clean(error instanceof Error ? error.message : String(error));
 
-async function fetchItems(client: LangfuseClient, dataset: z.infer<typeof datasetSchema>, version: string) {
+async function fetchItems(client: LangfuseClient, dataset: z.infer<typeof datasetIdentity>, version: string) {
   const limit = 100;
   const items = new Map<string, z.infer<typeof remoteItem>>();
   let totalItems: number | undefined;
@@ -43,13 +42,13 @@ async function fetchItems(client: LangfuseClient, dataset: z.infer<typeof datase
   throw Error('Langfuse dataset pagination limit exceeded');
 }
 
-async function sync(datasetName: string, version: string) {
+async function importDataset(datasetName: string, version: string) {
   const connection = readLangfuseConfig();
   if (!connection) throw Error('eval:sync requires Langfuse project keys');
   const client = new LangfuseClient(connection);
-  const dataset = datasetSchema.parse(await client.request('/api/public/v2/datasets/' + encodeURIComponent(datasetName)));
+  const { id, name } = remoteDataset.parse(await client.request('/api/public/v2/datasets/' + encodeURIComponent(datasetName)));
+  const dataset = { id, name };
   if (dataset.name !== datasetName) throw Error('requested Langfuse dataset name differs from API response');
-  const ids = new Set<string>();
   const cases = (await fetchItems(client, dataset, version)).filter(item => item.status === 'ACTIVE').map(item => {
     try {
       const { caseId, ...metadata } = itemMetadata.parse(item.metadata);
@@ -57,21 +56,17 @@ async function sync(datasetName: string, version: string) {
       const value = benchmarkCase.parse({ id: caseId, itemId: item.id, ...metadata, ...execution, input: instruction, expected: itemExpected.parse(item.expectedOutput) });
       const serialized = JSON.stringify(value);
       if (redactor.clean(serialized) !== serialized) throw Error('sensitive value detected in snapshot candidate');
-      if (ids.has(value.id)) throw Error('duplicate stable case ID');
-      ids.add(value.id);
-      fixturePath(value.fixture);
       return value;
     } catch (error) {
       throw Error('invalid Langfuse item ' + item.id + ': ' + redact(error));
     }
-  }).sort(compareCases);
-  const revision = digest(cases);
-  const snapshots = suites.map(suite => {
-    const entries = cases.filter(item => item.tags.includes(suite));
-    if (!entries.length) throw Error('empty benchmark suite: ' + suite);
-    return { schemaVersion: 1, dataset: { ...dataset, revision }, suite, sha256: digest(entries), cases: entries };
   });
-  const audit = { syncedAt: new Date().toISOString(), asOf: version, dataset: { ...dataset, revision }, suites: snapshots.map(({ suite, sha256 }) => ({ suite, sha256 })) };
+  return makeSnapshots(dataset, cases);
+}
+
+async function writeSnapshots(snapshots: ReturnType<typeof makeSnapshots>, version: string | null) {
+  const audit = { syncedAt: new Date().toISOString(), asOf: version, dataset: snapshots[0].dataset,
+    suites: snapshots.map(({ suite, sha256 }) => ({ suite, sha256 })) };
   const outputs = [
     ...snapshots.map(snapshot => ({ path: 'evals/datasets/' + snapshot.suite + '.json', value: snapshot })),
     { path: 'artifacts/benchmark/sync.json', value: audit },
@@ -86,15 +81,17 @@ async function sync(datasetName: string, version: string) {
 }
 
 async function main() {
-  const { values } = parseArgs({ options: { dataset: { type: 'string', default: config.dataset }, version: { type: 'string' } } });
-  const version = z.iso.datetime().parse(values.version ?? new Date().toISOString());
-  if (Date.parse(version) > Date.now()) throw Error('dataset version cannot be in the future');
+  const { values } = parseArgs({ options: { dataset: { type: 'string' }, version: { type: 'string' } } });
+  if (values.version && !values.dataset) throw Error('--version requires --dataset');
+  const version = values.dataset ? z.iso.datetime().parse(values.version ?? new Date().toISOString()) : null;
+  if (version && Date.parse(version) > Date.now()) throw Error('dataset version cannot be in the future');
   await mkdir('evals/datasets', { recursive: true });
   await mkdir('artifacts/benchmark', { recursive: true });
   const lockPath = 'artifacts/benchmark/sync.lock';
   const lock = await open(lockPath, 'wx');
   try {
-    await sync(values.dataset, version);
+    const snapshots = values.dataset && version ? await importDataset(values.dataset, version) : loadSnapshots(true).snapshots;
+    await writeSnapshots(snapshots, version);
   } finally {
     await lock.close();
     await rm(lockPath);

@@ -1,28 +1,10 @@
 import { z } from 'zod';
-import { benchmarkCase, readJson } from './benchmark-contract.ts';
-
-const localReviewCases = z.array(z.strictObject({
-  id: z.string(),
-  category: z.string(),
-  reference: z.string(),
-  stage: z.enum(['main', 'branch', 'stop', 'boundary', 'handoff']),
-  input: z.string(),
-  answer: z.string(),
-})).nonempty();
+import { benchmarkCase, fixturePath, readJson } from './benchmark-contract.ts';
 
 export function loadReviewTestCases() {
-  const cases = localReviewCases.parse(readJson('evals/datasets/review-tests.json'));
-  return cases.map(({ id, category, reference, stage, input, answer }) => benchmarkCase.parse({
-    id,
-    itemId: 'local-review-test-' + id,
-    category,
-    metrics: ['tool_correctness', 'evidence_review'],
-    tags: ['regression'],
-    dataClass: 'synthetic',
-    origin: { type: 'sop', reference, stage },
-    fixture: id + '.txt',
-    profile: 'competitor-review',
-    input,
-    expected: { toolPolicy: 'review-checklist', answer },
-  }));
+  const cases = z.array(benchmarkCase).nonempty().parse(readJson('evals/datasets/review-tests.json'));
+  if (new Set(cases.map(item => item.id)).size !== cases.length
+    || new Set(cases.map(item => item.itemId)).size !== cases.length) throw Error('duplicate local review case or item');
+  for (const item of cases) fixturePath(item.fixture);
+  return cases;
 }

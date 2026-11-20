@@ -15,4 +15,4 @@ RUN npm ci --ignore-scripts --no-audit --no-fund \
 COPY evals ./evals
 COPY skills/general-agent ./skills/general-agent
 COPY skills/competitor-review ./skills/competitor-review
-CMD ["uv", "run", "--locked", "--no-sync", "deepeval", "test", "run", "evals/test_agent.py"]
+CMD ["uv", "run", "--locked", "--no-sync", "pytest", "-p", "no:deepeval", "-q", "--durations=10", "evals/test_agent.py"]

@@ -1,1 +1,0 @@
-Check whether the response clearly distinguishes unavailable information from a confirmed negative result. Accept equivalent wording of the expected answer. Give little or no credit if the response invents a record, status or date, or presents an unsupported next step as a fact.

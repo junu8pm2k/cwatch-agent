@@ -11,18 +11,10 @@ NODE_AGENT = ("node", "--use-env-proxy", "--experimental-transform-types", "eval
 CONFIG = json.loads((ROOT / "evals/config.json").read_text(encoding="utf-8"))
 
 
-class ToolCall(BaseModel):
-    name: str
-    arguments: dict | None
-    status: str
-    hadError: bool
-
-
 class AgentResult(BaseModel):
     runId: str = Field(pattern=r"^[0-9a-zA-Z_-]{1,80}$")
     status: str
     output: str
-    tools: list[ToolCall]
     durationMs: int = Field(ge=0)
     error: str | None
 
@@ -57,7 +49,7 @@ def load_manifest(suite):
     return json.loads(agent_command("manifest", suite))
 
 
-def run_agent(case, case_dir):
+def run_agent(case, case_dir, fixture_hash):
     workspace_cache = ROOT / ".cache"
     workspace_cache.mkdir(exist_ok=True)
     with TemporaryDirectory(prefix="bench-", dir=workspace_cache) as temp_dir:
@@ -65,8 +57,21 @@ def run_agent(case, case_dir):
         result = agent_command(
             "run", timeout=CONFIG["limits"]["timeoutMs"] // 1000 + 20,
             payload={
-                "id": case["id"], "input": case["input"], "fixture": case["fixture"],
+                "id": case["id"], "input": case["input"], "fixture": case["fixture"], "fixtureSha256": fixture_hash,
                 "workDir": temp_dir, "traceFile": str(case_dir / "trace.json"), **profile,
             },
         )
         return AgentResult.model_validate_json(result)
+
+
+def load_trace(case, case_dir, result):
+    trace = json.loads((case_dir / "trace.json").read_text(encoding="utf-8"))
+    if trace["schemaVersion"] != "cwatch.structured-trace.v1" or trace["traceId"] != result.runId:
+        raise ValueError("benchmark trace schema or trace ID mismatch")
+    if trace["runId"] != result.runId or trace["taskId"] != case["id"]:
+        raise ValueError("benchmark trace identity mismatch")
+    if trace["integrity"]["valid"] is not True or trace["integrity"]["complete"] is not True:
+        raise ValueError("benchmark trace is invalid or incomplete")
+    if trace["status"] != result.status or (trace["output"]["response"] or "") != result.output:
+        raise ValueError("benchmark trace terminal record disagrees with Agent result")
+    return trace
