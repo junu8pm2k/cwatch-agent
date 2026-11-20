@@ -41,6 +41,8 @@ npm start -- run --mode live --instruction "读取 custom 服务提供的发布�
 
 `allowedSources` 是外部来源白名单，本地文件与会话工具由宿主单独授权。`explore` 提供 read/grep/find/ls；write/edit/bash 在 `ask` 下逐次审批，在 `allow-all` 下允许执行，始终保留工作区和敏感文件检查。Skill 无法扩展白名单或授予写权限。
 
+使用 Pi 模型的任务可选填 `responseCharacterLimit`，以非空白字符计。首次答复超限时，当前会话可在运行预算内改写一次，改写时关闭工具。如果仍超限，任务报告失败。
+
 ## 调用路线
 
 ```mermaid

@@ -1,7 +1,7 @@
 import { type ModelConfig } from "../../../config/models.ts";
 
 /** Explicit in-memory credentials; used in the worker and the standalone connectivity probe. */
-export async function createPiRuntime(provider: string, modelId: string, config: Pick<ModelConfig, 'apiKey' | 'baseUrl'> | undefined, signal: AbortSignal, supplied?: import('@earendil-works/pi-coding-agent').ModelRuntime) {
+export async function createPiRuntime(provider: string, modelId: string, config: Pick<ModelConfig, 'apiKey' | 'baseUrl' | 'reasoningEffort'> | undefined, signal: AbortSignal, supplied?: import('@earendil-works/pi-coding-agent').ModelRuntime) {
   const { ModelRuntime } = await import('@earendil-works/pi-coding-agent');
   let runtime = supplied;
   if (!runtime) {
@@ -13,6 +13,7 @@ export async function createPiRuntime(provider: string, modelId: string, config:
         id: modelId, name: modelId, reasoning: false, input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 4096,
         compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false },
+        ...(config.reasoningEffort ? { samplingParams: { reasoning_effort: config.reasoningEffort } } : {}),
       }],
     });
     if (config?.apiKey) await runtime.setRuntimeApiKey(provider, config.apiKey, { signal });

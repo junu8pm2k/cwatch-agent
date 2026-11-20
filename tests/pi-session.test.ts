@@ -7,10 +7,11 @@ import { type FileStore } from "@cwatch/shared/sessions/storage";
 import { check, CountingClient, deferred, emptySchema, fixture, json, store, task, waitTick } from './harness.ts';
 import { PiModel } from "@cwatch/shared/agent/models";
 import { runInvestigation, replayState, type RuntimeOptions } from "@cwatch/server-core/runtime/investigation";
+import { runAgent } from "@cwatch/server-core/runtime/agent";
 import { ToolRegistry } from "@cwatch/shared/tools/registry";
 import { ActionPolicy, ApprovalManager } from "@cwatch/shared/agent/core/permission-manager";
 import { validateTrace, type TraceEvent } from "@cwatch/shared/sessions/trace";
-import { hash, type CompetitorTask, type Decision } from "@cwatch/core/types";
+import { hash, type CompetitorTask, type Decision, type GenericTask } from "@cwatch/core/types";
 import { PrerequisiteManager } from '@cwatch/shared/agent/core/prerequisite-manager';
 
 type Step = Exclude<Decision, { kind: 'call_tools' }> | { calls: Array<{ id?: string; name: string; args: unknown }>; finish?: string; text?: string; thinking?: string } | { http: number } | { hold: true };
@@ -23,6 +24,8 @@ const full = (value?: CompetitorTask): Step[] => [plan(value), call('mcp__offici
 
 interface Options {
   runtime?: RuntimeOptions; client?: CountingClient; task?: CompetitorTask;
+  agentTask?: GenericTask;
+  reasoningEffort?: 'low';
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } } | null;
   signal?: AbortSignal; policy?: ActionPolicy; approvals?: ApprovalManager;
   setup?: (registry: ToolRegistry, data: FileStore, source: CountingClient) => Promise<void>;
@@ -47,7 +50,7 @@ async function sessionCase(steps: Step[], options: Options = {}) {
       await options.onRequest?.(request, requests.length, registry, data);
       const injected = options.providerError?.(request);
       if (injected) { res.writeHead(injected.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: injected.message, code: injected.code, type: 'invalid_request_error' } })); return; }
-      const summaryRequest = !request.tools?.length;
+      const summaryRequest = !options.agentTask && !request.tools?.length;
       const memoryRequest = JSON.stringify(request.messages[0]).includes('SESSION MEMORY UPDATE.');
       const step = memoryRequest && options.memorySteps ? structuredClone(options.memorySteps[memoryIndex++]) : summaryRequest ? { kind: 'respond' as const, text: memoryRequest && options.memoryResponse !== undefined ? options.memoryResponse : JSON.stringify({ userGoal: 'The investigation plan is saved.', completedWork: ['Saved investigation plan'], keyFiles: [], errorsAndFixes: [], unfinishedTasks: ['Finish evidence-backed draft'], nextSteps: ['Continue collecting, then analyze, review and draft using exact tool-returned claim IDs'], references: [], sourceGaps: [] }) } : structuredClone(steps[scriptIndex++]);
       if (!step) throw new Error('unexpected extra provider request');
@@ -81,11 +84,14 @@ async function sessionCase(steps: Step[], options: Options = {}) {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   try {
-    const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-session-' + ++providerSequence, MODEL_ID: 'fixture-session', API_KEY: 'fixture-session-key', BASE_URL: 'http://127.0.0.1:' + address.port + '/v1' });
+    const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-session-' + ++providerSequence, MODEL_ID: 'fixture-session', API_KEY: 'fixture-session-key', BASE_URL: 'http://127.0.0.1:' + address.port + '/v1' }, { reasoningEffort: options.reasoningEffort });
     // The investigation must use the SDK session, never fall back to completeSimple/decide.
     model.decide = async () => { throw new Error('single-step Pi path must not run'); };
     // Most cases isolate business/compaction behavior; memory cases explicitly enable maintenance.
-    const result = await runInvestigation(value, model, registry, data, 'replay', { timeoutMs: 30_000, sessionMemory: false, ...options.runtime }, options.signal, options.policy, options.approvals);
+    const runOptions = { timeoutMs: 30_000, sessionMemory: false as const, ...options.runtime };
+    const result = options.agentTask
+      ? await runAgent(options.agentTask, model, registry, data, 'replay', runOptions, options.signal, options.policy, options.approvals)
+      : await runInvestigation(value, model, registry, data, 'replay', runOptions, options.signal, options.policy, options.approvals);
     assert.deepEqual(serverErrors, []);
     const events = data.lines<TraceEvent>('traces/' + result.runId + '.jsonl');
     assert.equal(events[0].data.engine, 'pi-agent-session');
@@ -101,9 +107,38 @@ check('integration', 'Pi AgentSession owns complete tool loop, usage and normali
   const actual = await sessionCase(full(value));
   assert.equal(actual.result.status, 'complete', actual.result.error);
   assert.equal(actual.requests.length, 6); assert.equal(actual.source.calls.length, 1);
+  assert.ok(actual.requests.every(request => request.reasoning_effort === undefined));
   assert.equal(actual.state.observations.length, 5); assert.equal(actual.state.decisions.length, 6);
   assert.equal(actual.requests[1].messages.filter((message: any) => message.role === 'tool').length, 1);
   assert.equal((actual.events.find(event => event.type === 'usage_reported')!.data.modelUsage as unknown[]).length, 6);
+});
+
+check('integration', 'an oversized final answer is revised without rerunning tools and only the verified reply is delivered', async () => {
+  const agentTask: GenericTask = { kind: 'agent', taskId: 'short-answer', instruction: 'Give a short answer from the source.',
+    allowedSources: ['official'], responseCharacterLimit: 3 };
+  const actual = await sessionCase([call('mcp__official__op'), { kind: 'respond', text: '甲乙丙丁' },
+    { kind: 'respond', text: '甲🙂\n乙' }], { agentTask, reasoningEffort: 'low' });
+  assert.equal(actual.result.status, 'complete', actual.result.error);
+  assert.equal(actual.result.response, '甲🙂\n乙');
+  assert.equal(actual.source.calls.length, 1);
+  assert.equal(actual.requests.length, 3);
+  assert.ok(actual.requests.every(request => request.reasoning_effort === 'low'));
+  assert.equal(actual.requests[2].tools?.length ?? 0, 0);
+  assert.match(JSON.stringify(actual.requests[2].messages.at(-1).content), /maximum of 3/);
+  assert.equal(actual.events.filter(event => event.type === 'model_requested').length, 3);
+  assert.deepEqual(actual.events.filter(event => event.type === 'response_revision_requested').map(event => event.data), [{ iteration: 1, length: 4, limit: 3 }]);
+  assert.deepEqual(actual.state.decisions.filter(decision => decision.kind === 'respond'), [{ kind: 'respond', text: '甲🙂\n乙' }]);
+});
+
+check('contract', 'a second oversized response is rejected without delivering a partial answer', async () => {
+  const agentTask: GenericTask = { kind: 'agent', taskId: 'still-too-long', instruction: 'Give a short answer.',
+    allowedSources: [], responseCharacterLimit: 3 };
+  const actual = await sessionCase([{ kind: 'respond', text: '甲乙丙丁' }, { kind: 'respond', text: '戊己庚辛' }], { agentTask });
+  assert.equal(actual.result.status, 'failed');
+  assert.match(actual.result.error ?? '', /response_character_limit: 4\/3 after one revision/);
+  assert.equal(actual.result.response, undefined);
+  assert.equal(actual.requests.length, 2);
+  assert.equal(actual.state.decisions.length, 0);
 });
 
 check('integration', 'real Pi subprocess uses all seven SDK builtins through host policy before the investigation workflow', async () => {

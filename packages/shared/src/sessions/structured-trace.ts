@@ -84,9 +84,10 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
       owner.correlation.iteration=iteration;owner.input=json({contextChars:d.contextChars,context:context??null});owner.attributes=metadata({purpose:'turn',model:first.data.model??null});
       currentModel=owner;if(iteration!==null)models.set(iteration,owner);category='model';eventStatus='running';
     }
-    if(['decision_made','provider_rejected'].includes(event.type)){
+    if(['decision_made','provider_rejected','response_revision_requested'].includes(event.type)){
       owner=(iteration!==null?models.get(iteration):undefined)??currentModel??root;category='model';owner.timing.endedAt=event.timestamp;
       if(event.type==='decision_made'){owner.output=json(d.decision);owner.status='completed';}
+      else if(event.type==='response_revision_requested'){owner.status='completed';owner.attributes.responseRevision=metadata({length:d.length,limit:d.limit});}
       else{owner.status='failed';eventError=normalizeError(d.reason,'model');owner.error=eventError;eventStatus='failed';}
     }
     if(event.type==='model_usage'){

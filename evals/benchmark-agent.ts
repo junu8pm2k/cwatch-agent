@@ -16,6 +16,12 @@ import config from './config.json' with { type: 'json' };
 
 const redactor = new Redactor([process.env.API_KEY ?? '']);
 const fileDigest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+function requestedResponseLimit(instruction: string) {
+  const limits = new Set([...instruction.matchAll(/(?:回答|答复|回复)[，,]?\s*(?:总共\s*)?(?:不超过|不得超过|最多)\s*([1-9]\d{0,4})\s*(?:个字符|字符|字)(?=$|[\s，。；,.!?！？])/gu)]
+    .map(match => Number(match[1])));
+  const [limit] = limits;
+  return limits.size === 1 && limit <= 32_000 ? limit : undefined;
+}
 const requestSchema = z.strictObject({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/),
   input: z.string().trim().min(1).max(4000),
@@ -72,6 +78,7 @@ async function main() {
   const material = readFileSync(fixturePath(input.fixture));
   if (createHash('sha256').update(material).digest('hex') !== input.fixtureSha256) throw Error('benchmark fixture changed after manifest');
   const instruction = input.profile ? input.input + '\n\n【固定输入材料】\n' + material.toString('utf8').trim() : input.input;
+  const responseCharacterLimit = requestedResponseLimit(input.input);
   if (instruction.length > 8000) throw Error('benchmark instruction and material exceed limit: ' + input.id);
   const workspace = join(input.workDir, 'workspace');
   const store = new FileStore(join(input.workDir, 'runtime'));
@@ -91,11 +98,11 @@ async function main() {
     MODEL_ID: config.agent.model,
     BASE_URL: config.agent.baseUrl,
     API_KEY: process.env.API_KEY,
-  });
+  }, { reasoningEffort: z.enum(['low', 'medium', 'high']).optional().parse(config.agent.reasoningEffort) });
   const registry = new ToolRegistry();
   const since = performance.now();
   try {
-    const result = await runAgent({ kind: 'agent', taskId: input.id, instruction, allowedSources: [] },
+    const result = await runAgent({ kind: 'agent', taskId: input.id, instruction, allowedSources: [], responseCharacterLimit },
       model, registry, store, 'live', {
         ...config.limits, workspaceRoot: workspace, sessionMemory: false, promptCache: 'none',
         userSkills, builtinTools: input.profile === undefined,
