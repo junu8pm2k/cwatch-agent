@@ -27,6 +27,15 @@ import {
   renderExtensions,
 } from './client/extensions.ts';
 import { renderMarkdown } from './client/markdown.ts';
+import {
+  renderLiveProgressCard,
+  renderMetricsRibbon,
+  renderPipeline,
+  renderPipelineDetail,
+  renderReportToc,
+  renderReviewGateCard,
+  renderVersionDiffCard,
+} from './client/report-view.ts';
 import { renderSidebar } from './client/sidebar.ts';
 import {
   $,
@@ -121,6 +130,82 @@ function parseDomains(raw: string): string[] {
     } catch { /* fall through */ }
     return trimmed.replace(/^https?:\/\//i, '').split(/[/?#:]/)[0].toLowerCase();
   }).filter(Boolean))];
+}
+
+const DEPTH_PRESETS = {
+  fast: { label: '快速速览', timeout: 120, tokens: 150000, summary: '120 秒 · 15 万 tokens' },
+  standard: { label: '标准核验', timeout: 300, tokens: 400000, summary: '300 秒 · 40 万 tokens' },
+  deep: { label: '深度穷举', timeout: 600, tokens: 1000000, summary: '600 秒 · 100 万 tokens' },
+} as const;
+type DepthPresetKey = keyof typeof DEPTH_PRESETS;
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function windowPresetDates(days: number): { start: string; end: string } {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1 - days);
+  return { start: formatLocalDate(start), end: formatLocalDate(end) };
+}
+
+function syncWindowPresetState(): void {
+  const replay = currentMode() === 'replay';
+  const startVal = $<HTMLInputElement>('start-date').value;
+  const endVal = $<HTMLInputElement>('end-date').value;
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-window-days]')) {
+    btn.disabled = replay;
+    const days = Number(btn.dataset.windowDays);
+    const matched = !replay && Number.isFinite(days) && days > 0 && (() => {
+      const range = windowPresetDates(days);
+      return range.start === startVal && range.end === endVal;
+    })();
+    btn.classList.toggle('is-active', matched);
+    btn.setAttribute('aria-pressed', String(matched));
+  }
+}
+
+function applyWindowPreset(days: number): void {
+  if (currentMode() === 'replay' || !Number.isFinite(days) || days <= 0) return;
+  const { start, end } = windowPresetDates(days);
+  $<HTMLInputElement>('start-date').value = start;
+  $<HTMLInputElement>('end-date').value = end;
+  syncWindowPresetState();
+}
+
+function syncDepthPresetState(): void {
+  const timeout = Number($<HTMLInputElement>('timeout').value);
+  const tokens = Number($<HTMLInputElement>('tokens').value);
+  let matchedKey: DepthPresetKey | undefined;
+  for (const key of Object.keys(DEPTH_PRESETS) as DepthPresetKey[]) {
+    const preset = DEPTH_PRESETS[key];
+    if (preset.timeout === timeout && preset.tokens === tokens) {
+      matchedKey = key;
+      break;
+    }
+  }
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-depth-preset]')) {
+    const active = btn.dataset.depthPreset === matchedKey;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  const summaryEl = $('depth-preset-summary');
+  if (summaryEl) {
+    summaryEl.textContent = matchedKey
+      ? DEPTH_PRESETS[matchedKey].summary
+      : `自定义（${Number.isFinite(timeout) && timeout > 0 ? timeout : '—'} 秒 · ${Number.isFinite(tokens) && tokens > 0 ? tokens.toLocaleString() : '—'} tokens）`;
+  }
+}
+
+function applyDepthPreset(key: DepthPresetKey): void {
+  const preset = DEPTH_PRESETS[key];
+  $<HTMLInputElement>('timeout').value = String(preset.timeout);
+  $<HTMLInputElement>('tokens').value = String(preset.tokens);
+  syncDepthPresetState();
 }
 
 function syncWebToggleAndBadges(): void {
@@ -267,6 +352,8 @@ function modeChanged(resetInstruction = false): void {
   }
 
   syncWebToggleAndBadges();
+  syncWindowPresetState();
+  syncDepthPresetState();
 
   if (!replay && !configured) {
     $('mode-note').textContent = '请先在本机 .env 配置模型凭据并重启服务。';
@@ -295,6 +382,8 @@ function permissionChanged(): void {
       ? '写入前审批：每次写入、发送或发布前都会在顶部卡片由你确认。'
       : '允许已配置操作：无需逐次弹窗，仍严格受来源与权限边界约束。';
   syncWebToggleAndBadges();
+  syncWindowPresetState();
+  syncDepthPresetState();
 }
 
 function showView(view: 'workbench' | 'connections'): void {
@@ -376,13 +465,16 @@ function renderReport(): void {
   }
 
   if (!run?.reportReady) {
+    if (run && isActiveRun(run)) {
+      $('report-content').innerHTML = renderLiveProgressCard(run);
+      return;
+    }
     const domain = isInvestigation(run?.task ?? currentProfile().task);
     const failedOrStopped = Boolean(run && ['failed', 'cancelled', 'unknown'].includes(run.status));
     $('report-content').innerHTML = `
       <div class="empty-state">
         <h3>${escapeHtml(failedOrStopped ? '本次运行未生成结果' : '正在生成结果…')}</h3>
         <p>${escapeHtml(run?.error ?? (domain ? '采集、分析与审阅完成后，带引用的调查报告将自动呈现在这里。' : '任务完成后，回答内容将在这里展示，并支持复制与导出。'))}</p>
-        ${run && isActiveRun(run) ? '<div class="empty-actions"><button type="button" class="button secondary sm" data-jump-tab="process">查看实时执行轨迹</button></div>' : ''}
         ${failedOrStopped ? `<div class="empty-actions"><button type="button" class="button primary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button><button type="button" class="button secondary sm" data-clone-run>修改配置</button></div>` : ''}
       </div>`;
     return;
@@ -392,6 +484,7 @@ function renderReport(): void {
   if (doc === undefined) void loadReport(run);
 
   if (!isInvestigation(run.task)) {
+    const tocHtml = doc !== undefined ? renderReportToc(doc) : '';
     $('report-content').innerHTML = `
       <div class="report-card">
         <div class="report-heading">
@@ -399,10 +492,12 @@ function renderReport(): void {
           <span class="report-mode">${run.mode === 'replay' ? '固定脚本演示' : 'Agent 回答'}</span>
         </div>
         ${run.gaps.length ? `<div class="run-notice">${run.gaps.map(escapeHtml).join('<br>')}</div>` : ''}
+        ${tocHtml}
         <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取…</p>' : renderMarkdown(doc)}</div>
         <div class="report-actions">
           <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载 Markdown 结果</a>
           <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+          <button type="button" class="button secondary sm" id="print-report" data-print-report>打印 / 导出 PDF</button>
         </div>
       </div>`;
     return;
@@ -429,8 +524,16 @@ function renderReport(): void {
       }).join('')
     : '<p class="field-note">本次没有可进入结构化主张的证据，请查看右侧信息缺口与下方完整报告。</p>';
 
+  const metricsHtml = renderMetricsRibbon(run);
+  const reviewGateHtml = renderReviewGateCard(run);
+  const versionDiffHtml = renderVersionDiffCard(run);
+  const tocHtml = doc !== undefined ? renderReportToc(doc) : '';
+
   $('report-content').innerHTML = `
     <div class="report-card">
+      ${metricsHtml}
+      ${reviewGateHtml}
+      ${versionDiffHtml}
       <div class="report-heading">
         <div>
           <h3 class="serif-sub">调查结论与引用</h3>
@@ -442,12 +545,36 @@ function renderReport(): void {
       <div class="report-actions">
         <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="competitor-report.md">下载 Markdown 报告</a>
         <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+        <button type="button" class="button secondary sm" id="print-report" data-print-report>打印 / 导出 PDF</button>
       </div>
       <details class="report-full" open>
         <summary>完整调查报告正文</summary>
+        ${tocHtml}
         <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取报告…</p>' : renderMarkdown(doc)}</div>
       </details>
     </div>`;
+}
+
+function renderPipelineSection(): void {
+  const run = state.current;
+  const investigation = Boolean(run && isInvestigation(run.task));
+  const bar = $('pipeline');
+  const detail = $('pipeline-detail');
+  bar.hidden = !investigation;
+  if (!investigation || !run) {
+    bar.innerHTML = '';
+    detail.hidden = true;
+    detail.innerHTML = '';
+    return;
+  }
+  bar.innerHTML = renderPipeline(run, state.selectedPipelineStage);
+  if (state.selectedPipelineStage !== undefined) {
+    detail.hidden = false;
+    detail.innerHTML = renderPipelineDetail(run, state.selectedPipelineStage);
+  } else {
+    detail.hidden = true;
+    detail.innerHTML = '';
+  }
 }
 
 function renderRun(): void {
@@ -462,6 +589,7 @@ function renderRun(): void {
   syncHeaderControls();
 
   if (!run) {
+    renderPipelineSection();
     renderEvidenceRail();
     renderApprovalSpotlight();
     return;
@@ -482,14 +610,7 @@ function renderRun(): void {
   $('retry-run').hidden = !canRetry;
   $<HTMLButtonElement>('retry-run').disabled = state.submitting;
 
-  $('pipeline').hidden = !investigation;
-  if (investigation) {
-    $('pipeline').innerHTML = ['计划', '采集', '分析', '审阅', '草稿'].map((name, index) => {
-      const done = run.stage > index;
-      const current = run.stage === index && isActiveRun(run);
-      return `<div class="pipeline-step ${done ? 'done' : current ? 'current' : ''}"><span class="step-dot">${done ? '✓' : index + 1}</span><span>${name}</span></div>`;
-    }).join('');
-  }
+  renderPipelineSection();
 
   const mergedCount = mergeActivities(run.activities).length;
   $('process-count').textContent = String(mergedCount);
@@ -538,6 +659,7 @@ function selectRun(run: RunSnapshot): void {
   state.stream?.close();
   state.current = run;
   state.highlightedClaimId = undefined;
+  state.selectedPipelineStage = undefined;
   state.selectedTraceStepId = undefined;
   state.traceFilter = 'all';
   setSettingsOpen(false);
@@ -574,6 +696,7 @@ function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: s
   state.stream?.close();
   state.current = undefined;
   state.highlightedClaimId = undefined;
+  state.selectedPipelineStage = undefined;
   state.domainFilterOpen = false;
   setTraceDrawer(false);
   setSettingsOpen(false);
@@ -666,8 +789,8 @@ async function retryCurrentRun(): Promise<void> {
       task,
       skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(inputEl => inputEl.value),
       limits: {
-        timeoutMs: Math.max(Number($<HTMLInputElement>('timeout').value) || 300, 300) * 1000,
-        maxTokens: Math.max(Number($<HTMLInputElement>('tokens').value) || 400000, 400000),
+        timeoutMs: Math.max(Number($<HTMLInputElement>('timeout').value) || 300, 1) * 1000,
+        maxTokens: Math.max(Number($<HTMLInputElement>('tokens').value) || 400000, 100),
       },
     };
     const nextRun = await startRunApi(input);
@@ -835,6 +958,8 @@ $('domains').addEventListener('input', syncWebToggleAndBadges);
 $('toggle-domain-filter').addEventListener('click', () => {
   state.domainFilterOpen = !state.domainFilterOpen;
   syncWebToggleAndBadges();
+  syncWindowPresetState();
+  syncDepthPresetState();
   if (state.domainFilterOpen) $<HTMLInputElement>('agent-web-domains').focus();
 });
 
@@ -861,6 +986,8 @@ $('task-suggestions').addEventListener('click', event => {
       webBox.checked = button.dataset.enableWeb === 'true';
     }
     syncWebToggleAndBadges();
+    syncWindowPresetState();
+    syncDepthPresetState();
     $<HTMLTextAreaElement>('instruction').focus();
   } else if (button.dataset.template === 'web') {
     $<HTMLInputElement>('competitor-name').focus();
@@ -882,6 +1009,47 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[name=mode
   input.addEventListener('change', () => modeChanged(true));
 }
 $('permission').addEventListener('change', permissionChanged);
+
+// Quick Date Window & 3-Tier Depth Presets
+$('investigation-fields').addEventListener('click', event => {
+  const target = event.target as HTMLElement;
+  const windowBtn = target.closest<HTMLButtonElement>('[data-window-days]');
+  if (windowBtn) {
+    applyWindowPreset(Number(windowBtn.dataset.windowDays));
+    return;
+  }
+  const depthBtn = target.closest<HTMLButtonElement>('[data-depth-preset]');
+  if (depthBtn) {
+    const key = depthBtn.dataset.depthPreset as DepthPresetKey;
+    if (key in DEPTH_PRESETS) applyDepthPreset(key);
+  }
+});
+$('start-date').addEventListener('input', syncWindowPresetState);
+$('start-date').addEventListener('change', syncWindowPresetState);
+$('end-date').addEventListener('input', syncWindowPresetState);
+$('end-date').addEventListener('change', syncWindowPresetState);
+$('timeout').addEventListener('input', syncDepthPresetState);
+$('timeout').addEventListener('change', syncDepthPresetState);
+$('tokens').addEventListener('input', syncDepthPresetState);
+$('tokens').addEventListener('change', syncDepthPresetState);
+
+// Interactive 5-Stage Pipeline & Detail Panel
+$('pipeline').addEventListener('click', event => {
+  const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-pipeline-stage]');
+  if (!btn || !state.current) return;
+  const stageIndex = Number(btn.dataset.pipelineStage);
+  if (!Number.isInteger(stageIndex)) return;
+  state.selectedPipelineStage = state.selectedPipelineStage === stageIndex ? undefined : stageIndex;
+  renderPipelineSection();
+});
+$('pipeline-detail').addEventListener('click', event => {
+  const target = event.target as HTMLElement;
+  if (target.closest('[data-close-pipeline-detail]')) {
+    state.selectedPipelineStage = undefined;
+    renderPipelineSection();
+  }
+});
+
 $('cancel-run').addEventListener('click', () => {
   const run = state.current;
   if (!run) return;
@@ -1074,6 +1242,39 @@ document.body.addEventListener('click', event => {
     return;
   }
 
+  if (target.closest('[data-print-report]')) {
+    const details = $('report-content').querySelector<HTMLDetailsElement>('.report-full');
+    if (details) details.open = true;
+    window.print();
+    return;
+  }
+
+  const tocLink = target.closest<HTMLElement>('[data-toc-target]');
+  if (tocLink) {
+    event.preventDefault();
+    const targetId = tocLink.dataset.tocTarget;
+    if (targetId) {
+      const details = tocLink.closest('details');
+      if (details) details.open = true;
+      const heading = $('report-content').querySelector<HTMLElement>('#' + CSS.escape(targetId))
+        ?? document.getElementById(targetId);
+      if (heading) {
+        heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        for (const item of document.querySelectorAll<HTMLElement>('.toc-link.is-active')) {
+          item.classList.remove('is-active');
+        }
+        tocLink.classList.add('is-active');
+      }
+    }
+    return;
+  }
+
+  if (target.closest('[data-jump-report]')) {
+    if (state.tab !== 'report') showTab('report');
+    $('report-content').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
   const copyCodeBtn = target.closest<HTMLButtonElement>('[data-copy-code]');
   if (copyCodeBtn) {
     const code = copyCodeBtn.closest('.md-code-block')?.querySelector('code')?.textContent ?? '';
@@ -1117,6 +1318,11 @@ document.body.addEventListener('click', event => {
     const run = state.current;
     newRun({ profile: run.profile, mode: run.mode, permission: run.permission, task: structuredClone(run.task) });
   }
+});
+
+window.addEventListener('beforeprint', () => {
+  const details = $('report-content').querySelector<HTMLDetailsElement>('.report-full');
+  if (details) details.open = true;
 });
 
 setInterval(() => {

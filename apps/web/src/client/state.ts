@@ -122,6 +122,7 @@ export interface ClientState {
   settingsOpen: boolean;
   domainFilterOpen: boolean;
   highlightedClaimId?: string;
+  selectedPipelineStage?: number;
   theme: 'light' | 'dark';
   historyQuery: string;
   stream?: EventSource;
