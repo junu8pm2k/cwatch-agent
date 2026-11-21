@@ -1,5 +1,6 @@
 import type { AgentTask } from '@cwatch/core/types';
 import type { RunSnapshot, RunStartInput } from '@cwatch/core/types/runs';
+import { mergeActivities } from './client/activity-merger.ts';
 import {
   cancelRunApi,
   deleteRunApi,
@@ -11,12 +12,12 @@ import {
   startRunApi,
 } from './client/api.ts';
 import {
-  renderApprovalBanner,
-  renderApprovals,
+  renderApprovalSpotlight,
   renderConversation,
   renderProcess,
   updateApprovalClocks,
 } from './client/conversation.ts';
+import { renderEvidenceRail } from './client/evidence-rail.ts';
 import {
   handleTestMcp,
   handleToggleMcp,
@@ -25,7 +26,6 @@ import {
   loadExtensions,
   renderExtensions,
 } from './client/extensions.ts';
-import { renderInspector, updateElapsed } from './client/inspector.ts';
 import { renderMarkdown } from './client/markdown.ts';
 import { renderSidebar } from './client/sidebar.ts';
 import {
@@ -36,6 +36,7 @@ import {
   currentMode,
   currentProfile,
   escapeHtml,
+  formatElapsed,
   isActiveRun,
   isInvestigation,
   permissionNames,
@@ -45,7 +46,6 @@ import {
   statusNames,
   statusTone,
   taskTitle,
-  type HistoryFilter,
   type MainTab,
   type TraceFilter,
 } from './client/state.ts';
@@ -69,14 +69,34 @@ function applyTheme(instant = false): void {
   }
 }
 
-function applyInspectorVisibility(): void {
-  const wb = document.querySelector<HTMLElement>('.workbench');
-  if (wb) wb.dataset.inspector = String(state.inspectorOpen);
-  const toggle = $('toggle-inspector');
-  if (toggle) {
-    toggle.hidden = !state.current || state.view !== 'workbench';
-    toggle.setAttribute('aria-expanded', String(state.inspectorOpen));
-    toggle.classList.toggle('is-active', state.inspectorOpen);
+function setSettingsOpen(open: boolean): void {
+  state.settingsOpen = open;
+  $('settings-popover').hidden = !open;
+  $('settings-toggle').setAttribute('aria-expanded', String(open));
+  $('settings-toggle').classList.toggle('is-active', open);
+}
+
+function setTraceDrawer(open: boolean): void {
+  const allowed = open && Boolean(state.current) && state.view === 'workbench';
+  state.traceDrawerOpen = allowed;
+  $('trace-drawer').hidden = !allowed;
+  $('trace-backdrop').hidden = !allowed;
+  const trigger = $('toggle-trace-drawer');
+  trigger.setAttribute('aria-expanded', String(allowed));
+  trigger.classList.toggle('is-active', allowed);
+  if (allowed && state.current) {
+    void loadTrace(state.current.id);
+    renderTrace();
+  }
+}
+
+function syncHeaderControls(): void {
+  const hasRun = Boolean(state.current);
+  const inWorkbench = state.view === 'workbench';
+  $('toggle-trace-drawer').hidden = !hasRun || !inWorkbench;
+  $('new-run').hidden = !hasRun && inWorkbench;
+  if (!hasRun || !inWorkbench) {
+    if (state.traceDrawerOpen) setTraceDrawer(false);
   }
 }
 
@@ -86,52 +106,16 @@ function setConnection(text: string, online = true): void {
   el.classList.toggle('offline', !online);
 }
 
-function populateProfileForm(task = currentProfile().task): void {
-  const domain = isInvestigation(task);
-  $('agent-fields').hidden = domain;
-  $('investigation-fields').hidden = !domain;
-  for (const id of ['competitor-name', 'competitor-id', 'product', 'domains', 'start-date', 'end-date']) {
-    $<HTMLInputElement>(id).required = domain;
-  }
-  $<HTMLTextAreaElement>('instruction').required = !domain;
-
-  if (state.view === 'workbench') {
-    $('page-title').textContent = domain ? '竞品调查' : '通用 Agent';
-  }
-  $('task-title').textContent = domain ? '调查设置' : '任务设置';
-  $('intro-title').textContent = domain ? '调查竞品动态' : '交给 Agent 一项任务';
-  $('intro-description').textContent = domain
-    ? '选定产品、时间范围和来源，生成带可核验证据的调查报告。'
-    : '描述你要完成的事，选择允许的来源与权限，在统一工作台追踪每一步。';
-
-  $('start-run').innerHTML = `${domain ? '开始调查' : '开始任务'} <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>`;
-  $('cancel-run').textContent = domain ? '停止调查' : '停止任务';
-  $('tab-report').textContent = domain ? '调查报告' : '任务结果';
-
-  if (domain) {
-    $<HTMLInputElement>('competitor-name').value = task.competitor.name;
-    $<HTMLInputElement>('competitor-id').value = task.competitor.id;
-    $<HTMLInputElement>('product').value = task.product;
-    $<HTMLInputElement>('domains').value = task.competitor.domains.join(', ');
-    $<HTMLInputElement>('start-date').value = task.window.start.slice(0, 10);
-    $<HTMLInputElement>('end-date').value = task.window.end.slice(0, 10);
-  } else {
-    $<HTMLTextAreaElement>('instruction').value = state.current || currentMode() === 'replay' ? task.instruction : state.instructionDraft;
-  }
-
-  $('source-options').innerHTML = currentProfile().sources.map(source => `
-    <label class="source-option">
-      <input type="checkbox" name="source" value="${escapeHtml(source.slug)}" ${source.active && task.allowedSources.includes(source.slug) ? 'checked ' : ''}${!source.active ? 'disabled ' : ''}>
-      <span>${escapeHtml(source.name)}</span>
-      <small>${escapeHtml(source.channel === 'mcp' ? 'MCP' : '内建')}</small>
-    </label>`).join('');
-  modeChanged(true);
+function setProfileRadio(id: string): void {
+  const target = id === 'web' || id === 'standard' || id === 'adapters' ? 'web' : 'agent';
+  const radio = document.querySelector<HTMLInputElement>(`input[name="profile"][value="${target}"]`);
+  if (radio) radio.checked = true;
 }
 
 function parseDomains(raw: string): string[] {
   return [...new Set(raw.split(/[,，\s]+/).map(part => {
     const trimmed = part.trim();
-    if (!trimmed) return '';
+    if (!trimmed || trimmed === '*') return '';
     try {
       if (/^https?:\/\//i.test(trimmed)) return new URL(trimmed).hostname.toLowerCase();
     } catch { /* fall through */ }
@@ -139,76 +123,178 @@ function parseDomains(raw: string): string[] {
   }).filter(Boolean))];
 }
 
-function syncSuggestionPressed(): void {
-  const selectedProfile = $<HTMLSelectElement>('profile').value;
-  const webChecked = Boolean(document.querySelector<HTMLInputElement>('input[name=source][value=web]:checked'));
-  for (const button of document.querySelectorAll<HTMLButtonElement>('#task-suggestions [data-template]')) {
-    const wantsWeb = button.dataset.enableWeb === 'true';
-    const active = button.dataset.template === selectedProfile && (selectedProfile !== 'agent' || wantsWeb === webChecked);
-    button.setAttribute('aria-pressed', String(active));
-  }
-}
-
-function renderProfileSelect(profiles: NonNullable<typeof state.bootstrap>['profiles']): void {
-  const byId = new Map(profiles.map(p => [p.id, p]));
-  const visibleIds = ['agent', 'web'].filter(id => byId.has(id));
-  $('profile').innerHTML = visibleIds.map(id => {
-    const p = byId.get(id)!;
-    return `<option value="${escapeHtml(p.id)}">${escapeHtml(profileDisplayName(p.id, p.name))}</option>`;
-  }).join('');
-}
-
-function syncAgentWebDomains(): void {
-  const wrap = $('agent-web-domains-wrap');
+function syncWebToggleAndBadges(): void {
+  const replay = currentMode() === 'replay';
   const domain = isInvestigation(currentProfile().task);
-  const webChecked = Boolean(document.querySelector<HTMLInputElement>('input[name=source][value=web]:checked'));
-  wrap.hidden = domain || currentMode() === 'replay' || !webChecked;
-  syncSuggestionPressed();
+  const webCheckbox = $<HTMLInputElement>('toggle-web-search');
+  const webLabel = $('web-toggle-label');
+  const webSourceActive = Boolean(currentProfile().sources.find(s => s.slug === 'web')?.active);
+
+  webCheckbox.disabled = replay || !webSourceActive;
+  webLabel.classList.toggle('is-on', webCheckbox.checked && !webCheckbox.disabled);
+  webLabel.classList.toggle('is-disabled', webCheckbox.disabled);
+
+  const showDomainToggle = !domain && !replay && webCheckbox.checked;
+  const domainToggle = $('toggle-domain-filter');
+  domainToggle.hidden = !showDomainToggle;
+  if (!showDomainToggle) state.domainFilterOpen = false;
+  $('agent-web-domains-wrap').hidden = !showDomainToggle || !state.domainFilterOpen;
+  domainToggle.setAttribute('aria-expanded', String(state.domainFilterOpen));
+  domainToggle.classList.toggle('is-active', state.domainFilterOpen);
+
+  const agentDomains = parseDomains($<HTMLInputElement>('agent-web-domains').value);
+  const invDomains = parseDomains($<HTMLInputElement>('domains').value);
+  const countEl = $('domain-filter-count');
+  countEl.hidden = agentDomains.length === 0;
+  countEl.textContent = String(agentDomains.length);
+
+  // Composer top-right calm mode summary pill
+  const modeBadge = $('composer-mode-badge');
+  if (replay) {
+    modeBadge.textContent = '离线演示';
+    modeBadge.dataset.tone = 'muted';
+  } else if (domain) {
+    modeBadge.textContent = invDomains.length ? `真实调查 · 限定 ${invDomains.length} 域名` : '真实调查 · 全网公开';
+    modeBadge.dataset.tone = 'live';
+  } else if (webCheckbox.checked) {
+    modeBadge.textContent = agentDomains.length ? `真实会话 · 限定 ${agentDomains.length} 域名` : '真实会话 · 全网公开';
+    modeBadge.dataset.tone = 'live';
+  } else {
+    modeBadge.textContent = '真实会话 · 仅本地';
+    modeBadge.dataset.tone = 'neutral';
+  }
+
+  // Settings badge highlights non-default permission or replay-when-configured
+  const perm = $<HTMLSelectElement>('permission').value;
+  const settingsBadge = $('settings-badge');
+  const note = perm === 'ask' ? '审批' : perm === 'allow-all' ? '全权' : (replay && state.bootstrap?.model.configured ? '演示' : '');
+  settingsBadge.hidden = !note;
+  settingsBadge.textContent = note;
+}
+
+function populateProfileForm(task = currentProfile().task, preserveWebChoice = false): void {
+  const domain = isInvestigation(task);
+  const replay = currentMode() === 'replay';
+  $('agent-fields').hidden = domain;
+  $('investigation-fields').hidden = !domain;
+
+  for (const id of ['competitor-name', 'product', 'start-date', 'end-date']) {
+    $<HTMLInputElement>(id).required = domain;
+  }
+  $<HTMLInputElement>('domains').required = false;
+  $<HTMLTextAreaElement>('instruction').required = !domain;
+
+  if (state.view === 'workbench') {
+    $('page-title').textContent = domain ? '竞品调查' : '通用 Agent';
+  }
+
+  $('intro-title').textContent = domain ? '结构化调查竞品动态' : '今天想调查或完成什么？';
+  $('intro-description').textContent = domain
+    ? '指定对象、产品与时间窗，联网采集公开信息并生成带可核验引用的调查草稿。'
+    : '直接提问、联网检索公开资料或读取本地文件，每一步都在本机可审计执行。';
+
+  $('start-run').innerHTML = `${domain ? '开始调查' : '开始任务'} <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>`;
+  $('cancel-run').textContent = domain ? '停止调查' : '停止任务';
+  $('tab-report').textContent = domain ? '调查报告' : '任务结果';
+
+  if (domain) {
+    $<HTMLInputElement>('competitor-name').value = task.competitor.name;
+    $<HTMLInputElement>('competitor-id').value = task.competitor.id;
+    $<HTMLInputElement>('product').value = task.product;
+    const displayDomains = task.competitor.domains.filter(d => d !== '*');
+    $<HTMLInputElement>('domains').value = replay || state.current ? displayDomains.join(', ') : '';
+    $<HTMLInputElement>('start-date').value = task.window.start.slice(0, 10);
+    $<HTMLInputElement>('end-date').value = task.window.end.slice(0, 10);
+  } else {
+    $<HTMLTextAreaElement>('instruction').value = state.current || replay ? task.instruction : state.instructionDraft;
+  }
+
+  // Primary web search checkbox
+  const webSource = currentProfile().sources.find(s => s.slug === 'web');
+  const webBox = $<HTMLInputElement>('toggle-web-search');
+  if (!preserveWebChoice) {
+    if (replay) {
+      webBox.checked = Boolean(webSource?.active && task.allowedSources.includes('web'));
+    } else {
+      // Live mode defaults web search ON for both Generic Agent & Competitor Investigation!
+      webBox.checked = Boolean(webSource?.active && (state.current ? task.allowedSources.includes('web') : true));
+    }
+  }
+
+  // Secondary custom MCP sources tucked inside Settings Popover
+  const extraSources = currentProfile().sources.filter(s => s.slug !== 'web');
+  $('custom-source-section').hidden = extraSources.length === 0;
+  $('custom-source-options').innerHTML = extraSources.map(source => `
+    <label class="option-chip">
+      <input type="checkbox" name="source" value="${escapeHtml(source.slug)}" ${source.active && task.allowedSources.includes(source.slug) ? 'checked ' : ''}${!source.active ? 'disabled ' : ''}>
+      <span>${escapeHtml(source.name)}</span>
+    </label>`).join('');
+
+  modeChanged(true);
 }
 
 function modeChanged(resetInstruction = false): void {
   const replay = currentMode() === 'replay';
   const configured = state.bootstrap?.model.configured;
-  for (const id of ['competitor-name', 'competitor-id', 'product', 'domains', 'start-date', 'end-date']) {
-    $<HTMLInputElement>(id).readOnly = replay;
-  }
-  for (const input of document.querySelectorAll<HTMLInputElement>('input[name=source]')) {
-    input.disabled = replay || !currentProfile().sources.find(source => source.slug === input.value)?.active;
-  }
-  $<HTMLTextAreaElement>('instruction').readOnly = replay;
-  syncAgentWebDomains();
-
   const profile = currentProfile();
   const task = profile.task;
-  if (resetInstruction && !state.current && !isInvestigation(task)) {
-    const input = $<HTMLTextAreaElement>('instruction');
-    input.value = replay ? task.instruction : state.instructionDraft;
+  const domain = isInvestigation(task);
+
+  for (const id of ['competitor-name', 'product', 'domains', 'start-date', 'end-date']) {
+    $<HTMLInputElement>(id).readOnly = replay;
+  }
+  for (const input of document.querySelectorAll<HTMLInputElement>('#custom-source-options input[name=source]')) {
+    input.disabled = replay || !profile.sources.find(source => source.slug === input.value)?.active;
+  }
+  $<HTMLTextAreaElement>('instruction').readOnly = replay;
+
+  if (resetInstruction && !state.current) {
+    if (!domain) {
+      $<HTMLTextAreaElement>('instruction').value = replay ? task.instruction : state.instructionDraft;
+    } else {
+      const displayDomains = task.competitor.domains.filter(d => d !== '*');
+      $<HTMLInputElement>('domains').value = replay ? displayDomains.join(', ') : '';
+    }
+    const webSource = profile.sources.find(s => s.slug === 'web');
+    const webBox = $<HTMLInputElement>('toggle-web-search');
+    if (replay) {
+      webBox.checked = Boolean(webSource?.active && task.allowedSources.includes('web'));
+    } else if (webSource?.active && !webBox.checked && domain) {
+      webBox.checked = true;
+    } else if (!replay && !domain && webSource?.active && webBox.disabled) {
+      webBox.checked = true;
+    }
   }
 
+  syncWebToggleAndBadges();
+
   if (!replay && !configured) {
-    $('mode-note').textContent = '请先在本机 .env 配置模型并重启服务。';
-  } else if (isInvestigation(task)) {
+    $('mode-note').textContent = '请先在本机 .env 配置模型凭据并重启服务。';
+  } else if (domain) {
     $('mode-note').textContent = replay
-      ? '当前为离线演示样例；切换「真实运行」可自定义竞品、产品与允许域名。'
-      : '填写竞品名称、产品与允许域名后，按 5 阶段联网采集并生成带引用报告。';
+      ? '使用本地合成快照演示完整 5 阶段调查与引用核验。'
+      : '默认可搜索全网公开 HTTPS 网页；填写限定域名后自动包含子域名。';
   } else {
     $('mode-note').textContent = replay
-      ? '当前为固定样例，切换「真实运行」可输入任意任务并支持多轮追问。'
-      : '真实多轮会话模式：可直接提问或勾选「联网搜索与读取」查公开资料 · Ctrl+Enter 启动。';
+      ? '离线脚本样例；切换「真实运行」即可自由提问并多轮追问。'
+      : '真实多轮会话：支持自由联网检索与本地文件读取。';
   }
+
   $('start-note').textContent = replay
-    ? '演示使用合成数据，全程在本机运行。'
-    : '真实运行会调用已配置的模型和所选来源，每步执行均经主进程门禁。';
+    ? '当前为离线演示模式 · 点击卡片左下角「设置」可切换真实运行与权限。'
+    : '已连接本地模型 · 默认支持全网公开 HTTPS 搜索，每次工具调用均经主进程门禁审计。';
+
   $<HTMLButtonElement>('start-run').disabled = state.submitting || (!replay && !configured);
 }
 
 function permissionChanged(): void {
   const value = $<HTMLSelectElement>('permission').value;
   $('permission-note').textContent = value === 'explore'
-    ? '可读取与分析，禁止修改、发送和发布。'
+    ? '只读探索：可读取与联网搜索，禁止修改、发送或发布。'
     : value === 'ask'
-      ? '每次写入、发送或发布前由你确认。'
-      : '已配置操作无需逐次审批，仍受来源范围限制。';
+      ? '写入前审批：每次写入、发送或发布前都会在顶部卡片由你确认。'
+      : '允许已配置操作：无需逐次弹窗，仍严格受来源与权限边界约束。';
+  syncWebToggleAndBadges();
 }
 
 function showView(view: 'workbench' | 'connections'): void {
@@ -221,6 +307,7 @@ function showView(view: 'workbench' | 'connections'): void {
   $('nav-sources').setAttribute('aria-expanded', String(showingConnections));
   $('mobile-sources').setAttribute('aria-expanded', String(showingConnections));
   if (showingConnections) {
+    setSettingsOpen(false);
     $('page-title').textContent = '工作区扩展';
     void loadExtensions();
     renderExtensions();
@@ -228,12 +315,12 @@ function showView(view: 'workbench' | 'connections'): void {
     const activeTask = state.current?.task ?? currentProfile().task;
     $('page-title').textContent = isInvestigation(activeTask) ? '竞品调查' : '通用 Agent';
   }
-  applyInspectorVisibility();
+  syncHeaderControls();
 }
 
 function showTab(tab: MainTab): void {
   state.tab = tab;
-  const names: MainTab[] = ['process', 'report', 'approvals', 'trace'];
+  const names: MainTab[] = ['report', 'process'];
   for (const name of names) {
     const selected = name === tab;
     const btn = $('tab-' + name);
@@ -241,12 +328,8 @@ function showTab(tab: MainTab): void {
     btn.tabIndex = selected ? 0 : -1;
     $('panel-' + name).hidden = !selected;
   }
-  renderApprovalBanner();
   if (tab === 'report') renderReport();
-  if (tab === 'trace') {
-    if (state.current) void loadTrace(state.current.id);
-    renderTrace();
-  }
+  if (tab === 'process') renderProcess();
 }
 
 async function loadReport(run: RunSnapshot): Promise<void> {
@@ -262,6 +345,22 @@ async function loadReport(run: RunSnapshot): Promise<void> {
   }
 }
 
+function updateRunMetrics(): void {
+  const run = state.current;
+  const el = $('run-metrics');
+  if (!run) {
+    el.textContent = '';
+    return;
+  }
+  const parts = [
+    `${run.toolCalls} 次工具`,
+    `${run.modelTurns} 轮模型`,
+    run.totalTokens ? `${run.totalTokens.toLocaleString()} tokens` : null,
+    formatElapsed(run.createdAt, run.endedAt),
+  ].filter(Boolean);
+  el.textContent = parts.join(' · ');
+}
+
 function renderReport(): void {
   const run = state.current;
   if (run?.conversation) {
@@ -269,9 +368,9 @@ function renderReport(): void {
     if (latest !== undefined) state.reportCache.set(run.id, latest);
     $('report-content').innerHTML = latest === undefined
       ? ''
-      : `<div class="report-actions">
-          <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载最新回答</a>
-          <button type="button" class="button secondary sm" id="copy-report">复制最新回答</button>
+      : `<div class="report-actions conversation-export">
+          <a class="button ghost sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载最新回答</a>
+          <button type="button" class="button ghost sm" id="copy-report">复制最新回答</button>
         </div>`;
     return;
   }
@@ -280,8 +379,9 @@ function renderReport(): void {
     const domain = isInvestigation(run?.task ?? currentProfile().task);
     $('report-content').innerHTML = `
       <div class="empty-state">
-        <h3>${escapeHtml(run && ['failed', 'cancelled', 'unknown'].includes(run.status) ? '本次运行未生成结果' : '结果将在这里呈现')}</h3>
-        <p>${escapeHtml(run?.error ?? (domain ? '调查完成后，在这里查看结论、来源与完整报告。' : '任务完成后，在这里阅读、复制或下载回答。'))}</p>
+        <h3>${escapeHtml(run && ['failed', 'cancelled', 'unknown'].includes(run.status) ? '本次运行未生成结果' : '正在生成结果…')}</h3>
+        <p>${escapeHtml(run?.error ?? (domain ? '采集、分析与审阅完成后，带引用的调查报告将自动呈现在这里。' : '任务完成后，回答内容将在这里展示，并支持复制与导出。'))}</p>
+        ${run && isActiveRun(run) ? '<div class="empty-actions"><button type="button" class="button secondary sm" data-jump-tab="process">查看实时执行轨迹</button></div>' : ''}
       </div>`;
     return;
   }
@@ -291,95 +391,113 @@ function renderReport(): void {
 
   if (!isInvestigation(run.task)) {
     $('report-content').innerHTML = `
-      <div class="report-heading">
-        <h3>任务结果</h3>
-        <span class="report-mode">${run.mode === 'replay' ? '固定脚本演示' : 'Agent 回答'}</span>
-      </div>
-      ${run.gaps.length ? `<div class="run-notice">${run.gaps.map(escapeHtml).join('<br>')}</div>` : ''}
-      <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取…</p>' : renderMarkdown(doc)}</div>
-      <div class="report-actions">
-        <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载 Markdown 结果</a>
-        <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+      <div class="report-card">
+        <div class="report-heading">
+          <h3>任务结果</h3>
+          <span class="report-mode">${run.mode === 'replay' ? '固定脚本演示' : 'Agent 回答'}</span>
+        </div>
+        ${run.gaps.length ? `<div class="run-notice">${run.gaps.map(escapeHtml).join('<br>')}</div>` : ''}
+        <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取…</p>' : renderMarkdown(doc)}</div>
+        <div class="report-actions">
+          <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载 Markdown 结果</a>
+          <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+        </div>
       </div>`;
     return;
   }
 
+  // Competitor Investigation editorial view with claim <-> evidence rail linkage
+  let citationSeq = 1;
+  const claimsHtml = run.claims.length
+    ? run.claims.map(claim => {
+        const isHighlighted = state.highlightedClaimId === claim.id;
+        const evHtml = claim.evidence.map(evidence => {
+          const num = citationSeq++;
+          const url = safeUrl(evidence.url);
+          return `<div class="evidence-item">
+            <span class="cite-index">[${num}]</span>
+            ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(evidence.source)} · ${escapeHtml(evidence.title)}</a>` : `<span>${escapeHtml(evidence.title)}</span>`}
+            <small>${escapeHtml(evidence.publishedAt ? new Date(evidence.publishedAt).toLocaleDateString('zh-CN') : '发布时间未知')}${evidence.provenance === 'fixture' ? ' · 合成快照' : ''}</small>
+          </div>`;
+        }).join('');
+        return `<article class="claim${isHighlighted ? ' highlighted' : ''}" data-claim-id="${escapeHtml(claim.id)}">
+          <p class="claim-text">${escapeHtml(claim.text)}</p>
+          <div class="evidence-links">${evHtml}</div>
+        </article>`;
+      }).join('')
+    : '<p class="field-note">本次没有可进入结构化主张的证据，请查看右侧信息缺口与下方完整报告。</p>';
+
   $('report-content').innerHTML = `
-    <div class="report-heading">
-      <h3>调查结论与引用</h3>
-      <span class="report-mode">${run.mode === 'replay' ? '合成快照 · 演示' : '本地草稿 · 待核对'}</span>
-    </div>
-    ${run.gaps.length ? `<div class="run-notice"><strong>本次有 ${run.gaps.length} 项缺口</strong><br>${run.gaps.map(escapeHtml).join('<br>')}</div>` : ''}
-    ${run.claims.length
-      ? run.claims.map(claim => `
-          <article class="claim">
-            <p>${escapeHtml(claim.text)}</p>
-            <div class="evidence-links">
-              ${claim.evidence.map(evidence => {
-                const url = safeUrl(evidence.url);
-                return `<div class="evidence-item">
-                  ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(evidence.source)} · ${escapeHtml(evidence.title)}</a>` : `<span>${escapeHtml(evidence.title)}</span>`}
-                  <small>${escapeHtml(evidence.publishedAt ? new Date(evidence.publishedAt).toLocaleDateString('zh-CN') : '发布时间未知')}${evidence.provenance === 'fixture' ? ' · 合成快照' : ''}</small>
-                </div>`;
-              }).join('')}
-            </div>
-          </article>`).join('')
-      : '<p class="field-note">本次没有可进入结构化主张的证据，请查看缺口与完整报告。</p>'}
-    <div class="report-actions">
-      <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="competitor-report.md">下载 Markdown 报告</a>
-      <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
-    </div>
-    <details class="report-full">
-      <summary>查看完整报告</summary>
-      <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取报告…</p>' : renderMarkdown(doc)}</div>
-    </details>`;
+    <div class="report-card">
+      <div class="report-heading">
+        <div>
+          <h3 class="serif-sub">调查结论与引用</h3>
+          <p class="report-sub-hint">点击任意主张卡片，可联动高亮右侧对应证据来源。</p>
+        </div>
+        <span class="report-mode">${run.mode === 'replay' ? '合成快照 · 演示' : '本地草稿 · 待核对'}</span>
+      </div>
+      ${claimsHtml}
+      <div class="report-actions">
+        <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="competitor-report.md">下载 Markdown 报告</a>
+        <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+      </div>
+      <details class="report-full" open>
+        <summary>完整调查报告正文</summary>
+        <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取报告…</p>' : renderMarkdown(doc)}</div>
+      </details>
+    </div>`;
 }
 
 function renderRun(): void {
   const run = state.current;
   const wb = document.querySelector<HTMLElement>('.workbench')!;
-  wb.dataset.hasRun = String(Boolean(run));
-  wb.dataset.conversation = String(Boolean(run?.conversation));
-  applyInspectorVisibility();
+  const hasRun = Boolean(run);
+  const investigation = Boolean(run && isInvestigation(run.task));
 
-  $('run-title').textContent = run ? taskTitle(run.task) : '任务空间';
-  const labelText = run
-    ? `${statusNames[run.status]} / ${run.mode === 'replay' ? '离线演示' : run.conversation ? '真实会话' : '真实调查'}`
-    : '准备就绪';
+  wb.dataset.hasRun = String(hasRun);
+  wb.dataset.conversation = String(Boolean(run?.conversation));
+  wb.dataset.hasRail = String(investigation);
+  syncHeaderControls();
+
+  if (!run) {
+    renderEvidenceRail();
+    renderApprovalSpotlight();
+    return;
+  }
+
+  $('run-title').textContent = taskTitle(run.task);
+  const labelText = `${statusNames[run.status]} / ${run.mode === 'replay' ? '离线演示' : run.conversation ? '真实会话' : '真实调查'}`;
   const label = $('run-label');
   label.textContent = labelText;
-  label.className = 'run-label tone-' + (run ? statusTone(run.status) : 'idle');
+  label.className = 'run-label tone-' + statusTone(run.status);
 
-  const showPipeline = run ? isInvestigation(run.task) : isInvestigation(currentProfile().task);
-  $('pipeline').hidden = !showPipeline;
-  $('pipeline').innerHTML = ['计划', '采集', '分析', '审阅', '草稿'].map((name, index) => {
-    const done = Boolean(run && run.stage > index);
-    const current = Boolean(run && run.stage === index && isActiveRun(run));
-    return `<div class="pipeline-step ${done ? 'done' : current ? 'current' : ''}"><span class="step-dot">${done ? '✓' : index + 1}</span><span>${name}</span></div>`;
-  }).join('');
-
+  $('tab-report').textContent = investigation ? '调查报告' : '任务结果';
+  $('cancel-run').textContent = investigation ? '停止调查' : '停止任务';
   $('cancel-run').hidden = !isActiveRun(run);
-  $<HTMLButtonElement>('cancel-run').disabled = run?.status === 'cancelling';
+  $<HTMLButtonElement>('cancel-run').disabled = run.status === 'cancelling';
 
-  $('approval-count').textContent = String(run?.approvals.length ?? 0);
-  $('approval-count').className = 'count-badge ' + (run?.approvals.length ? 'pending' : '');
+  $('pipeline').hidden = !investigation;
+  if (investigation) {
+    $('pipeline').innerHTML = ['计划', '采集', '分析', '审阅', '草稿'].map((name, index) => {
+      const done = run.stage > index;
+      const current = run.stage === index && isActiveRun(run);
+      return `<div class="pipeline-step ${done ? 'done' : current ? 'current' : ''}"><span class="step-dot">${done ? '✓' : index + 1}</span><span>${name}</span></div>`;
+    }).join('');
+  }
 
-  $('run-footer-text').textContent = run
-    ? `${permissionNames[run.permission] ?? run.permission} · 工具调用已记录`
-    : '任务与对话保存在本机';
-  $('provenance-label').textContent = run?.mode === 'replay'
-    ? '合成数据演示'
-    : run
-      ? '来源与引用请核验'
-      : '按需选择来源与技能';
+  const mergedCount = mergeActivities(run.activities).length;
+  $('process-count').textContent = String(mergedCount);
 
-  renderApprovalBanner();
-  renderProcess();
-  renderApprovals();
+  $('run-footer-text').textContent = `${permissionNames[run.permission] ?? run.permission} · 工具调用均经主进程门禁留痕`;
+  $('provenance-label').textContent = run.mode === 'replay' ? '合成数据演示' : '来源与引用请人工核验';
+
+  updateRunMetrics();
+  renderApprovalSpotlight();
   renderConversation();
-  renderInspector();
+  renderProcess();
+  renderEvidenceRail();
   if (state.tab === 'report') renderReport();
-  if (state.tab === 'trace') renderTrace();
+  if (state.traceDrawerOpen) renderTrace();
   updateApprovalClocks();
 }
 
@@ -393,12 +511,15 @@ function updateRun(run: RunSnapshot): void {
   if (state.current?.id === run.id) {
     state.current = run;
     if (previousStatus !== run.status) {
-      if ((run.conversation && run.status === 'awaiting_user') || (!isInvestigation(run.task) && run.status === 'complete' && run.reportReady)) {
+      if (
+        (run.conversation && run.status === 'awaiting_user')
+        || ((run.status === 'complete' || run.status === 'partial') && run.reportReady)
+      ) {
         showTab('report');
       }
       announce(statusNames[run.status]);
     }
-    if (state.tab === 'trace') {
+    if (state.traceDrawerOpen) {
       void loadTrace(run.id);
     }
     renderRun();
@@ -410,19 +531,24 @@ function updateRun(run: RunSnapshot): void {
 function selectRun(run: RunSnapshot): void {
   state.stream?.close();
   state.current = run;
+  state.highlightedClaimId = undefined;
   state.selectedTraceStepId = undefined;
   state.traceFilter = 'all';
+  setSettingsOpen(false);
   localStorage.setItem('cwatch-selected-run', run.id);
   showView('workbench');
 
-  $<HTMLSelectElement>('profile').value = isInvestigation(run.task) ? 'web' : 'agent';
+  setProfileRadio(run.profile);
   const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${run.mode}]`);
   if (radio) radio.checked = true;
   $<HTMLSelectElement>('permission').value = run.permission;
 
   populateProfileForm(run.task);
   permissionChanged();
-  showTab(run.status === 'awaiting_approval' ? 'approvals' : run.conversation ? 'report' : 'process');
+
+  // Default to Editorial Report/Conversation unless an investigation is actively running without a report yet
+  const defaultTab: MainTab = isInvestigation(run.task) && isActiveRun(run) && !run.reportReady ? 'process' : 'report';
+  showTab(defaultTab);
   renderSidebar();
   renderRun();
 
@@ -441,12 +567,16 @@ function selectRun(run: RunSnapshot): void {
 function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: string; task: AgentTask }): void {
   state.stream?.close();
   state.current = undefined;
+  state.highlightedClaimId = undefined;
+  state.domainFilterOpen = false;
+  setTraceDrawer(false);
+  setSettingsOpen(false);
   state.instructionDraft = seed && !isInvestigation(seed.task) ? seed.task.instruction : '';
   localStorage.removeItem('cwatch-selected-run');
   clearError();
   showView('workbench');
 
-  $<HTMLSelectElement>('profile').value = seed ? (isInvestigation(seed.task) ? 'web' : 'agent') : 'agent';
+  setProfileRadio(seed ? (isInvestigation(seed.task) ? 'web' : 'agent') : 'agent');
   const defaultMode = seed?.mode ?? (state.bootstrap?.model.configured ? 'live' : 'replay');
   const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${defaultMode}]`);
   if (radio) radio.checked = true;
@@ -454,7 +584,7 @@ function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: s
 
   populateProfileForm(seed?.task);
   permissionChanged();
-  showTab('process');
+  showTab('report');
   renderSidebar();
   renderRun();
   announce('可以新建任务。');
@@ -491,18 +621,18 @@ async function refreshBootstrapQuietly(): Promise<void> {
   const bootstrap = await fetchBootstrap();
   state.bootstrap = bootstrap;
   renderSkillCheckboxes();
-  populateProfileForm(state.current?.task);
+  populateProfileForm(state.current?.task, true);
 }
 
 function renderSkillCheckboxes(): void {
   const bootstrap = state.bootstrap;
   if (!bootstrap) return;
   $('skill-options').innerHTML = bootstrap.skills.filter(skill => skill.enabled).map(skill => `
-    <label class="source-option" title="${escapeHtml(skill.description)}">
+    <label class="option-chip" title="${escapeHtml(skill.description)}">
       <input type="checkbox" name="skill" value="${escapeHtml(skill.name)}">
       <span>${escapeHtml(skill.name)}</span>
     </label>`).join('')
-    || '<p class="field-note">使用所选模板的基础指导；可通过 CLI 安装或在「来源与连接」查看 Skill。</p>';
+    || '<p class="field-note">默认使用内置任务指导；可在「来源与连接」查看 Skill。</p>';
 }
 
 // Form submission
@@ -510,6 +640,7 @@ $('run-form').addEventListener('submit', event => {
   event.preventDefault();
   if (state.submitting) return;
   clearError();
+  setSettingsOpen(false);
   void (async () => {
     state.submitting = true;
     modeChanged();
@@ -518,6 +649,7 @@ $('run-form').addEventListener('submit', event => {
       const replay = currentMode() === 'replay';
       const task = structuredClone(profile.task);
       let webDomains: string[] | undefined;
+
       if (!replay && isInvestigation(task)) {
         const defaultTask = isInvestigation(profile.task) ? profile.task : undefined;
         task.taskId = 'web-' + Date.now();
@@ -525,14 +657,15 @@ $('run-form').addEventListener('submit', event => {
         const rawId = $<HTMLInputElement>('competitor-id').value.trim();
         if (defaultTask && task.competitor.name !== defaultTask.competitor.name) {
           task.competitor.aliases = [];
-          task.competitor.id = rawId === defaultTask.competitor.id
+          task.competitor.id = rawId === defaultTask.competitor.id || !rawId
             ? (task.competitor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'target-' + Date.now().toString(36))
             : rawId;
         } else {
-          task.competitor.id = rawId;
+          task.competitor.id = rawId || 'target-' + Date.now().toString(36);
         }
-        task.competitor.domains = parseDomains($<HTMLInputElement>('domains').value);
-        if (!task.competitor.domains.length) throw Error('请填写至少一个允许访问的公开域名（如 bigmodel.cn）。');
+        const parsed = parseDomains($<HTMLInputElement>('domains').value);
+        // Empty domain input defaults to open public HTTPS web search (`['*']`)!
+        task.competitor.domains = parsed.length ? parsed : ['*'];
         task.product = $<HTMLInputElement>('product').value.trim();
         task.window = {
           start: $<HTMLInputElement>('start-date').value + 'T00:00:00+08:00',
@@ -542,23 +675,27 @@ $('run-form').addEventListener('submit', event => {
         };
         task.allowedSources = [...document.querySelectorAll<HTMLInputElement>('input[name=source]:checked')].map(input => input.value);
       }
+
       if (!isInvestigation(task)) {
         task.instruction = $<HTMLTextAreaElement>('instruction').value.trim();
         if (!replay) {
           task.taskId = 'task-' + Date.now();
           task.allowedSources = [...document.querySelectorAll<HTMLInputElement>('input[name=source]:checked')].map(input => input.value);
           if (task.allowedSources.includes('web')) {
-            webDomains = parseDomains($<HTMLInputElement>('agent-web-domains').value);
-            if (!webDomains.length) throw Error('已勾选联网搜索与读取，请填写至少一个允许访问的公开域名（如 bigmodel.cn, open.bigmodel.cn）。');
+            const parsed = parseDomains($<HTMLInputElement>('agent-web-domains').value);
+            // Blank means open public HTTPS (backend defaults to ['*'])
+            if (parsed.length) webDomains = parsed;
           }
         }
       }
+
       if (isInvestigation(task) && Date.parse(task.window.start) >= Date.parse(task.window.end)) {
         throw Error('结束日期须晚于开始日期。');
       }
       if (isInvestigation(task) && !task.allowedSources.length) {
-        throw Error('请至少选择一个采集来源。');
+        throw Error('请至少开启联网搜索或选择一个扩展来源。');
       }
+
       const input: RunStartInput = {
         profile: profile.id,
         mode: currentMode(),
@@ -572,6 +709,7 @@ $('run-form').addEventListener('submit', event => {
           maxTokens: Number($<HTMLInputElement>('tokens').value),
         },
       };
+
       const run = await startRunApi(input);
       state.runs.unshift(run);
       selectRun(run);
@@ -631,30 +769,58 @@ $('end-conversation').addEventListener('click', () => {
   });
 });
 
-// Navigation, compose & controls
+// Compose mode, toggles & settings popover
 $('new-run').addEventListener('click', () => newRun());
 $('sidebar-new-run').addEventListener('click', () => newRun());
-$('profile').addEventListener('change', () => { populateProfileForm(); if (!state.current) renderRun(); });
+
+for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="profile"]')) {
+  radio.addEventListener('change', () => {
+    populateProfileForm();
+    if (!state.current) renderRun();
+  });
+}
+
+$('toggle-web-search').addEventListener('change', syncWebToggleAndBadges);
+$('agent-web-domains').addEventListener('input', syncWebToggleAndBadges);
+$('domains').addEventListener('input', syncWebToggleAndBadges);
+
+$('toggle-domain-filter').addEventListener('click', () => {
+  state.domainFilterOpen = !state.domainFilterOpen;
+  syncWebToggleAndBadges();
+  if (state.domainFilterOpen) $<HTMLInputElement>('agent-web-domains').focus();
+});
+
+$('settings-toggle').addEventListener('click', () => setSettingsOpen(!state.settingsOpen));
+$('composer-mode-badge').addEventListener('click', () => setSettingsOpen(!state.settingsOpen));
+
 $('task-suggestions').addEventListener('click', event => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
   if (!button || state.current || !state.bootstrap?.profiles.some(profile => profile.id === button.dataset.template)) return;
-  $<HTMLSelectElement>('profile').value = button.dataset.template!;
-  if (button.dataset.enableWeb === 'true' && state.bootstrap.model.configured) {
+  setProfileRadio(button.dataset.template!);
+  const liveReady = Boolean(state.bootstrap.model.configured);
+  if (button.dataset.enableWeb === 'true' && liveReady) {
     const liveRadio = document.querySelector<HTMLInputElement>('input[name=mode][value=live]');
     if (liveRadio) liveRadio.checked = true;
   }
+  const prompt = button.dataset.prompt;
+  if (prompt && liveReady && currentMode() === 'live') {
+    state.instructionDraft = prompt;
+  }
   populateProfileForm();
-  if (button.dataset.enableWeb === 'true') {
-    const webBox = document.querySelector<HTMLInputElement>('input[name=source][value=web]');
-    if (webBox && !webBox.disabled) {
-      webBox.checked = true;
-      syncAgentWebDomains();
-      if (!$('agent-web-domains-wrap').hidden) $<HTMLInputElement>('agent-web-domains').focus();
+  if (button.dataset.template === 'agent' && currentMode() === 'live') {
+    const webBox = $<HTMLInputElement>('toggle-web-search');
+    if (!webBox.disabled && button.dataset.enableWeb !== undefined) {
+      webBox.checked = button.dataset.enableWeb === 'true';
     }
+    syncWebToggleAndBadges();
+    $<HTMLTextAreaElement>('instruction').focus();
+  } else if (button.dataset.template === 'web') {
+    $<HTMLInputElement>('competitor-name').focus();
   }
   renderRun();
   announce('已选择' + profileDisplayName(currentProfile().id, currentProfile().name) + '。');
 });
+
 $('run-form').addEventListener('keydown', event => {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !$<HTMLButtonElement>('start-run').disabled) {
     event.preventDefault();
@@ -664,7 +830,6 @@ $('run-form').addEventListener('keydown', event => {
 $('instruction').addEventListener('input', () => {
   if (!state.current) state.instructionDraft = $<HTMLTextAreaElement>('instruction').value;
 });
-$('source-options').addEventListener('change', syncAgentWebDomains);
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]')) {
   input.addEventListener('change', () => modeChanged(true));
 }
@@ -676,28 +841,41 @@ $('cancel-run').addEventListener('click', () => {
   void cancelRunApi(run.id).then(updateRun).catch(alertError);
 });
 
-// Theme & Inspector toggles
+// Theme & Trace Slide-Over Drawer
 $('theme-toggle').addEventListener('click', () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   try { localStorage.setItem('cwatch-theme', state.theme); } catch { /* ignore */ }
   applyTheme(true);
   announce(state.theme === 'dark' ? '已切换到深色模式。' : '已切换到浅色模式。');
 });
-$('toggle-inspector').addEventListener('click', () => {
-  state.inspectorOpen = !state.inspectorOpen;
-  try { localStorage.setItem('cwatch-inspector-open', String(state.inspectorOpen)); } catch { /* ignore */ }
-  applyInspectorVisibility();
+
+$('toggle-trace-drawer').addEventListener('click', () => setTraceDrawer(!state.traceDrawerOpen));
+$('close-trace-drawer').addEventListener('click', () => setTraceDrawer(false));
+$('trace-backdrop').addEventListener('click', () => setTraceDrawer(false));
+
+// Close popover or Trace drawer on Escape / outside click
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    if (state.traceDrawerOpen) {
+      setTraceDrawer(false);
+      $('toggle-trace-drawer').focus();
+    } else if (state.settingsOpen) {
+      setSettingsOpen(false);
+      $('settings-toggle').focus();
+    }
+  }
+});
+document.addEventListener('click', event => {
+  if (!state.settingsOpen) return;
+  const target = event.target as HTMLElement;
+  if (!target.closest('.settings-anchor') && !target.closest('#composer-mode-badge')) {
+    setSettingsOpen(false);
+  }
 });
 
-// Sidebar history search, filter, select & delete
+// Sidebar history search, select & delete
 $('history-search').addEventListener('input', () => {
   state.historyQuery = $<HTMLInputElement>('history-search').value;
-  renderSidebar();
-});
-document.querySelector('.history-filters')!.addEventListener('click', event => {
-  const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-history-filter]');
-  if (!btn) return;
-  state.historyFilter = btn.dataset.historyFilter as HistoryFilter;
   renderSidebar();
 });
 $('history-list').addEventListener('click', event => {
@@ -716,7 +894,7 @@ $('history-select').addEventListener('change', () => {
   else newRun();
 });
 
-// Tabs & keyboard navigation (process -> report -> approvals -> trace)
+// 2-Tab Bar & Keyboard Navigation (report <-> process)
 for (const button of document.querySelectorAll<HTMLElement>('[data-tab]')) {
   button.addEventListener('click', () => showTab(button.dataset.tab as MainTab));
 }
@@ -724,15 +902,15 @@ document.querySelector('[role=tablist]')!.addEventListener('keydown', event => {
   const key = (event as KeyboardEvent).key;
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
   event.preventDefault();
-  const names: MainTab[] = ['process', 'report', 'approvals', 'trace'];
+  const names: MainTab[] = ['report', 'process'];
   const index = names.indexOf(state.tab);
   const next = key === 'Home' ? 0 : key === 'End' ? names.length - 1 : (index + (key === 'ArrowRight' ? 1 : names.length - 1)) % names.length;
   showTab(names[next]);
   $('tab-' + names[next]).focus();
 });
 
-// Approvals actions
-$('approval-content').addEventListener('click', event => {
+// Inline Approval Spotlight Actions
+$('approval-spotlight').addEventListener('click', event => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-approve],[data-deny]');
   const run = state.current;
   if (!target || !run) return;
@@ -743,7 +921,39 @@ $('approval-content').addEventListener('click', event => {
     .catch(error => { alertError(error); target.disabled = false; });
 });
 
-// Trace interactions
+// Bidirectional Claim <-> Evidence Rail linkage
+function highlightClaim(claimId: string, scrollTarget: 'evidence' | 'claim'): void {
+  state.highlightedClaimId = state.highlightedClaimId === claimId ? undefined : claimId;
+  renderReport();
+  renderEvidenceRail();
+  if (!state.highlightedClaimId) return;
+  if (scrollTarget === 'evidence') {
+    document.querySelector<HTMLElement>(`[data-evidence-claim="${CSS.escape(claimId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    document.querySelector<HTMLElement>(`[data-claim-id="${CSS.escape(claimId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+$('report-content').addEventListener('click', event => {
+  const target = event.target as HTMLElement;
+  if (target.closest('a, button, summary')) return;
+  const claim = target.closest<HTMLElement>('[data-claim-id]');
+  if (claim?.dataset.claimId) {
+    highlightClaim(claim.dataset.claimId, 'evidence');
+  }
+});
+
+$('evidence-rail').addEventListener('click', event => {
+  const target = event.target as HTMLElement;
+  if (target.closest('a, button')) return;
+  const card = target.closest<HTMLElement>('[data-evidence-claim]');
+  if (card?.dataset.evidenceClaim) {
+    if (state.tab !== 'report') showTab('report');
+    highlightClaim(card.dataset.evidenceClaim, 'claim');
+  }
+});
+
+// Trace drawer interactions
 $('trace-content').addEventListener('click', event => {
   const target = event.target as HTMLElement;
   if (target.closest('[data-trace-refresh]') && state.current) {
@@ -800,7 +1010,7 @@ $('nav-sources').addEventListener('click', () => showView(state.view === 'connec
 $('mobile-sources').addEventListener('click', () => showView(state.view === 'connections' ? 'workbench' : 'connections'));
 $('nav-workbench').addEventListener('click', () => showView('workbench'));
 
-// Delegated global actions (copy report, copy code block, copy message, jump tab, clone run)
+// Global delegated actions (copy, jump tab, open trace drawer, clone run)
 document.body.addEventListener('click', event => {
   const target = event.target as HTMLElement;
 
@@ -845,6 +1055,11 @@ document.body.addEventListener('click', event => {
     return;
   }
 
+  if (target.closest('[data-open-trace]')) {
+    setTraceDrawer(true);
+    return;
+  }
+
   if (target.closest('[data-clone-run]') && state.current) {
     const run = state.current;
     newRun({ profile: run.profile, mode: run.mode, permission: run.permission, task: structuredClone(run.task) });
@@ -852,7 +1067,7 @@ document.body.addEventListener('click', event => {
 });
 
 setInterval(() => {
-  updateElapsed();
+  updateRunMetrics();
   updateApprovalClocks();
 }, 1000);
 
@@ -862,14 +1077,13 @@ async function init(): Promise<void> {
     const bootstrap = await fetchBootstrap();
     state.bootstrap = bootstrap;
     state.runs = bootstrap.runs;
-    renderProfileSelect(bootstrap.profiles);
-    $<HTMLSelectElement>('profile').value = 'agent';
+    setProfileRadio('agent');
     const defaultRadio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${bootstrap.model.configured ? 'live' : 'replay'}]`);
     if (defaultRadio) defaultRadio.checked = true;
     renderSkillCheckboxes();
     $('model-status').textContent = bootstrap.model.configured
-      ? `模型：${bootstrap.model.provider} / ${bootstrap.model.id}`
-      : '模型未配置 · 离线演示可用';
+      ? `${bootstrap.model.provider} · ${bootstrap.model.id}`
+      : '离线演示模式 · 未配置 .env';
     setConnection('本地服务已连接');
     populateProfileForm();
     permissionChanged();
@@ -878,7 +1092,7 @@ async function init(): Promise<void> {
       ?? state.runs.find(isActiveRun)
       ?? state.runs[0];
     if (selected) selectRun(selected);
-    else { showTab('process'); renderRun(); }
+    else { showTab('report'); renderRun(); }
   } catch (error) {
     setConnection('本地服务未连接', false);
     alertError(error);

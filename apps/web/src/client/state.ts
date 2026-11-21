@@ -10,8 +10,7 @@ import type {
 } from '@cwatch/core/types/runs';
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 
-export type MainTab = 'process' | 'report' | 'approvals' | 'trace';
-export type HistoryFilter = 'all' | 'active' | 'done' | 'error';
+export type MainTab = 'report' | 'process';
 export type TraceFilter = 'all' | 'model' | 'tool' | 'backend' | 'errors';
 
 export const $ = <E extends HTMLElement = HTMLElement>(id: string): E => document.getElementById(id) as E;
@@ -30,8 +29,8 @@ export function safeUrl(raw: string): string | undefined {
 }
 
 export const statusNames: Record<RunStatus, string> = {
-  preparing: '准备来源',
-  running: '调查中',
+  preparing: '准备中',
+  running: '执行中',
   awaiting_approval: '等待审批',
   awaiting_user: '等待追问',
   cancelling: '正在取消',
@@ -85,7 +84,7 @@ export function taskTitle(task: AgentTask): string {
     return task.competitor.name + (task.competitor.name === task.product ? ' 动态调查' : ' · ' + task.product);
   }
   const singleLine = task.instruction.replace(/\s+/g, ' ').trim();
-  return singleLine.length > 80 ? singleLine.slice(0, 80) + '…' : singleLine || '未命名任务';
+  return singleLine.length > 72 ? singleLine.slice(0, 72) + '…' : singleLine || '未命名任务';
 }
 
 export function formatTime(value: string): string {
@@ -119,10 +118,12 @@ export interface ClientState {
   current?: RunSnapshot;
   view: 'workbench' | 'connections';
   tab: MainTab;
-  inspectorOpen: boolean;
+  traceDrawerOpen: boolean;
+  settingsOpen: boolean;
+  domainFilterOpen: boolean;
+  highlightedClaimId?: string;
   theme: 'light' | 'dark';
   historyQuery: string;
-  historyFilter: HistoryFilter;
   stream?: EventSource;
   submitting: boolean;
   sending: boolean;
@@ -150,27 +151,20 @@ function readInitialTheme(): 'light' | 'dark' {
   try {
     const saved = localStorage.getItem('cwatch-theme');
     if (saved === 'dark' || saved === 'light') return saved;
-  } catch { /* ignore storage restrictions */ }
-  return 'light';
-}
-
-function readInitialInspector(): boolean {
-  try {
-    const saved = localStorage.getItem('cwatch-inspector-open');
-    if (saved === 'false') return false;
   } catch { /* ignore */ }
-  return true;
+  return 'light';
 }
 
 export const state: ClientState = {
   loadingExtensions: false,
   runs: [],
   view: 'workbench',
-  tab: 'process',
-  inspectorOpen: readInitialInspector(),
+  tab: 'report',
+  traceDrawerOpen: false,
+  settingsOpen: false,
+  domainFilterOpen: false,
   theme: readInitialTheme(),
   historyQuery: '',
-  historyFilter: 'all',
   submitting: false,
   sending: false,
   deletingRunIds: new Set(),
@@ -189,7 +183,7 @@ export const state: ClientState = {
 };
 
 export function currentProfile(): RunProfile {
-  const value = $<HTMLSelectElement>('profile').value;
+  const value = document.querySelector<HTMLInputElement>('input[name="profile"]:checked')?.value ?? 'agent';
   return state.bootstrap!.profiles.find(p => p.id === value) ?? state.bootstrap!.profiles[0];
 }
 

@@ -76,7 +76,7 @@ export async function loadTrace(runId: string, force = false): Promise<void> {
 
   state.loadingTraces.add(runId);
   state.traceErrors.delete(runId);
-  if (state.current?.id === runId && state.tab === 'trace') renderTrace();
+  if (state.current?.id === runId && state.traceDrawerOpen) renderTrace();
 
   try {
     const trace = await fetchTraceApi(runId);
@@ -88,7 +88,7 @@ export async function loadTrace(runId: string, force = false): Promise<void> {
     state.traceErrors.set(runId, error instanceof Error ? error.message : String(error));
   } finally {
     state.loadingTraces.delete(runId);
-    if (state.current?.id === runId && state.tab === 'trace') renderTrace();
+    if (state.current?.id === runId && state.traceDrawerOpen) renderTrace();
   }
 }
 
@@ -96,7 +96,7 @@ export function renderTrace(): void {
   const panel = $('trace-content');
   const run = state.current;
   if (!run) {
-    panel.innerHTML = '<div class="empty-state"><h3>暂无 Trace</h3><p>启动或选择一次任务后，可在此查看完整结构化调用链。</p></div>';
+    panel.innerHTML = '<div class="empty-state"><h3>暂无 Trace</h3><p>选择一次运行后，可在此查看完整结构化调用链。</p></div>';
     return;
   }
 
@@ -106,18 +106,16 @@ export function renderTrace(): void {
 
   if (!cached && !loading && !error) {
     void loadTrace(run.id);
-    panel.innerHTML = '<div class="empty-state"><h3>正在加载结构化 Trace…</h3><p>读取本次运行的模型、工具与后端审计记录。</p></div>';
+    panel.innerHTML = '<div class="empty-state"><h3>正在加载 Trace…</h3><p>读取本次运行的模型、工具与后端审计记录。</p></div>';
     return;
   }
-
   if (!cached && loading) {
-    panel.innerHTML = '<div class="empty-state"><h3>正在加载结构化 Trace…</h3><p>读取本次运行的模型、工具与后端审计记录。</p></div>';
+    panel.innerHTML = '<div class="empty-state"><h3>正在加载 Trace…</h3><p>读取本次运行的模型、工具与后端审计记录。</p></div>';
     return;
   }
-
   if (!cached && error) {
     const waiting = error.includes('trace_not_ready');
-    panel.innerHTML = `<div class="empty-state"><h3>${waiting ? 'Trace 尚未就绪' : 'Trace 读取失败'}</h3><p>${escapeHtml(waiting ? '来源准备完成后将生成结构化审计 Trace，可稍后刷新。' : error)}</p><div class="empty-actions"><button type="button" class="button secondary" data-trace-refresh>重新读取</button></div></div>`;
+    panel.innerHTML = `<div class="empty-state"><h3>${waiting ? 'Trace 尚未就绪' : 'Trace 读取失败'}</h3><p>${escapeHtml(waiting ? '执行开始后将生成结构化 Trace，请稍后刷新。' : error)}</p><div class="empty-actions"><button type="button" class="button secondary sm" data-trace-refresh>重新读取</button></div></div>`;
     return;
   }
 
@@ -130,14 +128,14 @@ export function renderTrace(): void {
   const rootStart = trace.timing.startedAt ? Date.parse(trace.timing.startedAt) : NaN;
   const rootDuration = Math.max(1, trace.timing.durationMs ?? 1);
   const integrityClass = !trace.integrity.valid ? 'error' : trace.integrity.complete ? 'ok' : 'busy';
-  const integrityLabel = !trace.integrity.valid ? '审计校验异常' : trace.integrity.complete ? '审计完整' : '进行中快照';
+  const integrityLabel = !trace.integrity.valid ? '审计异常' : trace.integrity.complete ? '审计完整' : '运行中快照';
 
   const filters: Array<{ id: TraceFilter; label: string; count: number }> = [
-    { id: 'all', label: '全部步骤', count: rows.length },
+    { id: 'all', label: '全部', count: rows.length },
     { id: 'model', label: '模型', count: rows.filter(r => r.step.kind === 'model').length },
     { id: 'tool', label: '工具', count: rows.filter(r => r.step.kind === 'tool').length },
     { id: 'backend', label: '后端', count: rows.filter(r => r.step.kind === 'backend').length },
-    { id: 'errors', label: '异常/拦截', count: rows.filter(r => matchesFilter(r.step, 'errors')).length },
+    { id: 'errors', label: '异常', count: rows.filter(r => matchesFilter(r.step, 'errors')).length },
   ];
 
   const rowsHtml = filtered.length
@@ -154,7 +152,6 @@ export function renderTrace(): void {
           <span class="trace-row-main">
             <span class="trace-kind kind-${escapeHtml(step.kind)}">${escapeHtml(kindLabels[step.kind])}</span>
             <span class="trace-name">${escapeHtml(step.name)}</span>
-            ${step.resultStatus ? `<span class="trace-result-tag">${escapeHtml(step.resultStatus)}</span>` : ''}
           </span>
           <span class="trace-row-meta">
             <span class="trace-waterfall" aria-hidden="true"><span class="trace-bar-fill tone-${tone}" data-bar-left="${leftPct.toFixed(1)}" data-bar-width="${widthPct.toFixed(1)}"></span></span>
@@ -163,39 +160,34 @@ export function renderTrace(): void {
           </span>
         </button>`;
       }).join('')
-    : '<p class="trace-empty-filter">当前筛选条件下没有匹配步骤。</p>';
-
-  const detailHtml = selected ? renderStepDetail(selected) : '';
+    : '<p class="trace-empty-filter">当前筛选下没有匹配步骤。</p>';
 
   panel.innerHTML = `
     <div class="trace-header">
       <div class="trace-badges">
         <span class="status-chip tone-${integrityClass}">${escapeHtml(integrityLabel)}</span>
-        <span class="trace-meta-text">Schema ${escapeHtml(trace.schemaVersion)} · ${trace.events.length} 条审计事件</span>
+        <span class="trace-meta-text">${trace.events.length} 事件</span>
       </div>
       <div class="trace-actions">
-        <button type="button" class="button secondary sm" data-trace-refresh ${loading ? 'disabled' : ''}>${loading ? '刷新中…' : '刷新 Trace'}</button>
+        <button type="button" class="button secondary sm" data-trace-refresh ${loading ? 'disabled' : ''}>${loading ? '刷新中…' : '刷新'}</button>
         <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/trace" download="trace-${escapeHtml(run.id.slice(0, 8))}.json">导出 JSON</a>
       </div>
     </div>
     <div class="trace-summary-grid">
       <div class="mini-stat"><span>模型轮次</span><strong>${trace.summary.modelRounds}</strong></div>
-      <div class="mini-stat"><span>工具请求 / 执行</span><strong>${trace.summary.toolRequests} / ${trace.summary.toolExecutions}</strong></div>
-      <div class="mini-stat"><span>后端执行</span><strong>${trace.summary.backendExecutions}</strong></div>
-      <div class="mini-stat"><span>Token 用量</span><strong>${(trace.summary.totalTokens ?? trace.summary.knownTokens).toLocaleString()}</strong></div>
+      <div class="mini-stat"><span>工具执行</span><strong>${trace.summary.toolExecutions}/${trace.summary.toolRequests}</strong></div>
+      <div class="mini-stat"><span>Token</span><strong>${(trace.summary.totalTokens ?? trace.summary.knownTokens).toLocaleString()}</strong></div>
       <div class="mini-stat"><span>总耗时</span><strong>${escapeHtml(formatDurationMs(trace.timing.durationMs))}</strong></div>
     </div>
-    ${trace.integrity.errors.length ? `<div class="run-notice"><strong>审计校验提示：</strong>${trace.integrity.errors.map(escapeHtml).join('；')}</div>` : ''}
     <div class="filter-pills" role="group" aria-label="Trace 步骤筛选">
       ${filters.map(f => `<button type="button" class="filter-pill ${state.traceFilter === f.id ? 'active' : ''}" data-trace-filter="${f.id}">${escapeHtml(f.label)} <span class="pill-count">${f.count}</span></button>`).join('')}
     </div>
     <div class="trace-split">
       <div class="trace-tree" aria-label="Trace 步骤树">${rowsHtml}</div>
-      ${detailHtml}
+      ${selected ? renderStepDetail(selected) : ''}
     </div>
   `;
 
-  // Apply waterfall positions through CSSOM so zero inline style="" attributes are emitted (strict CSP).
   for (const bar of panel.querySelectorAll<HTMLElement>('[data-bar-width]')) {
     bar.style.left = (bar.dataset.barLeft ?? '0') + '%';
     bar.style.width = (bar.dataset.barWidth ?? '2') + '%';
@@ -217,13 +209,12 @@ function renderStepDetail(step: TraceStep): string {
       <dt>全程耗时</dt><dd>${escapeHtml(formatDurationMs(step.timing.durationMs))}</dd>
       <dt>实际执行</dt><dd>${escapeHtml(formatDurationMs(step.timing.executionDurationMs))}</dd>
       <dt>开始时间</dt><dd>${escapeHtml(step.timing.startedAt ? formatTime(step.timing.startedAt) : step.timing.requestedAt ? formatTime(step.timing.requestedAt) : '—')}</dd>
-      <dt>关联事件</dt><dd>${step.eventIds.length} 条</dd>
       ${corrEntries.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd class="mono">${escapeHtml(v)}</dd>`).join('')}
     </dl>
     ${step.error ? `<div class="trace-error-box"><strong>${escapeHtml(step.error.category)} · ${escapeHtml(step.error.code)}</strong><p>${escapeHtml(step.error.message)}</p></div>` : ''}
     ${step.input !== null ? `<details open><summary>输入 (input)</summary><pre class="json-pre">${escapeHtml(prettyJson(step.input))}</pre></details>` : ''}
     ${step.output !== null ? `<details open><summary>输出 (output)</summary><pre class="json-pre">${escapeHtml(prettyJson(step.output))}</pre></details>` : ''}
     ${step.usage.length ? `<details><summary>用量明细 (${step.usage.length})</summary><pre class="json-pre">${escapeHtml(prettyJson(step.usage))}</pre></details>` : ''}
-    ${hasAttrs ? `<details><summary>属性与权限裁决 (attributes)</summary><pre class="json-pre">${escapeHtml(prettyJson(step.attributes))}</pre></details>` : ''}
+    ${hasAttrs ? `<details><summary>属性与权限裁决</summary><pre class="json-pre">${escapeHtml(prettyJson(step.attributes))}</pre></details>` : ''}
   </section>`;
 }

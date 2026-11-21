@@ -18,7 +18,7 @@ check('contract','Workbench HTTP serves local assets with a restrictive CSP and 
     const rawStatus=(headers:Record<string,string>)=>new Promise<number|undefined>((resolve,reject)=>{const req=httpRequest(h.origin+'/api/bootstrap',{headers},res=>{res.resume();resolve(res.statusCode);});req.on('error',reject);req.end();});
     const home=await fetch(h.origin);assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy')!,/frame-ancestors 'none'/);assert.match(await home.text(),/Agent 工作台/);
     assert.equal((await fetch(h.origin+'/client.js')).status,200);
-    for(const mod of ['/client/state.js','/client/api.js','/client/markdown.js','/client/trace.js','/client/conversation.js','/client/inspector.js','/client/sidebar.js','/client/extensions.js']){
+    for(const mod of ['/client/state.js','/client/api.js','/client/markdown.js','/client/trace.js','/client/activity-merger.js','/client/conversation.js','/client/evidence-rail.js','/client/sidebar.js','/client/extensions.js']){
       const res=await fetch(h.origin+mod);assert.equal(res.status,200);assert.match(res.headers.get('content-type')!,/javascript/);
     }
     for(const path of ['/.env','/package.json','/api/runs/../../.env','/client/../server.js','/client/missing.js','/api/extensions/skills/../../.env'])assert.equal((await fetch(h.origin+path)).status,404);
