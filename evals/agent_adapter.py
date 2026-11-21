@@ -3,6 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import sleep
 
 from pydantic import BaseModel, Field
 
@@ -75,3 +76,39 @@ def load_trace(case, case_dir, result):
     if trace["status"] != result.status or (trace["output"]["response"] or "") != result.output:
         raise ValueError("benchmark trace terminal record disagrees with Agent result")
     return trace
+
+
+def agent_attempt(case, case_dir, fixture_hash):
+    try:
+        result = run_agent(case, case_dir, fixture_hash)
+    except (OSError, RuntimeError, ValueError) as error:
+        return None, None, str(error), None
+    try:
+        return result, load_trace(case, case_dir, result), None, None
+    except (OSError, KeyError, TypeError, ValueError) as error:
+        return result, None, None, str(error)
+
+
+def can_retry_start_timeout(result, trace):
+    if result is None or trace is None or result.status != "failed" or result.output.strip():
+        return False
+    _, marker, message = (result.error or "").rpartition("provider_unavailable:")
+    summary = trace["summary"]
+    return (bool(marker) and message.strip().rstrip(".").lower() == "request timed out"
+            and summary.get("modelRounds") == 1 and summary.get("toolRequests") == 0
+            and summary.get("toolExecutions") == 0)
+
+
+def run_agent_trial(case, case_dir, fixture_hash):
+    attempt = agent_attempt(case, case_dir, fixture_hash)
+    result, trace, _, _ = attempt
+    if not can_retry_start_timeout(result, trace):
+        return attempt, None
+    archived_trace = "provider-timeout.trace.json"
+    try:
+        (case_dir / "trace.json").rename(case_dir / archived_trace)
+    except OSError:
+        return attempt, None
+    retry = {"runId": result.runId, "reason": result.error, "durationMs": result.durationMs, "trace": archived_trace}
+    sleep(CONFIG["agent"]["startTimeoutRetryDelaySeconds"])
+    return agent_attempt(case, case_dir, fixture_hash), retry

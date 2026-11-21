@@ -20,6 +20,7 @@ npm run eval:run
 - 本机和容器在配置 Langfuse 后上传 Trace 和评分。纯本地回归设置 `BENCHMARK_PUBLISH=0`。可用 `npm run eval:publish -- <run-id>` 重试上传，本地审阅题加 `--review-tests`。
 - PR 的 **DeepEval benchmark** 合并门禁使用 `npm run eval:ci` 运行 Smoke。报告和 JUnit 保存在 `artifacts/benchmark/<run-id>/`，本地审阅保存在 `artifacts/review-tests/<run-id>/`。
 - Agent 在收到模型响应流之前遇到可重试的连接错误或 HTTP 错误时，同一请求最多重试两次，共用原轮次和运行超时。重试不重放工具。供应商错误导致必需动作未完成时，记录评测错误。已观察到的越权请求仍可判失败。
+- Agent 首轮模型请求返回供应商超时，且 Trace 确认没有工具请求或执行时，评测等待 10 秒后在新工作目录重试同一次试跑一次。报告保留首次超时的记录。再次超时会记录评测错误。
 - Judge 达到输出 token 上限且评估未完成时，可在同一超时预算内用更高上限重试一次。该重试复用同一次试跑的回答和 Trace。
 
 ## 评分与通过条件

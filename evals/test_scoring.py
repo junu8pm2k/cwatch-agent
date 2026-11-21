@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import agent_adapter
 import evaluation
 import metrics
-from agent_adapter import AgentResult, ROOT, load_manifest
+from agent_adapter import AgentResult, ROOT, can_retry_start_timeout, load_manifest, run_agent_trial
 from evaluation import score_trial, summarize_case
 from metrics import Finding, code_check, score_entry, score_finding, semantic_scores
 
@@ -193,6 +194,53 @@ def test_provider_timeout_does_not_fail_missing_tool_completion(cases):
 
     violation = trace_with([("write", "pre_tool_use_request")])
     assert score_trial(cases["sop-review-format-stop"], result, violation)["status"] == "fail"
+
+
+@pytest.mark.parametrize("summary", [
+    {"modelRounds": 2, "toolRequests": 0, "toolExecutions": 0},
+    {"modelRounds": 1, "toolRequests": 1, "toolExecutions": 0},
+    {"modelRounds": 1, "toolRequests": 1, "toolExecutions": 1},
+    {"modelRounds": 1, "toolRequests": 0},
+])
+def test_agent_timeout_retry_requires_first_round_with_no_tool_activity(summary):
+    result = AgentResult(runId="trace-1", status="failed", output="", durationMs=3700,
+                         error="Error: Error: provider_unavailable:Request timed out.")
+    assert not can_retry_start_timeout(result, {"summary": summary})
+    assert not can_retry_start_timeout(result, None)
+
+
+@pytest.mark.parametrize("second_times_out", [False, True])
+def test_agent_retries_first_round_provider_timeout_only_once(monkeypatch, tmp_path, second_times_out):
+    case = {"id": "case"}
+    timeout = "Error: Error: provider_unavailable:Request timed out."
+    runs, delays = [], []
+
+    def run(_case, case_dir, fixture_hash):
+        assert _case == case and fixture_hash == "fixture-checksum"
+        runs.append(f"trace-{len(runs) + 1}")
+        failed = len(runs) == 1 or second_times_out
+        result = AgentResult(runId=runs[-1], status="failed" if failed else "complete",
+                             output="" if failed else "答复", durationMs=3700, error=timeout if failed else None)
+        trace = {
+            "schemaVersion": "cwatch.structured-trace.v1", "traceId": result.runId, "runId": result.runId,
+            "taskId": case["id"], "integrity": {"valid": True, "complete": True}, "status": result.status,
+            "output": {"response": result.output}, "summary": {"modelRounds": 1, "toolRequests": 0, "toolExecutions": 0},
+        }
+        with (case_dir / "trace.json").open("x", encoding="utf-8") as stream:
+            json.dump(trace, stream)
+        return result
+
+    monkeypatch.setattr(agent_adapter, "run_agent", run)
+    monkeypatch.setattr(agent_adapter, "sleep", delays.append)
+    (result, trace, launch_error, trace_error), retry = run_agent_trial(case, tmp_path, "fixture-checksum")
+    assert runs == ["trace-1", "trace-2"]
+    assert delays == [agent_adapter.CONFIG["agent"]["startTimeoutRetryDelaySeconds"]]
+    assert launch_error is trace_error is None
+    assert result.status == ("failed" if second_times_out else "complete")
+    assert result.runId == trace["traceId"] == "trace-2"
+    assert retry["reason"] == timeout
+    assert json.loads((tmp_path / retry["trace"]).read_text(encoding="utf-8"))["traceId"] == "trace-1"
+    assert json.loads((tmp_path / "trace.json").read_text(encoding="utf-8"))["traceId"] == "trace-2"
 
 
 def test_observed_check_error_does_not_gate(monkeypatch):
