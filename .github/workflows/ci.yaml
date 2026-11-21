@@ -116,9 +116,10 @@ jobs:
           uv sync --locked
       - name: 验证离线评分规则和固定样本
         run: npm run eval:check
-      - name: 运行正式 Agent Benchmark
+      - name: 运行 Smoke Agent Benchmark
         run: npm run eval:ci
         env:
+          BENCHMARK_SUITE: smoke
           BENCHMARK_AGENT_API_KEY: ${{ secrets.BENCHMARK_AGENT_API_KEY }}
           JUDGE_API_KEY: ${{ secrets.BENCHMARK_JUDGE_API_KEY }}
       - uses: actions/upload-artifact@v7

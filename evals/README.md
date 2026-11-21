@@ -14,12 +14,13 @@ npm run eval:run
 
 本机评测使用 Node 24、Python 3.12.15 和 uv。配置 `.env` 中的 `API_KEY` 和 `JUDGE_API_KEY` 后，`eval:run` 使用配置的模型运行 Agent 和 Judge。`eval:check` 验证题集格式、Code Judge 和门禁逻辑。`eval:calibrate` 额外向 Judge 提交[固定答卷](datasets/judge-calibration.json)，核对人工预期。
 
-- `BENCHMARK_SUITE` 可选 `smoke`、`regression` 或 `all`。
+- 常规运行默认选择 `smoke`（5 道题）。单独跑回归或运行全量时，分别设置 `BENCHMARK_SUITE=regression` 或 `BENCHMARK_SUITE=all`。
 - `npm run eval:run -- --review-tests [--case <case-id>]` 运行本地审阅题。
 - `npm run eval:docker` 使用一次性容器运行同一套正式题集。每次试跑都使用独立的进程和工作目录。
 - 本机和容器在配置 Langfuse 后上传 Trace 和评分。纯本地回归设置 `BENCHMARK_PUBLISH=0`。可用 `npm run eval:publish -- <run-id>` 重试上传，本地审阅题加 `--review-tests`。
-- PR 使用 `npm run eval:ci` 作为 **DeepEval benchmark** 合并门禁。报告和 JUnit 保存在 `artifacts/benchmark/<run-id>/`，本地审阅保存在 `artifacts/review-tests/<run-id>/`。
+- PR 的 **DeepEval benchmark** 合并门禁使用 `npm run eval:ci` 运行 Smoke。报告和 JUnit 保存在 `artifacts/benchmark/<run-id>/`，本地审阅保存在 `artifacts/review-tests/<run-id>/`。
 - Agent 在收到模型响应流之前遇到可重试的连接错误或 HTTP 错误时，同一请求最多重试两次，共用原轮次和运行超时。重试不重放工具。供应商错误导致必需动作未完成时，记录评测错误。已观察到的越权请求仍可判失败。
+- Judge 达到输出 token 上限且评估未完成时，可在同一超时预算内用更高上限重试一次。该重试复用同一次试跑的回答和 Trace。
 
 ## 评分与通过条件
 

@@ -1,6 +1,6 @@
 {
   "agent": { "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1", "reasoningEffort": "low", "providerMaxRetries": 2 },
-  "judge": { "version": "v5", "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1", "temperature": 0, "timeoutSeconds": 60, "maxTokens": 6144 },
+  "judge": { "version": "v5", "provider": "stepfun", "model": "step-5-preview", "baseUrl": "https://api.stepfun.com/step_plan/v1", "temperature": 0, "timeoutSeconds": 60, "maxTokens": 6144, "retryMaxTokens": 12288 },
   "scoring": { "trialsPerCase": 3, "passPoints": 80, "requiredDeductionPoints": 25, "minorDeductionPoints": 5 },
   "limits": { "maxSteps": 6, "maxToolCalls": 4, "maxOutputTokens": 4096, "maxTokens": 30000, "timeoutMs": 120000, "modelTimeoutMs": 60000, "toolTimeoutMs": 5000 }
 }

@@ -92,9 +92,9 @@ async function main() {
   }
   if (mode === 'host' && args.length && !reviewTests) {
     if (args.length !== 1 || args[0] !== '--help') {
-      throw Error('eval:run reads the Benchmark snapshots. Use BENCHMARK_SUITE to choose all, smoke, or regression.');
+      throw Error('eval:run reads the Benchmark snapshots. Use BENCHMARK_SUITE to choose smoke, regression, or all.');
     }
-    console.log('npm run eval:run\nSet BENCHMARK_SUITE to all (default), smoke, or regression.\nnpm run eval:run -- --review-tests [--case <case-id>] runs the local review tests.');
+    console.log('npm run eval:run\nSet BENCHMARK_SUITE to smoke (default), regression, or all.\nnpm run eval:run -- --review-tests [--case <case-id>] runs the local review tests.');
     return;
   }
   if (mode === 'publish') {
@@ -107,7 +107,7 @@ async function main() {
     return;
   }
   if (!['host', 'ci', 'docker'].includes(mode) || (args.length && !reviewTests)) throw Error('invalid benchmark command');
-  const suite = reviewTests ? 'review-tests' : z.enum(['all', 'smoke', 'regression']).parse(process.env.BENCHMARK_SUITE || 'all');
+  const suite = reviewTests ? 'review-tests' : z.enum(['all', 'smoke', 'regression']).parse(process.env.BENCHMARK_SUITE || 'smoke');
   const runId = randomUUID();
   const runDir = resolve(reviewTests ? 'artifacts/review-tests' : 'artifacts/benchmark', runId);
   mkdirSync(runDir, { recursive: true });

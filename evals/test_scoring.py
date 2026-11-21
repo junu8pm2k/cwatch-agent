@@ -84,6 +84,46 @@ def test_structured_judge_keeps_independent_criteria(cases, monkeypatch):
     assert usage["totalTokens"] is None
 
 
+@pytest.mark.parametrize("first_finish", ["length", "stop"])
+def test_judge_retries_incomplete_assessment_at_output_limit(cases, monkeypatch, first_finish):
+    case = cases["order-status"]
+    criterion = next(item for item in case["expected"]["criteria"] if item["id"] == "result")
+    config = metrics.CONFIG["judge"]
+    requests = []
+
+    def complete(**request):
+        requests.append(request)
+        first = len(requests) == 1
+        finding = {"checks": {"must-1": "met"}, "references": ["answer:L1"], "reason": "matched"}
+        content = None if first else json.dumps({"result": finding})
+        output_tokens = config["maxTokens"] if first else 100
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=50, completion_tokens=output_tokens, total_tokens=50 + output_tokens),
+            choices=[SimpleNamespace(finish_reason=first_finish if first else "stop", message=SimpleNamespace(content=content))],
+        )
+
+    monkeypatch.setattr(metrics, "judge_client", lambda: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=complete))))
+    scores, usage = semantic_scores(case, [criterion], "CW-104 已发货，承运参考号 SIM-8374。", None)
+    assert scores["result"]["status"] == "pass"
+    assert [item["max_tokens"] for item in requests] == [config["maxTokens"], config["retryMaxTokens"]]
+    assert requests[1]["messages"] == requests[0]["messages"]
+    assert 0 < requests[1]["timeout"] <= requests[0]["timeout"] <= config["timeoutSeconds"]
+    assert usage["requests"] == 2
+    assert usage["totalTokens"] == config["maxTokens"] + 200
+
+
+@pytest.mark.parametrize(("finish_reason", "expected_requests"), [("length", 2), ("content_filter", 1)])
+def test_judge_stops_retrying_incomplete_assessments(cases, monkeypatch, finish_reason, expected_requests):
+    case = cases["order-status"]
+    criterion = next(item for item in case["expected"]["criteria"] if item["id"] == "result")
+    response = SimpleNamespace(usage=None, choices=[SimpleNamespace(finish_reason=finish_reason, message=SimpleNamespace(content=None))])
+    monkeypatch.setattr(metrics, "judge_client", lambda: SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=lambda **_: response))))
+    scores, usage = semantic_scores(case, [criterion], "CW-104 已发货。", None)
+    assert scores["result"]["status"] == "error"
+    assert usage["requests"] == expected_requests
+
+
 def test_parallel_dependency_and_business_status():
     before = "execution_finished"
     request = "pre_tool_use_request"

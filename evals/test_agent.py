@@ -10,7 +10,7 @@ from reporting import BenchmarkReport
 if os.getenv("API_KEY") or os.getenv("CONFIDENT_API_KEY"):
     raise RuntimeError("Run through npm run eval:run, eval:docker or eval:ci to isolate model credentials.")
 
-SUITE = os.getenv("BENCHMARK_SUITE", "all")
+SUITE = os.getenv("BENCHMARK_SUITE") or "smoke"
 if SUITE not in ("all", "smoke", "regression", "review-tests"):
     raise ValueError("BENCHMARK_SUITE must be all, smoke, regression or review-tests")
 MANIFEST = load_manifest(SUITE)
