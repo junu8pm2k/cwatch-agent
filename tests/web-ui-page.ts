@@ -4,7 +4,7 @@ export class WorkbenchPage {
   constructor(readonly page: Page, readonly origin: string) {}
 
   async selectProfile(profile: 'agent' | 'web' = 'web'): Promise<void> {
-    const label = profile === 'web' ? '竞品调查' : '通用 Agent';
+    const label = profile === 'web' ? '产品调查' : '通用 Agent';
     await this.page.locator('fieldset.mode-pills label').filter({ hasText: label }).click();
   }
 

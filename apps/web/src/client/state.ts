@@ -49,9 +49,9 @@ export const permissionNames: Record<string, string> = {
 
 export const profileDisplayNames: Record<string, string> = {
   agent: '通用 Agent',
-  web: '竞品调查',
-  standard: '竞品调查',
-  adapters: '竞品调查',
+  web: '产品调查',
+  standard: '产品调查',
+  adapters: '产品调查',
 };
 
 export function profileDisplayName(id: string, fallback?: string): string {
