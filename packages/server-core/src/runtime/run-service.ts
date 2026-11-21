@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, openSync, closeSync, unlinkSync, existsSync, rmSync, lstatSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
-import { id, now, parseTask, parseAgentTask, AgentTaskSchema, isInvestigationTask, hash, type AgentTask, type CompetitorTask, type ModelPort, type Decision } from '@cwatch/core/types';
+import { id, now, parseTask, parseAgentTask, AgentTaskSchema, isInvestigationTask, hash, type AgentTask, type CompetitorTask, type ModelPort, type Decision, type Plan } from '@cwatch/core/types';
 import type { RunSnapshot, RunProfile, RunActivity, RunStartInput, RunMessageInput, PendingRunApproval, WorkbenchExtensions, SkillDetail, McpTestResult } from '@cwatch/core/types/runs';
 import { ActionPolicy, ApprovalManager, type ApprovalRequest } from '@cwatch/shared/agent/core/permission-manager';
 import { SourceServerBuilder, readSourceConfigs, type SourceConfig } from '@cwatch/shared/sources/server-builder';
@@ -19,7 +19,15 @@ import { reportedTokens } from '@cwatch/shared/agent/core/budgets';
 import { apiSecrets } from '@cwatch/shared/sources/api-tools';
 import { runInvestigation, type RunResult } from './investigation.ts';
 import { runAgent } from './agent.ts';
-import type { Claim, Evidence } from '@cwatch/shared/intelligence/evidence';
+import type { Claim, Comparison, EventRecord, Evidence, FactVersion, Review } from '@cwatch/shared/intelligence/evidence';
+
+function safeHostname(url: string): string | undefined {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return undefined; }
+}
+function verifySnapshot(store: FileStore, item: Evidence): boolean {
+  try { const path = store.path(item.rawPath); return existsSync(path) && hash(readFileSync(path, 'utf8')) === item.snapshotHash; }
+  catch { return false; }
+}
 
 const genericTask = () => ({ kind: 'agent' as const, taskId: 'general-agent-task', instruction: '读取 README.md，说明项目能力和运行方法，并说明依据。', allowedSources: [] as string[] });
 const definitions = [
@@ -153,7 +161,7 @@ export class RunService {
           timeoutMs:input.limits.timeoutMs??300000,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens:input.limits.maxTokens??400000,
           workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
           ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
-          onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});},
+          onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});run.view.plan=run.redactor.clean(plan);this.changed(run);},
         },signal,new ActionPolicy(input.permission),approvals);
         this.finish(run,result);
       }catch(error){run.view.status=run.controller.signal.aborted?'cancelled':'failed';run.view.error=run.redactor.clean(String(error));this.activity(run,'error',run.view.error);}
@@ -199,15 +207,51 @@ export class RunService {
       const softErr=data.state==='completed'&&data.result&&typeof data.result==='object'&&typeof (data.result as {error?:unknown}).error==='string'?String((data.result as {error:string}).error):undefined;
       const errDetail=data.error?String(data.error).slice(0,2200):softErr?softErr.slice(0,2200):undefined;
       this.activity(run,data.state==='completed'?'tool':'error',tool+(data.state==='completed'?' 已完成':' 未完成'),{tool,state:String(data.state),...(errDetail?{detail:errDetail}:{})});
-    }else if(event.type==='agent_process')this.activity(run,'system',data.state==='ready'?'Agent 子进程已就绪。':data.state==='exited'?'Agent 子进程已退出。':'Agent 进程：'+String(data.state));
+    }else if(event.type==='evidence_saved'&&typeof data.reworkRound==='number'){run.view.reworkCount=data.reworkRound;}
+    else if(event.type==='agent_process')this.activity(run,'system',data.state==='ready'?'Agent 子进程已就绪。':data.state==='exited'?'Agent 子进程已退出。':'Agent 进程：'+String(data.state));
     else if(event.type==='run_failed'||event.type==='run_cancelled')this.activity(run,'error',String(data.error??event.type));
   }
   private finish(run:Managed,result:RunResult):void {
     run.view.status=result.status;run.view.gaps=run.redactor.clean(result.gaps);run.view.error=result.error?run.redactor.clean(result.error):undefined;run.reportPath=result.report;run.view.reportReady=Boolean(result.report);
     if(result.status==='complete'||result.status==='partial')run.view.stage=5;
-    if(result.report&&isInvestigationTask(run.view.task)){
-      const claims=run.data.read<Claim[]>('claims/'+result.runId+'.json',[]),evidence=run.data.read<Evidence[]>('evidence/index.json',[]);
-      run.view.claims=run.redactor.clean(claims.map(claim=>({id:claim.id,text:claim.text,evidence:claim.evidenceIds.flatMap(key=>{const item=evidence.find(e=>e.id===key);return item?[{source:item.signal.sourceSlug,url:item.signal.url,title:item.signal.content.title,publishedAt:item.signal.published_at,provenance:item.provenance}]:[];})})));
+    if(isInvestigationTask(run.view.task)){
+      if(!run.view.plan){
+        const savedPlan=run.data.read<Plan|null>('plans/'+result.runId+'.json',null);
+        if(savedPlan)run.view.plan=run.redactor.clean(savedPlan);
+      }
+      if(result.report){
+        const claims=run.data.read<Claim[]>('claims/'+result.runId+'.json',[]),evidence=run.data.read<Evidence[]>('evidence/index.json',[]);
+        run.view.claims=run.redactor.clean(claims.map(claim=>({id:claim.id,text:claim.text,evidence:claim.evidenceIds.flatMap(key=>{
+          const item=evidence.find(e=>e.id===key);
+          if(!item)return [];
+          const domain=item.signal.entity.domain??safeHostname(item.signal.url);
+          return [{
+            source:item.signal.sourceSlug,url:item.signal.url,title:item.signal.content.title,publishedAt:item.signal.published_at,provenance:item.provenance,
+            retrievedAt:item.signal.retrieved_at,excerpt:item.excerpt??item.signal.content.value,
+            ...(domain?{domain}:{}),snapshotHash:item.snapshotHash,snapshotVerified:verifySnapshot(run.data,item),
+            attribution:item.attribution,timeStatus:item.timeStatus,
+          }];
+        })})));
+      }
+      const persistedReview=run.data.read<(Review&{reworkCount?:number})|null>('reviews/'+result.runId+'.json',null);
+      if(persistedReview){
+        run.view.review=run.redactor.clean({decision:persistedReview.decision,issues:persistedReview.issues,evidenceRefs:persistedReview.evidenceRefs});
+        if(typeof persistedReview.reworkCount==='number')run.view.reworkCount=persistedReview.reworkCount;
+      }
+      const comparisons=run.data.read<Comparison[]|null>('comparisons/'+result.runId+'.json',null);
+      if(comparisons){
+        const events=run.data.read<EventRecord[]>('facts/events.json',[]),versions=run.data.read<FactVersion[]>('facts/versions.json',[]);
+        run.view.comparisons=run.redactor.clean(comparisons.map(comp=>{
+          const event=events.find(e=>e.id===comp.eventId);
+          const versionId=comp.currentVersions.at(-1)??comp.previousVersions.at(-1);
+          const version=(versionId?versions.find(v=>v.id===versionId):undefined)??versions.find(v=>v.eventId===comp.eventId);
+          const title=version?.title??event?.eventKey;
+          return {
+            eventId:comp.eventId,status:comp.status,previousVersions:comp.previousVersions,currentVersions:comp.currentVersions,
+            ...(title?{title}:{}),...(event?.signalType?{signalType:event.signalType}:{}),
+          };
+        }));
+      }
     }
   }
   private awaitApproval(run:Managed,request:ApprovalRequest,signal:AbortSignal):Promise<boolean>{
