@@ -13,6 +13,7 @@ import { assertCompleteApiRounds } from '@cwatch/shared/agent/backend/pi/api-rou
 import { ToolResultGovernor } from '@cwatch/shared/agent/backend/pi/tool-result-context';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
 import { ReplayModel } from '@cwatch/shared/agent/models';
+import { allowedUrl } from '@cwatch/shared/sources/web';
 import { check, store } from './harness.ts';
 
 const usage = {
@@ -213,6 +214,23 @@ check('contract', 'Badcase bad-session-memory-multicall-delta-too-large: RunServ
       task: { kind: 'agent', taskId: 'badcase-local-block', instruction: 'check local', allowedSources: ['web'] },
       webDomains: ['localhost'],
     }), /web_scope/);
+    // 4. Live web with no explicit domain filter opens public HTTPS (`['*']`) while subdomain matching works for root domains
+    const openRun = service.start({
+      profile: 'agent',
+      mode: 'live',
+      permission: 'explore',
+      task: { kind: 'agent', taskId: 'badcase-web-open', instruction: '全网查询智谱 Coding Plan 价格', allowedSources: ['web'] },
+    });
+    await service.wait(openRun.id);
+    assert.deepEqual(captured.at(-1)?.allowedDomains, ['*']);
+
+    // Subdomain & open public HTTPS guard checks
+    assert.equal(allowedUrl('https://open.bigmodel.cn/pricing', ['bigmodel.cn']).hostname, 'open.bigmodel.cn');
+    assert.throws(() => allowedUrl('https://evilbigmodel.cn/pricing', ['bigmodel.cn']), /web_scope/);
+    assert.equal(allowedUrl('https://docs.zcode.z.ai/cn', ['*']).hostname, 'docs.zcode.z.ai');
+    for (const blocked of ['http://bigmodel.cn/', 'https://localhost/x', 'https://127.0.0.1/x', 'https://intranet/x', 'https://box.local/x', 'https://api.github.com/repos/a/b', 'https://bigmodel.cn/?api_key=secret']) {
+      assert.throws(() => allowedUrl(blocked, ['*']), /web_scope|github_api_disabled/);
+    }
   } finally {
     await service.close();
   }

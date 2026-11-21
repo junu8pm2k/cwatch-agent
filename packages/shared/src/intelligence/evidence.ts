@@ -9,11 +9,21 @@ export interface Claim { id: string; text: string; eventId: string; versionId: s
 export interface Review { decision: 'accept' | 'needs_evidence' | 'reject'; issues: string[]; evidenceRefs: string[] }
 export interface Comparison { eventId: string; status: 'new' | 'unchanged' | 'updated'; previousVersions: string[]; currentVersions: string[] }
 
+function domainMatchesCompetitor(domains: string[], domain: string): boolean {
+  const lower = domain.toLowerCase();
+  return domains.some(entry => {
+    const clean = entry.trim().toLowerCase();
+    return Boolean(clean) && clean !== '*' && (lower === clean || lower.endsWith('.' + clean));
+  });
+}
+
 export function attribution(task: CompetitorTask, signal: CompetitorSignal): Evidence['attribution'] {
   if (signal.product !== task.product) return 'wrong_entity';
   if (signal.entity.id && signal.entity.id !== task.competitor.id) return 'wrong_entity';
-  if (signal.entity.domain && !task.competitor.domains.includes(signal.entity.domain.toLowerCase())) return 'wrong_entity';
-  if (signal.entity.id === task.competitor.id || (signal.entity.domain && task.competitor.domains.includes(signal.entity.domain.toLowerCase()))) return 'matched';
+  const openDomains = task.competitor.domains.some(entry => entry.trim() === '*');
+  const matchedDomain = Boolean(signal.entity.domain && domainMatchesCompetitor(task.competitor.domains, signal.entity.domain));
+  if (signal.entity.domain && !openDomains && !matchedDomain) return 'wrong_entity';
+  if (signal.entity.id === task.competitor.id || matchedDomain) return 'matched';
   // A matching display name alone is never sufficient evidence of identity.
   return 'ambiguous';
 }

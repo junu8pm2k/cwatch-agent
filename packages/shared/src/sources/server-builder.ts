@@ -22,7 +22,7 @@ const sourceSchema = z.object({
   entityId: z.string().optional(), entityName: z.string().optional(), domain: z.string().optional(), product: z.string().optional(),
   fixture: z.string().optional(), fixtureRequest: ApiRequestSchema.optional(), command: z.string().optional(), args: z.array(z.string()).optional(),
   toolSemantics: z.record(z.string(), z.enum(['collect', 'analyze', 'modify', 'send', 'publish'])).optional(),
-  allowedDomains: z.array(z.string().regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)).min(1).optional(),
+  allowedDomains: z.array(z.string().regex(/^(?:\*|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/)).min(1).optional(),
   searchMcp: SearchMcpConfigSchema.optional(),
   webApi: WebApiConfigSchema.optional(),
 }).strict().superRefine((value,ctx)=>{
@@ -37,7 +37,7 @@ const sourceSchema = z.object({
   if (value.kind === 'api' && !value.api) ctx.addIssue({code:'custom',message:'API source requires api configuration'});
   if (value.api && value.kind !== 'api') ctx.addIssue({code:'custom',message:'api configuration only belongs to API sources'});
   if (value.browser && value.kind !== 'browser') ctx.addIssue({code:'custom',message:'browser configuration only belongs to browser sources'});
-  if (value.kind === 'browser' && (!value.urls?.length || !value.allowedDomains?.length)) ctx.addIssue({code:'custom',message:'browser source requires explicit URLs and domains'});
+  if (value.kind === 'browser' && (!value.urls?.length || !value.allowedDomains?.length || value.allowedDomains.includes('*'))) ctx.addIssue({code:'custom',message:'browser source requires explicit URLs and domains'});
 });
 export type SourceConfig = z.infer<typeof sourceSchema>;
 export const SourceConfigsSchema = z.array(sourceSchema).superRefine((items, ctx) => { if (new Set(items.map(c => c.slug)).size !== items.length) ctx.addIssue({ code: 'custom', message: 'duplicate source slug' }); });

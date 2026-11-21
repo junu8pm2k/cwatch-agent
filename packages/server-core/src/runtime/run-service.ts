@@ -114,9 +114,13 @@ export class RunService {
       : [];
     const rawConfigs=this.profileSourceConfigs(profile).filter(c=>task.allowedSources.includes(c.slug));
     const configs=rawConfigs.map(config=>{
-      if(input.mode==='live'&&config.slug==='web'&&config.kind==='web'&&overrideDomains.length){
-        for(const host of overrideDomains)allowedUrl('https://'+host,[host]);
-        return {...config,allowedDomains:overrideDomains};
+      if(input.mode==='live'&&config.slug==='web'&&config.kind==='web'){
+        const concrete=overrideDomains.filter(host=>host!=='*');
+        if(concrete.length){
+          for(const host of concrete)allowedUrl('https://'+host,[host]);
+          return {...config,allowedDomains:concrete};
+        }
+        return {...config,allowedDomains:['*']};
       }
       return config;
     });
