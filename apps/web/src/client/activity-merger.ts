@@ -53,6 +53,10 @@ function describeToolCall(tool: string, detail?: string): { category: SemanticCa
   if (tool === 'workflow__save_plan') {
     return { category: 'plan', badge: '计划', title: '生成并提交调查计划' };
   }
+  if (tool === 'workflow__extract_signal') {
+    const title = typeof args?.title === 'string' ? args.title.trim() : '';
+    return { category: 'analysis', badge: '抽取', title: title ? `抽取结构化证据：${title}` : '从网页抽取结构化证据' };
+  }
   if (tool === 'workflow__analyze') {
     return { category: 'analysis', badge: '分析', title: '归因分析与结构化整理' };
   }
