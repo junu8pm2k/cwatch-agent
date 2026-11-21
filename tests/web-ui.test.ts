@@ -309,3 +309,138 @@ check('integration','Web UI Extensions view inspects Skill markdown and runs liv
     assert.deepEqual(h.errors,[]);
   }finally{await h.close();}
 });
+
+
+check('integration','Web UI investigation form quick date presets and 3-tier depth limits sync cleanly across replay, live and mobile',async()=>{
+  const h=await browserHarness('form-presets');
+  try{
+    await h.ui.open('web');
+    // Replay mode keeps quick date presets disabled (read-only snapshot)
+    for(const days of ['7','30','90']){
+      assert.equal(await h.page.locator(`[data-window-days="${days}"]`).isDisabled(),true);
+    }
+    // 3-tier depth presets sync #timeout and #tokens
+    assert.equal(await h.page.locator('#timeout').inputValue(),'300');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'400000');
+    assert.equal(await h.page.locator('[data-depth-preset="standard"]').getAttribute('aria-pressed'),'true');
+    await h.page.locator('[data-depth-preset="fast"]').click();
+    assert.equal(await h.page.locator('#timeout').inputValue(),'120');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'150000');
+    assert.equal(await h.page.locator('[data-depth-preset="fast"]').getAttribute('aria-pressed'),'true');
+    await h.page.locator('[data-depth-preset="deep"]').click();
+    assert.equal(await h.page.locator('#timeout').inputValue(),'600');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'1000000');
+    assert.equal(await h.page.locator('[data-depth-preset="deep"]').getAttribute('aria-pressed'),'true');
+
+    // Manual edit in Settings Popover preserves custom value and clears active depth preset
+    await h.ui.openSettings();
+    await h.page.locator('#timeout').fill('240');
+    assert.equal(await h.page.locator('#timeout').inputValue(),'240');
+    for(const key of ['fast','standard','deep']){
+      assert.equal(await h.page.locator(`[data-depth-preset="${key}"]`).getAttribute('aria-pressed'),'false');
+    }
+
+    // Live mode enables quick date window capsules and fills local [start, tomorrow)
+    await h.ui.setMode('live');
+    await h.ui.closeSettings();
+    const expectedTomorrow=await h.page.evaluate(()=>{
+      const now=new Date(),end=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);
+      return `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+    });
+    for(const days of [7,30,90]){
+      const btn=h.page.locator(`[data-window-days="${days}"]`);
+      assert.equal(await btn.isDisabled(),false);
+      await btn.click();
+      const start=await h.page.locator('#start-date').inputValue();
+      const end=await h.page.locator('#end-date').inputValue();
+      assert.equal(end,expectedTomorrow);
+      assert.ok(start<end);
+      const diffDays=Math.round((Date.parse(end+'T00:00:00Z')-Date.parse(start+'T00:00:00Z'))/86400000);
+      assert.equal(diffDays,days);
+      assert.equal(await btn.getAttribute('aria-pressed'),'true');
+    }
+
+    await h.page.setViewportSize({width:390,height:844});
+    assert.equal(await h.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
+});
+
+check('integration','Web UI investigation report renders 4-metric ribbon, TOC jump, print trigger, interactive pipeline stages, dark mode and mobile layout',async()=>{
+  const h=await browserHarness('report-upgrade',webSignalFixture());
+  try{
+    await h.ui.open('web');
+    await h.ui.start();await h.ui.completed();await h.ui.report();
+
+    // 4-dimension metrics ribbon & review gate card without breaking claim article selector
+    assert.equal(await h.ui.reportClaims().count(),1);
+    assert.equal(await h.page.locator('.report-metrics-ribbon .metric-tile').count(),4);
+    const ribbonText=await h.page.locator('.report-metrics-ribbon').innerText();
+    for(const label of ['核验主张','证据快照','独立域名','审阅与缺口'])assert.ok(ribbonText.includes(label));
+    assert.equal(await h.page.locator('.report-gate-card').isVisible(),true);
+
+    // Chapter TOC renders >= 2 h2/h3 headings and smoothly jumps to heading id
+    await h.page.locator('.report-toc .toc-link').first().waitFor({state:'visible'});
+    const tocLinks=h.page.locator('.report-toc .toc-link');
+    assert.ok(await tocLinks.count()>=2);
+    const targetId=await tocLinks.nth(1).getAttribute('data-toc-target');
+    assert.ok(targetId&&/^sec-\d+$/.test(targetId));
+    assert.equal(await h.page.locator(`.report-document #${targetId}`).count(),1);
+    await tocLinks.nth(1).click();
+    assert.equal(await tocLinks.nth(1).evaluate(el=>el.classList.contains('is-active')),true);
+
+    // Print / Export PDF button triggers window.print()
+    const printBtn=h.page.getByRole('button',{name:'打印 / 导出 PDF',exact:true});
+    assert.equal(await printBtn.isVisible(),true);
+    await h.page.evaluate(()=>{Reflect.set(window,'__printCount',0);window.print=()=>{Reflect.set(window,'__printCount',(Reflect.get(window,'__printCount') as number)+1);};});
+    await printBtn.click();
+    assert.equal(await h.page.evaluate(()=>Reflect.get(window,'__printCount')),1);
+
+    // Interactive 5-stage pipeline expands locked plan summary and collapses on second click
+    assert.equal(await h.page.locator('#pipeline button[data-pipeline-stage]').count(),5);
+    assert.equal(await h.page.locator('#pipeline-detail').isVisible(),false);
+    const planBtn=h.page.locator('#pipeline button[data-pipeline-stage="0"]');
+    await planBtn.click();
+    assert.equal(await planBtn.getAttribute('aria-pressed'),'true');
+    await h.page.locator('#pipeline-detail').waitFor({state:'visible'});
+    const planText=await h.page.locator('#pipeline-detail').innerText();
+    assert.ok(planText.includes('调查目标')&&planText.includes('计划查询')&&planText.includes('releases'));
+    // Cycle through remaining stages and toggle plan closed
+    for(const idx of [1,2,3,4]){
+      await h.page.locator(`#pipeline button[data-pipeline-stage="${idx}"]`).click();
+      assert.equal(await h.page.locator('#pipeline-detail').isVisible(),true);
+    }
+    await planBtn.click();
+    assert.equal(await h.page.locator('#pipeline-detail').isVisible(),true);
+    await planBtn.click();
+    assert.equal(await h.page.locator('#pipeline-detail').isVisible(),false);
+    assert.equal(await planBtn.getAttribute('aria-pressed'),'false');
+
+    // Dark mode & 390px narrow mobile zero horizontal overflow (with expanded plan card + full report)
+    await h.page.locator('#theme-toggle').click();
+    assert.equal(await h.page.evaluate(()=>document.documentElement.dataset.theme),'dark');
+    await planBtn.click();
+    await h.page.locator('#pipeline-detail').waitFor({state:'visible'});
+    await h.page.screenshot({path:'artifacts/web-eval/report-upgrade-dark.png',fullPage:true});
+    await h.page.setViewportSize({width:390,height:844});
+    assert.equal(await h.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await h.page.screenshot({path:'artifacts/web-eval/report-upgrade-mobile-dark.png',fullPage:true});
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
+});
+
+check('integration','Web UI shows live running stage and recent merged steps inline in report tab before draft is ready',async()=>{
+  const modelFactory=():ModelPort=>({decide:async(_input,signal)=>abortable(new Promise<never>(()=>{}),signal)});
+  const h=await browserHarness('live-report-progress',{modelFactory});
+  try{
+    await h.ui.open('web');
+    await h.ui.start();
+    await h.page.getByText('执行中 / 离线演示',{exact:true}).waitFor();
+    await h.page.getByRole('tab',{name:'调查报告',exact:true}).click();
+    await h.page.locator('.live-progress-card').waitFor({state:'visible'});
+    assert.ok((await h.page.locator('.live-stage-pill').innerText()).includes('计划'));
+    assert.equal(await h.page.locator('.live-progress-card').getByRole('button',{name:'查看实时执行轨迹',exact:true}).isVisible(),true);
+    await h.ui.cancel();
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
+});

@@ -41,6 +41,46 @@ function isTableSeparator(line: string): boolean {
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 }
 
+function stripInlineMarkdown(raw: string): string {
+  return raw
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\[([^\]\n]+)\]\([^)\s]+\)/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/~~([^~\n]+)~~/g, '$1')
+    .replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, '$1$2')
+    .trim();
+}
+
+export function extractHeadings(source: string): Array<{ id: string; level: number; text: string }> {
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+  const headings: Array<{ id: string; level: number; text: string }> = [];
+  let i = 0;
+  let headingIdx = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (/^```([a-zA-Z0-9_+-]*)\s*$/.test(line.trim())) {
+      i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i].trim())) {
+        i++;
+      }
+      if (i < lines.length) i++;
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = Math.min(4, Math.max(1, heading[1].length));
+      const id = `sec-${headingIdx++}`;
+      headings.push({ id, level, text: stripInlineMarkdown(heading[2].trim()) });
+    }
+    i++;
+  }
+
+  return headings;
+}
+
 /**
  * XSS-safe Markdown renderer (zero raw HTML passthrough, strict URL protocol allowlist).
  * Supports fenced code blocks, headings, tables, lists, blockquotes, horizontal rules, and inline formatting.
@@ -49,6 +89,7 @@ export function renderMarkdown(source: string): string {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];
   let i = 0;
+  let headingIdx = 0;
 
   while (i < lines.length) {
     const line = lines[i];
@@ -87,7 +128,8 @@ export function renderMarkdown(source: string): string {
     const heading = /^(#{1,4})\s+(.+)$/.exec(line);
     if (heading) {
       const level = Math.min(4, Math.max(1, heading[1].length));
-      out.push(`<h${level}>${renderInline(heading[2].trim())}</h${level}>`);
+      const id = `sec-${headingIdx++}`;
+      out.push(`<h${level} id="${id}">${renderInline(heading[2].trim())}</h${level}>`);
       i++;
       continue;
     }

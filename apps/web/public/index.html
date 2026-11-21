@@ -131,6 +131,14 @@
                   <input id="product" name="product" maxlength="100" placeholder="例如：GLM Coding Plan">
                 </label>
               </div>
+              <div class="window-preset-row" role="group" aria-label="快捷时间窗">
+                <span class="preset-label">时间窗快捷选</span>
+                <div class="preset-pills">
+                  <button type="button" class="preset-pill" data-window-days="7" aria-pressed="false">近 7 天</button>
+                  <button type="button" class="preset-pill" data-window-days="30" aria-pressed="false">近 30 天</button>
+                  <button type="button" class="preset-pill" data-window-days="90" aria-pressed="false">近 90 天</button>
+                </div>
+              </div>
               <div class="field-row">
                 <label class="field" for="start-date">
                   <span>开始日期</span>
@@ -145,6 +153,26 @@
                 <span>限定域名（可选 · 留空默认全网公开搜索）</span>
                 <input id="domains" placeholder="留空搜索全网公开 HTTPS；或填 bigmodel.cn 自动含子域名">
               </label>
+              <div class="depth-preset-row" role="group" aria-label="调研深度">
+                <div class="depth-preset-head">
+                  <span class="preset-label">调研深度</span>
+                  <span class="preset-hint" id="depth-preset-summary">300 秒 · 40 万 tokens</span>
+                </div>
+                <div class="depth-segmented">
+                  <button type="button" class="depth-pill" data-depth-preset="fast" aria-pressed="false">
+                    <strong>快速速览</strong>
+                    <small>120s · 150k</small>
+                  </button>
+                  <button type="button" class="depth-pill is-active" data-depth-preset="standard" aria-pressed="true">
+                    <strong>标准核验</strong>
+                    <small>300s · 400k</small>
+                  </button>
+                  <button type="button" class="depth-pill" data-depth-preset="deep" aria-pressed="false">
+                    <strong>深度穷举</strong>
+                    <small>600s · 1M</small>
+                  </button>
+                </div>
+              </div>
               <input type="hidden" id="competitor-id">
             </div>
           </div>
@@ -276,6 +304,7 @@
         </div>
 
         <div id="pipeline" class="pipeline" aria-label="调查阶段" hidden></div>
+        <div id="pipeline-detail" class="pipeline-detail" role="region" aria-label="阶段详情摘要" hidden></div>
         <div id="approval-spotlight" class="approval-spotlight" role="region" aria-label="待处理审批" hidden></div>
 
         <div class="tabs" role="tablist" aria-label="任务详情">
