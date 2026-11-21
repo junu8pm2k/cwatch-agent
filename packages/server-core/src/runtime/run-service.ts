@@ -26,7 +26,7 @@ const definitions = [
   { id: 'standard', name: '官网与发布', description: '通用网页读取', task: 'examples/task.json', sources: ['examples/sources.json'] },
   { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: ['examples/sources-web.json'] },
   { id: 'adapters', name: '浏览器读取', description: '只读浏览器', task: 'examples/task-adapters.json', sources: ['examples/sources-adapters.json'] },
-  { id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: ['examples/sources-web.json', 'examples/sources.json'] },
+  { id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: ['examples/sources-web.json'] },
 ];
 const names: Record<string,string> = { official: '官方网站', browser: '浏览器读取', web: '联网搜索与读取' };
 const domainItem = z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);

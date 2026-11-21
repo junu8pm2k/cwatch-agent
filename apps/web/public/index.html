@@ -264,19 +264,19 @@
           </div>
 
           <section class="task-suggestions" id="task-suggestions" aria-labelledby="suggestions-title">
-            <h3 id="suggestions-title">从模板开始</h3>
+            <h3 id="suggestions-title">快速开始</h3>
             <div class="suggestions-grid">
               <button type="button" data-template="agent" aria-pressed="true">
                 <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg></span>
-                <span>阅读与整理<small>先读懂这个项目或文档</small></span>
+                <span>通用 Agent<small>自由提问、读本地文件并多轮追问</small></span>
               </button>
-              <button type="button" data-template="standard" aria-pressed="false">
-                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg></span>
-                <span>竞品研究<small>追踪产品发布并核验证据</small></span>
+              <button type="button" data-template="agent" data-enable-web="true" aria-pressed="false">
+                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>
+                <span>联网问答<small>用通用 Agent 搜索与读取公开域名</small></span>
               </button>
               <button type="button" data-template="web" aria-pressed="false">
-                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>
-                <span>公开资料<small>通过联网搜索与读取收集线索</small></span>
+                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg></span>
+                <span>竞品调查<small>按产品、域名与时间窗生成证据报告</small></span>
               </button>
             </div>
           </section>

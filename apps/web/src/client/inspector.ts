@@ -1,4 +1,4 @@
-import { $, escapeHtml, formatElapsed, formatTime, isActiveRun, isInvestigation, permissionNames, state } from './state.ts';
+import { $, escapeHtml, formatElapsed, formatTime, isActiveRun, isInvestigation, permissionNames, profileDisplayName, state } from './state.ts';
 
 export function updateElapsed(): void {
   const run = state.current;
@@ -32,7 +32,7 @@ export function renderInspector(): void {
       <button type="button" class="link-btn" data-clone-run>以此配置新建</button>
     </div>
     <dl class="kv-grid compact">
-      <dt>模板</dt><dd>${escapeHtml(profile?.name ?? run.profile)}</dd>
+      <dt>模板</dt><dd>${escapeHtml(profileDisplayName(run.profile, profile?.name))}</dd>
       <dt>模式</dt><dd>${run.mode === 'replay' ? '离线演示' : run.conversation ? '真实多轮会话' : '真实执行'}</dd>
       <dt>权限</dt><dd>${escapeHtml(permissionNames[run.permission] ?? run.permission)}</dd>
       <dt>来源</dt><dd>${sources.length ? sources.map(s => `<span class="inline-chip">${escapeHtml(s)}</span>`).join(' ') : '仅内建工作区工具'}</dd>
