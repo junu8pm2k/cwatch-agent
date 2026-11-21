@@ -1,7 +1,7 @@
 import type { Page } from 'playwright-core';
 export class WorkbenchPage {
   constructor(readonly page:Page,readonly origin:string){}
-  async open(profile='standard'){await this.page.goto(this.origin);await this.page.getByText('本地服务已连接',{exact:true}).waitFor();await this.page.getByLabel('任务模板',{exact:true}).selectOption(profile);}
+  async open(profile='web'){await this.page.goto(this.origin);await this.page.getByText('本地服务已连接',{exact:true}).waitFor();await this.page.getByLabel('任务模板',{exact:true}).selectOption(profile);}
   async start(){await this.page.getByRole('button',{name:/开始调查|开始任务/}).click();}
   async completed(){await this.page.getByText('已完成 / 离线演示',{exact:true}).waitFor({timeout:20000});}
   async report(){await this.page.getByRole('tab',{name:/^(调查报告|任务结果)$/}).click();await this.page.getByRole('link',{name:/下载 Markdown (报告|结果)/}).waitFor();}

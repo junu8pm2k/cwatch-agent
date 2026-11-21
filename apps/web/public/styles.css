@@ -444,6 +444,8 @@ input:not([type=radio]):not([type=checkbox]):not([type=search]), select, textare
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   color: var(--ink); background: var(--bg-surface); font-size: 13px;
 }
+select optgroup { font-weight: 600; color: var(--ink-muted); background: var(--bg-surface); }
+select option { font-weight: 400; color: var(--ink); background: var(--bg-surface); }
 textarea { resize: vertical; line-height: 1.7; }
 textarea::placeholder { color: var(--ink-muted); }
 input:read-only, textarea:read-only, textarea:disabled { background: var(--bg-subtle); color: var(--ink-secondary); }

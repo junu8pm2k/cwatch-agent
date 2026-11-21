@@ -48,6 +48,17 @@ export const permissionNames: Record<string, string> = {
   'allow-all': '允许已配置操作',
 };
 
+export const profileDisplayNames: Record<string, string> = {
+  agent: '通用 Agent',
+  web: '竞品调查',
+  standard: '竞品调查',
+  adapters: '竞品调查',
+};
+
+export function profileDisplayName(id: string, fallback?: string): string {
+  return profileDisplayNames[id] ?? fallback ?? id;
+}
+
 export function isActiveStatus(status: RunStatus): boolean {
   return ['preparing', 'running', 'awaiting_approval', 'awaiting_user', 'cancelling'].includes(status);
 }

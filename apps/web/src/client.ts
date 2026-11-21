@@ -39,6 +39,7 @@ import {
   isActiveRun,
   isInvestigation,
   permissionNames,
+  profileDisplayName,
   safeUrl,
   state,
   statusNames,
@@ -103,11 +104,6 @@ function populateProfileForm(task = currentProfile().task): void {
     ? '选定产品、时间范围和来源，生成带可核验证据的调查报告。'
     : '描述你要完成的事，选择允许的来源与权限，在统一工作台追踪每一步。';
 
-  const selectedProfile = $<HTMLSelectElement>('profile').value;
-  for (const button of document.querySelectorAll<HTMLButtonElement>('#task-suggestions [data-template]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.template === selectedProfile));
-  }
-
   $('start-run').innerHTML = `${domain ? '开始调查' : '开始任务'} <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>`;
   $('cancel-run').textContent = domain ? '停止调查' : '停止任务';
   $('tab-report').textContent = domain ? '调查报告' : '任务结果';
@@ -143,11 +139,31 @@ function parseDomains(raw: string): string[] {
   }).filter(Boolean))];
 }
 
+function syncSuggestionPressed(): void {
+  const selectedProfile = $<HTMLSelectElement>('profile').value;
+  const webChecked = Boolean(document.querySelector<HTMLInputElement>('input[name=source][value=web]:checked'));
+  for (const button of document.querySelectorAll<HTMLButtonElement>('#task-suggestions [data-template]')) {
+    const wantsWeb = button.dataset.enableWeb === 'true';
+    const active = button.dataset.template === selectedProfile && (selectedProfile !== 'agent' || wantsWeb === webChecked);
+    button.setAttribute('aria-pressed', String(active));
+  }
+}
+
+function renderProfileSelect(profiles: NonNullable<typeof state.bootstrap>['profiles']): void {
+  const byId = new Map(profiles.map(p => [p.id, p]));
+  const visibleIds = ['agent', 'web'].filter(id => byId.has(id));
+  $('profile').innerHTML = visibleIds.map(id => {
+    const p = byId.get(id)!;
+    return `<option value="${escapeHtml(p.id)}">${escapeHtml(profileDisplayName(p.id, p.name))}</option>`;
+  }).join('');
+}
+
 function syncAgentWebDomains(): void {
   const wrap = $('agent-web-domains-wrap');
   const domain = isInvestigation(currentProfile().task);
   const webChecked = Boolean(document.querySelector<HTMLInputElement>('input[name=source][value=web]:checked'));
   wrap.hidden = domain || currentMode() === 'replay' || !webChecked;
+  syncSuggestionPressed();
 }
 
 function modeChanged(resetInstruction = false): void {
@@ -162,17 +178,24 @@ function modeChanged(resetInstruction = false): void {
   $<HTMLTextAreaElement>('instruction').readOnly = replay;
   syncAgentWebDomains();
 
-  const task = currentProfile().task;
+  const profile = currentProfile();
+  const task = profile.task;
   if (resetInstruction && !state.current && !isInvestigation(task)) {
     const input = $<HTMLTextAreaElement>('instruction');
     input.value = replay ? task.instruction : state.instructionDraft;
   }
 
-  $('mode-note').textContent = replay
-    ? '当前为固定样例，切换真实运行可编辑任务。'
-    : configured
-      ? '使用已配置的模型，任务描述与来源均可调整 · Ctrl+Enter 启动。'
-      : '请先在本机 .env 配置模型并重启服务。';
+  if (!replay && !configured) {
+    $('mode-note').textContent = '请先在本机 .env 配置模型并重启服务。';
+  } else if (isInvestigation(task)) {
+    $('mode-note').textContent = replay
+      ? '当前为离线演示样例；切换「真实运行」可自定义竞品、产品与允许域名。'
+      : '填写竞品名称、产品与允许域名后，按 5 阶段联网采集并生成带引用报告。';
+  } else {
+    $('mode-note').textContent = replay
+      ? '当前为固定样例，切换「真实运行」可输入任意任务并支持多轮追问。'
+      : '真实多轮会话模式：可直接提问或勾选「联网搜索与读取」查公开资料 · Ctrl+Enter 启动。';
+  }
   $('start-note').textContent = replay
     ? '演示使用合成数据，全程在本机运行。'
     : '真实运行会调用已配置的模型和所选来源，每步执行均经主进程门禁。';
@@ -392,7 +415,7 @@ function selectRun(run: RunSnapshot): void {
   localStorage.setItem('cwatch-selected-run', run.id);
   showView('workbench');
 
-  $<HTMLSelectElement>('profile').value = run.profile;
+  $<HTMLSelectElement>('profile').value = isInvestigation(run.task) ? 'web' : 'agent';
   const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${run.mode}]`);
   if (radio) radio.checked = true;
   $<HTMLSelectElement>('permission').value = run.permission;
@@ -423,7 +446,7 @@ function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: s
   clearError();
   showView('workbench');
 
-  $<HTMLSelectElement>('profile').value = seed?.profile ?? 'agent';
+  $<HTMLSelectElement>('profile').value = seed ? (isInvestigation(seed.task) ? 'web' : 'agent') : 'agent';
   const defaultMode = seed?.mode ?? (state.bootstrap?.model.configured ? 'live' : 'replay');
   const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${defaultMode}]`);
   if (radio) radio.checked = true;
@@ -616,9 +639,21 @@ $('task-suggestions').addEventListener('click', event => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
   if (!button || state.current || !state.bootstrap?.profiles.some(profile => profile.id === button.dataset.template)) return;
   $<HTMLSelectElement>('profile').value = button.dataset.template!;
+  if (button.dataset.enableWeb === 'true' && state.bootstrap.model.configured) {
+    const liveRadio = document.querySelector<HTMLInputElement>('input[name=mode][value=live]');
+    if (liveRadio) liveRadio.checked = true;
+  }
   populateProfileForm();
+  if (button.dataset.enableWeb === 'true') {
+    const webBox = document.querySelector<HTMLInputElement>('input[name=source][value=web]');
+    if (webBox && !webBox.disabled) {
+      webBox.checked = true;
+      syncAgentWebDomains();
+      if (!$('agent-web-domains-wrap').hidden) $<HTMLInputElement>('agent-web-domains').focus();
+    }
+  }
   renderRun();
-  announce('已选择' + currentProfile().name + '模板。');
+  announce('已选择' + profileDisplayName(currentProfile().id, currentProfile().name) + '。');
 });
 $('run-form').addEventListener('keydown', event => {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !$<HTMLButtonElement>('start-run').disabled) {
@@ -827,7 +862,7 @@ async function init(): Promise<void> {
     const bootstrap = await fetchBootstrap();
     state.bootstrap = bootstrap;
     state.runs = bootstrap.runs;
-    $('profile').innerHTML = bootstrap.profiles.map(profile => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)}</option>`).join('');
+    renderProfileSelect(bootstrap.profiles);
     $<HTMLSelectElement>('profile').value = 'agent';
     const defaultRadio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${bootstrap.model.configured ? 'live' : 'replay'}]`);
     if (defaultRadio) defaultRadio.checked = true;
