@@ -159,9 +159,24 @@ check('integration','Web UI cancels a pending approval and restores the cancelle
   }finally{await h.close();}
 });
 
-check('integration','Web UI cancels a running investigation and releases its execution capacity',async()=>{
-  const modelFactory=():ModelPort=>({decide:async(_input,signal)=>abortable(new Promise<never>(()=>{}),signal)}),h=await browserHarness('cancel-running',{modelFactory});
-  try{await h.ui.open('web');await h.ui.start();await h.page.getByText('执行中 / 离线演示',{exact:true}).waitFor();await h.ui.cancel();assert.equal(h.service.list()[0].status,'cancelled');assert.deepEqual(h.errors,[]);}
+check('integration','Web UI cancels a running investigation, releases capacity and retries in one click via retry button',async()=>{
+  let attempts=0;
+  const modelFactory=():ModelPort=>({decide:async(_input,signal)=>{
+    attempts++;
+    if(attempts===1)return abortable(new Promise<never>(()=>{}),signal);
+    throw Error('simulated_provider_failure');
+  }}),h=await browserHarness('cancel-running',{modelFactory});
+  try{
+    await h.ui.open('web');await h.ui.start();await h.page.getByText('执行中 / 离线演示',{exact:true}).waitFor();await h.ui.cancel();
+    assert.equal(h.service.list()[0].status,'cancelled');
+    assert.equal(await h.page.locator('#retry-run').isVisible(),true);
+    await h.page.locator('#retry-run').click();
+    await h.page.getByText('运行失败 / 离线演示',{exact:true}).waitFor();
+    assert.equal(h.service.list().length,2);
+    assert.equal(h.service.list()[0].status,'failed');
+    assert.equal(await h.page.locator('#retry-run').isVisible(),true);
+    assert.deepEqual(h.errors,[]);
+  }
   finally{await h.close();}
 });
 

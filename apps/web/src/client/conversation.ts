@@ -166,6 +166,12 @@ export function renderConversation(): void {
           <span class="pulse-dot tone-busy" aria-hidden="true"></span>
           <span>${escapeHtml(liveText)}</span>
         </div>`);
+    } else if (['failed', 'cancelled', 'unknown'].includes(run.status)) {
+      html.push(`
+        <div class="run-notice tone-error run-error-bar" role="status">
+          <span>${escapeHtml(run.error ?? '本次会话已中断或失败。')}</span>
+          <button type="button" class="button secondary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button>
+        </div>`);
     }
 
     log.innerHTML = html.join('');
@@ -202,8 +208,11 @@ export function renderProcess(): void {
   const scroll = old?.scrollTop ?? 0;
   const atBottom = !old || old.scrollHeight - old.clientHeight - scroll < 70;
 
+  const canRetry = ['failed', 'cancelled', 'unknown', 'partial'].includes(run.status);
   target.innerHTML = (run.mode === 'replay' ? '<div class="run-notice">当前为离线演示，使用合成测试快照。</div>' : '')
-    + (run.error ? `<div class="run-notice tone-error">${escapeHtml(run.error)}</div>` : '')
+    + (run.error
+      ? `<div class="run-notice tone-error run-error-bar"><span>${escapeHtml(run.error)}</span>${canRetry ? `<button type="button" class="button secondary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button>` : ''}</div>`
+      : '')
     + (merged.length
       ? `<div class="activity-scroll"><ul class="step-card-list">${merged.map(renderMergedCard).join('')}</ul></div>`
       : '<div class="empty-state"><p>正在准备执行环境…</p></div>');

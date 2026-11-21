@@ -377,11 +377,13 @@ function renderReport(): void {
 
   if (!run?.reportReady) {
     const domain = isInvestigation(run?.task ?? currentProfile().task);
+    const failedOrStopped = Boolean(run && ['failed', 'cancelled', 'unknown'].includes(run.status));
     $('report-content').innerHTML = `
       <div class="empty-state">
-        <h3>${escapeHtml(run && ['failed', 'cancelled', 'unknown'].includes(run.status) ? '本次运行未生成结果' : '正在生成结果…')}</h3>
+        <h3>${escapeHtml(failedOrStopped ? '本次运行未生成结果' : '正在生成结果…')}</h3>
         <p>${escapeHtml(run?.error ?? (domain ? '采集、分析与审阅完成后，带引用的调查报告将自动呈现在这里。' : '任务完成后，回答内容将在这里展示，并支持复制与导出。'))}</p>
         ${run && isActiveRun(run) ? '<div class="empty-actions"><button type="button" class="button secondary sm" data-jump-tab="process">查看实时执行轨迹</button></div>' : ''}
+        ${failedOrStopped ? `<div class="empty-actions"><button type="button" class="button primary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button><button type="button" class="button secondary sm" data-clone-run>修改配置</button></div>` : ''}
       </div>`;
     return;
   }
@@ -475,6 +477,10 @@ function renderRun(): void {
   $('cancel-run').textContent = investigation ? '停止调查' : '停止任务';
   $('cancel-run').hidden = !isActiveRun(run);
   $<HTMLButtonElement>('cancel-run').disabled = run.status === 'cancelling';
+
+  const canRetry = ['failed', 'cancelled', 'unknown', 'partial'].includes(run.status);
+  $('retry-run').hidden = !canRetry;
+  $<HTMLButtonElement>('retry-run').disabled = state.submitting;
 
   $('pipeline').hidden = !investigation;
   if (investigation) {
@@ -633,6 +639,48 @@ function renderSkillCheckboxes(): void {
       <span>${escapeHtml(skill.name)}</span>
     </label>`).join('')
     || '<p class="field-note">默认使用内置任务指导；可在「来源与连接」查看 Skill。</p>';
+}
+
+async function retryCurrentRun(): Promise<void> {
+  const sourceRun = state.current;
+  if (!sourceRun || state.submitting || isActiveRun(sourceRun)) return;
+  clearError();
+  state.submitting = true;
+  renderRun();
+  try {
+    const task = structuredClone(sourceRun.task);
+    let webDomains: string[] | undefined;
+    if (sourceRun.mode === 'live') {
+      task.taskId = (isInvestigation(task) ? 'web-' : 'task-') + Date.now();
+      if (!isInvestigation(task) && task.allowedSources.includes('web')) {
+        const parsed = parseDomains($<HTMLInputElement>('agent-web-domains').value);
+        if (parsed.length) webDomains = parsed;
+      }
+    }
+    const input: RunStartInput = {
+      profile: sourceRun.profile,
+      mode: sourceRun.mode,
+      permission: sourceRun.permission,
+      ...(!isInvestigation(task) && sourceRun.mode !== 'replay' ? { conversation: true } : {}),
+      ...(webDomains?.length ? { webDomains } : {}),
+      task,
+      skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(inputEl => inputEl.value),
+      limits: {
+        timeoutMs: Math.max(Number($<HTMLInputElement>('timeout').value) || 300, 300) * 1000,
+        maxTokens: Math.max(Number($<HTMLInputElement>('tokens').value) || 400000, 400000),
+      },
+    };
+    const nextRun = await startRunApi(input);
+    state.runs.unshift(nextRun);
+    selectRun(nextRun);
+    $('run-title').focus();
+    announce('已重新启动任务。');
+  } catch (error) {
+    alertError(error);
+  } finally {
+    state.submitting = false;
+    renderRun();
+  }
 }
 
 // Form submission
@@ -1057,6 +1105,11 @@ document.body.addEventListener('click', event => {
 
   if (target.closest('[data-open-trace]')) {
     setTraceDrawer(true);
+    return;
+  }
+
+  if (target.closest('[data-retry-run]')) {
+    void retryCurrentRun();
     return;
   }
 
