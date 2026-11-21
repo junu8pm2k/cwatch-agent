@@ -14,12 +14,12 @@ npm run web
 - 通用任务：默认模板为「通用 Agent」，真实模式编辑任务描述、选择工具来源和 Skill；最终回答可查看、复制、下载并在刷新后恢复。无需填写实体或时间窗，也不经过固定调查阶段。
 - 离线演示：通用模板用固定脚本读取 README；官网与发布、联网调研、浏览器/API 调查模板保留原合成快照演示。均无需模型密钥。
 - 真实调查：沿用本机 .env 的 MODEL_PROVIDER、MODEL_ID、API_KEY、BASE_URL；编辑实体、产品、域名、时间和来源。配置映射仍须匹配任务，不能只修改名称就跨实体调用。
-- 过程：展示计划、工具调用、处理阶段、错误、用量和运行用时。运行中的状态通过 SSE 更新；历史与报告保存在本机，刷新页面可重新查看。
-- 审批：Ask 模式的修改/发送/发布请求显示工具、脱敏参数、请求 ID、参数哈希与期限；只能批准或拒绝当前请求。重复、过期、参数哈希错误和取消后的批准均无效。
-- 取消：停止模型/待审批调用/工具执行并回收资源。页面关闭不自动批准，也不自动取消调查；重新打开可以继续查看当前运行。工具超时仍按宿主预算收束。
-- 报告：展示结构化主张、来源链接、发布时间、fixture 标记和缺口；可查看、复制或下载完整 Markdown 草稿。
-- 来源与技能：展示现有来源配置，真实模式可选择已启用的用户 MCP 和已安装 Skill。配置/安装管理仍通过本地文件与现有 CLI 完成；“已配置”不表示已验证服务连通。
-- 同时最多运行两个调查，各自拥有独立 Registry、MCP 池、取消信号和输出目录；容量满时明确拒绝。
+- 过程与 Trace：展示计划、工具调用、处理阶段、错误、用量和运行用时；`Trace 检查` 视图直接接入结构化 Trace，可视化 `run → model → tool → backend` 步骤树、相对耗时瀑布条与节点输入输出。运行中的状态通过 SSE 更新；历史与报告保存在本机，刷新页面可重新查看。
+- 审批：Ask 模式的修改/发送/发布请求在顶部提供醒目提醒条，并在审批页显示工具、格式化后的脱敏参数、请求 ID、参数哈希与期限；只能批准或拒绝当前请求。重复、过期、参数哈希错误和取消后的批准均无效。
+- 取消与记录管理：停止模型/待审批调用/工具执行并回收资源。页面关闭不自动批准，也不自动取消调查；重新打开可以继续查看当前运行。侧边栏展示当前并发槽位（最多 2 项活跃运行），支持按标题/状态筛选历史记录，以及安全删除已结束的历史任务。
+- 报告与阅读：完整支持 XSS 安全的 Markdown 渲染（代码块与一键复制、表格、列表、引用块与安全链接），覆盖多轮对话与任务结果/调查报告；支持复制单条回复、完整报告或下载 Markdown 草稿。
+- 来源与技能：独立的「来源与连接」视图展示模型状态、内建来源、自定义 MCP 与内置/用户 Skill，支持查看 Skill Markdown 详情、启停已安装 Skill / 自定义 MCP，以及只读 `listTools` 在线连通性测试（不执行 `tools/call`，密钥始终留在环境变量中）。
+- 界面与主题：采用现代工作台三栏布局（侧边栏 + 主流视图 + 可折叠右侧检查器），内置浅色/深色主题切换并自动记忆偏好，移动端保持零横向溢出。
 
 默认产品来源不再包含示例新闻 MCP。调查模板中普通搜索/网页内容继续保持 discovery 身份；通用任务可引用工具材料，但调用成功不等于事实核验通过。
 
@@ -38,7 +38,7 @@ flowchart TD
   Service -->|"SSE snapshot"| UI
 ~~~
 
-apps/web 提供 UI 和 HTTP/SSE 传输，packages/server-core/src/runtime/run-service.ts 提供进程内服务；core/types/runs.ts 定义共享 DTO。前端使用 TypeScript、HTML/CSS，启动时将客户端 TypeScript 转换为浏览器模块，不引入额外前端框架或构建服务器。
+apps/web 提供 UI 和 HTTP/SSE 传输，packages/server-core/src/runtime/run-service.ts 提供进程内服务；core/types/runs.ts 定义共享 DTO。前端采用模块化原生 TypeScript（`apps/web/src/client.ts` 与 `apps/web/src/client/*.ts`）和语义化 CSS Token，启动时由服务端通过 TypeScript AST 转换并按静态白名单输出浏览器 ESM 模块，不引入额外前端框架或构建服务器。
 
 CLI 通过 runAgent 或兼容的 runInvestigation 进入同一共享 Runtime；CLI 的装配仍独立于 RunService。权限、Pi worker、来源客户端和业务规则使用已有实现，浏览器不能通过启动接口注入工具客户端、服务脚本或模型凭据。真实任务里的文件与命令请求仍须经过宿主执行器授权。
 
@@ -54,10 +54,17 @@ Trace 的观察回调在脱敏、Schema 校验和 append 成功后收到副本�
 | GET | /api/runs/:id | 获取一次运行快照 |
 | GET | /api/runs/:id/events | SSE 推送快照，重连后从当前状态恢复显示 |
 | POST | /api/runs/:id/cancel | 取消运行 |
+| POST | /api/runs/:id/delete | 删除已结束的历史任务及其本地输出目录（拒绝删除活跃运行） |
 | POST | /api/runs/:id/messages | 等待追问时提交 `{messageId: UUID, text: string}`，相同 ID/正文重传不重复执行 |
 | POST | /api/runs/:id/end | 等待追问时正常结束会话并释放 worker |
 | POST | /api/runs/:id/approvals/:requestId | 提交 allowed 与原 argsHash |
 | GET | /api/runs/:id/report | 下载当前运行的 Markdown 报告 |
+| GET | /api/runs/:id/trace | 获取当前运行的结构化 Trace（`cwatch.structured-trace.v1`） |
+| GET | /api/extensions | 获取脱敏后的内建来源、自定义 MCP 元数据与内置/用户 Skill 清单 |
+| GET | /api/extensions/skills/:name | 读取指定 Skill 的说明正文与参考文件列表 |
+| POST | /api/extensions/skills/:name/toggle | 启用或停用已安装的用户 Skill |
+| POST | /api/extensions/mcp/:slug/toggle | 启用或停用自定义 MCP 服务 |
+| POST | /api/extensions/mcp/:slug/test | 执行只读 `listTools` 发现以测试自定义 MCP 连通性（不执行调用、脱敏输出） |
 
 POST 必须携带同源 Origin、bootstrap 返回的 X-Cwatch-Token 和 application/json。Host 必须匹配实际监听地址；跨站请求被拒绝，不启用跨域访问。请求体上限 64 KB，SSE 连接最多 16 个，慢客户端达到缓冲上限时断开。静态资源只有明确允许的 HTML/CSS/JS，不开放工作区文件读取；CSP 禁止内联脚本和页面嵌入，来源正文以文本渲染。
 

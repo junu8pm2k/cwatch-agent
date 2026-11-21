@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { UserMcpStore } from '@cwatch/shared/mcp/storage';
+import { SkillStore } from '@cwatch/shared/skills/storage';
 import { resolve } from 'node:path';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
 import { ReplayModel } from '@cwatch/shared/agent/models';
@@ -77,6 +78,50 @@ check('contract','RunService exposes enabled custom MCP sources as metadata with
   for(const name of ['task.json','task-web.json','task-adapters.json','sources.json','sources-web.json','sources-adapters.json'])copyFileSync(resolve('examples',name),resolve(root,'examples',name));
   new UserMcpStore(root).add({slug:'custom-fixture',transport:'streamable-http',url:'https://mcp-fixture.example/mcp',tokenEnv:'UNRESOLVED_WEB_TEST_SECRET',enabled:true});
   const service=new RunService({root,outputRoot:resolve(data.root,'runs')});
-  try{const profiles=service.profiles();assert.ok(profiles.every(profile=>profile.sources.some(source=>source.slug==='custom-fixture'&&source.channel==='mcp'&&source.active)));assert.ok(!JSON.stringify(profiles).includes('UNRESOLVED_WEB_TEST_SECRET'));const task=profiles[0].task;task.allowedSources=['custom-fixture'];assert.throws(()=>service.start({...start,task}),/custom_mcp_requires_live_mode/);assert.equal(service.list().length,0);}
-  finally{await service.close();}
+  try{
+    const profiles=service.profiles();assert.ok(profiles.every(profile=>profile.sources.some(source=>source.slug==='custom-fixture'&&source.channel==='mcp'&&source.active)));
+    assert.ok(!JSON.stringify(profiles).includes('UNRESOLVED_WEB_TEST_SECRET'));
+    const ext=service.extensions();
+    assert.ok(ext.mcpServers.some(s=>s.slug==='custom-fixture'&&s.enabled&&s.hasAuth));
+    assert.ok(!JSON.stringify(ext).includes('UNRESOLVED_WEB_TEST_SECRET'));
+    const task=profiles[0].task;task.allowedSources=['custom-fixture'];assert.throws(()=>service.start({...start,task}),/custom_mcp_requires_live_mode/);assert.equal(service.list().length,0);
+  }finally{await service.close();}
+});
+
+check('integration','RunService deletes completed runs, blocks deleting active runs, and manages skills and MCP tests',async()=>{
+  const data=store(),root=resolve(data.root,'workspace');mkdirSync(resolve(root,'examples'),{recursive:true});
+  for(const name of ['task.json','task-web.json','task-adapters.json','sources.json','sources-web.json','sources-adapters.json'])copyFileSync(resolve('examples',name),resolve(root,'examples',name));
+  new SkillStore(root).installDirectory(resolve('examples/skills/competitor-review'));
+  new UserMcpStore(root).add({
+    slug:'local-fixture',transport:'stdio',command:'node',
+    args:['--experimental-transform-types',resolve('examples/user-mcp-server.ts')],
+    defaultAction:'modify',toolSemantics:{get_release:'collect',inspect_environment:'analyze'},enabled:true,
+  });
+  const blockedModel=():ModelPort=>({decide:async(_input,signal)=>abortable(new Promise<never>(()=>{}),signal)});
+  const service=new RunService({root,outputRoot:resolve(data.root,'runs')});
+  try{
+    const finished=await service.wait(service.start(start).id);
+    assert.equal(existsSync(resolve(service.outputRoot,finished.id)),true);
+    assert.deepEqual(service.delete(finished.id),{deleted:finished.id});
+    assert.equal(service.list().length,0);
+    assert.equal(existsSync(resolve(service.outputRoot,finished.id)),false);
+    assert.throws(()=>service.get(finished.id),/run_not_found/);
+
+    const detail=service.skillDetail('competitor-review');
+    assert.equal(detail.kind,'user');assert.equal(detail.enabled,true);assert.ok(detail.body.length>0);
+    const toggledSkill=service.toggleSkill('competitor-review',false);
+    assert.equal(toggledSkill.userSkills.find(s=>s.name==='competitor-review')?.enabled,false);
+    const toggledMcp=service.toggleMcp('local-fixture',false);
+    assert.equal(toggledMcp.mcpServers.find(m=>m.slug==='local-fixture')?.enabled,false);
+    const tested=await service.testMcp('local-fixture');
+    assert.equal(tested.ok,true);assert.ok(tested.tools.some(t=>t.name==='get_release'&&t.action==='collect'));
+  }finally{await service.close();}
+
+  const blocking=new RunService({root:process.cwd(),outputRoot:resolve(data.root,'runs-active'),modelFactory:blockedModel});
+  try{
+    const activeRun=blocking.start(start);
+    assert.throws(()=>blocking.delete(activeRun.id),/run_active/);
+    blocking.cancel(activeRun.id);await blocking.wait(activeRun.id);
+    assert.deepEqual(blocking.delete(activeRun.id),{deleted:activeRun.id});
+  }finally{await blocking.close();}
 });

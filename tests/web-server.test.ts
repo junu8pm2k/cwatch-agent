@@ -18,10 +18,15 @@ check('contract','Workbench HTTP serves local assets with a restrictive CSP and 
     const rawStatus=(headers:Record<string,string>)=>new Promise<number|undefined>((resolve,reject)=>{const req=httpRequest(h.origin+'/api/bootstrap',{headers},res=>{res.resume();resolve(res.statusCode);});req.on('error',reject);req.end();});
     const home=await fetch(h.origin);assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy')!,/frame-ancestors 'none'/);assert.match(await home.text(),/Agent 工作台/);
     assert.equal((await fetch(h.origin+'/client.js')).status,200);
-    for(const path of ['/.env','/package.json','/api/runs/../../.env'])assert.equal((await fetch(h.origin+path)).status,404);
+    for(const mod of ['/client/state.js','/client/api.js','/client/markdown.js','/client/trace.js','/client/conversation.js','/client/inspector.js','/client/sidebar.js','/client/extensions.js']){
+      const res=await fetch(h.origin+mod);assert.equal(res.status,200);assert.match(res.headers.get('content-type')!,/javascript/);
+    }
+    for(const path of ['/.env','/package.json','/api/runs/../../.env','/client/../server.js','/client/missing.js','/api/extensions/skills/../../.env'])assert.equal((await fetch(h.origin+path)).status,404);
     assert.equal(await rawStatus({Host:'evil.example'}),403);
     assert.equal(await rawStatus({'Sec-Fetch-Site':'cross-site'}),403);
-    assert.equal('apiKey' in h.bootstrap.model,false);assert.ok(h.bootstrap.profiles.length>=3);
+    assert.equal('apiKey' in h.bootstrap.model,false);assert.ok(h.bootstrap.profiles.length>=3);assert.equal(h.bootstrap.maxConcurrentRuns,2);
+    const ext=await(await fetch(h.origin+'/api/extensions')).json();assert.ok(Array.isArray(ext.builtinSources));assert.ok(Array.isArray(ext.builtinSkills));
+    const skill=await(await fetch(h.origin+'/api/extensions/skills/general-agent')).json();assert.equal(skill.name,'general-agent');assert.equal(skill.kind,'builtin');assert.ok(skill.body.length>0);
   }finally{await h.close();}
 });
 check('contract','Workbench mutations require exact origin, CSRF token and bounded JSON, before starting runs',async()=>{
@@ -45,5 +50,8 @@ check('integration','Workbench HTTP starts a real replay, streams its state, dow
     const report=await fetch(h.origin+'/api/runs/'+run.id+'/report');assert.match(report.headers.get('content-disposition')!,/attachment/);assert.match(await report.text(),/合成测试快照/);
     assert.equal((await fetch(h.origin+'/api/runs/00000000-0000-0000-0000-000000000000')).status,404);
     assert.equal((await h.post('/api/runs/'+run.id+'/approvals/00000000-0000-0000-0000-000000000000',{allowed:true,argsHash:'0'.repeat(64)})).status,409);
+    assert.equal((await h.post('/api/runs/'+run.id+'/delete',{},{'X-Cwatch-Token':'wrong'})).status,403);
+    const deleted=await h.post('/api/runs/'+run.id+'/delete',{});assert.equal(deleted.status,200);assert.deepEqual(await deleted.json(),{deleted:run.id});
+    assert.equal((await fetch(h.origin+'/api/runs/'+run.id)).status,404);
   }finally{controller.abort();await h.close();}
 });
