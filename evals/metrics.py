@@ -201,6 +201,34 @@ def score_finding(criterion, finding, references):
     }
 
 
+def request_assessment(client, request, config, usage, started):
+    reported = []
+    try:
+        for max_tokens in (config["maxTokens"], config["retryMaxTokens"]):
+            remaining = config["timeoutSeconds"] - (perf_counter() - started)
+            if remaining <= 0:
+                raise RuntimeError("Judge request deadline elapsed before a completed assessment")
+            usage["requests"] += 1
+            response = client.chat.completions.create(**request, max_tokens=max_tokens, timeout=remaining)
+            reported.append(response.usage)
+            choice = response.choices[0] if response.choices else None
+            if choice and choice.finish_reason == "stop" and choice.message.content:
+                return choice.message.content
+            output_tokens = getattr(response.usage, "completion_tokens", None)
+            hit_limit = (choice is not None and choice.finish_reason == "length") or (
+                (choice is None or choice.finish_reason == "stop") and output_tokens is not None and output_tokens >= max_tokens
+            )
+            if not hit_limit:
+                raise RuntimeError("Judge did not return a completed assessment")
+        raise RuntimeError(f"Judge output hit the {config['retryMaxTokens']}-token limit after retry")
+    finally:
+        if reported and len(reported) == usage["requests"]:
+            for key, field in (("inputTokens", "prompt_tokens"), ("outputTokens", "completion_tokens"), ("totalTokens", "total_tokens")):
+                values = [getattr(item, field, None) for item in reported]
+                if all(value is not None for value in values):
+                    usage[key] = sum(values)
+
+
 def semantic_scores(case, criteria, output, trace):
     usage = {"requests": 0, "inputTokens": None, "outputTokens": None, "totalTokens": None, "durationMs": None, "actualCost": None}
     if not criteria:
@@ -213,20 +241,15 @@ def semantic_scores(case, criteria, output, trace):
         ids = [item["id"] for item in criteria]
         schema = {"type": "object", "properties": {item["id"]: finding_schema(item) for item in criteria},
                   "required": ids, "additionalProperties": False}
-        usage["requests"] = 1
-        response = client.chat.completions.create(
-            model=config["model"], temperature=config["temperature"], max_tokens=config["maxTokens"],
+        request = dict(
+            model=config["model"], temperature=config["temperature"],
             messages=[{"role": "system", "content": JUDGE_RUBRIC},
                       {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
             response_format={"type": "json_schema", "json_schema": {
                 "name": "Assessment", "schema": schema, "strict": True}},
         )
-        if response.usage:
-            usage.update(inputTokens=response.usage.prompt_tokens, outputTokens=response.usage.completion_tokens,
-                         totalTokens=response.usage.total_tokens)
-        if not response.choices or response.choices[0].finish_reason != "stop" or not response.choices[0].message.content:
-            raise RuntimeError("Judge did not return a completed assessment")
-        assessment = json.loads(response.choices[0].message.content, object_pairs_hook=unique_object, parse_constant=reject_constant)
+        content = request_assessment(client, request, config, usage, started)
+        assessment = json.loads(content, object_pairs_hook=unique_object, parse_constant=reject_constant)
         if not isinstance(assessment, dict) or assessment.keys() - set(ids):
             raise RuntimeError("Judge returned an invalid criterion map")
         scores = {}
