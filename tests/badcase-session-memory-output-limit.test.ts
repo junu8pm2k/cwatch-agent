@@ -10,6 +10,7 @@ import { createPiRuntime } from '@cwatch/shared/agent/backend/pi/model-runtime';
 import { assertCompleteApiRounds } from '@cwatch/shared/agent/backend/pi/api-rounds';
 import { ToolResultGovernor } from '@cwatch/shared/agent/backend/pi/tool-result-context';
 import { PreferredWebSource } from '@cwatch/shared/sources/web';
+import { createWebToolDefinitions } from '@cwatch/shared/sources/web-tools';
 import { check, store } from './harness.ts';
 
 const usage = {
@@ -242,4 +243,56 @@ check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: valid
   const openTask: CompetitorTask = { ...zhipuTask, competitor: { ...zhipuTask.competitor, domains: ['*'] } };
   assert.equal(source.validateScope('web_search', { query: 'unrelated company changelog' }, openTask), 'web_query_outside_entity_scope');
   assert.equal(source.validateScope('web_search', { query: '智谱 更新日志' }, openTask), undefined);
+
+  // web_fetch tool description warns against http:// downgrade and repeating timed-out URLs
+  const fetchDef = createWebToolDefinitions({ allowedDomains: ['bigmodel.cn'], urls: [] }).find(t => t.name === 'web_fetch')!;
+  assert.match(fetchDef.description, /Only https:\/\/ URLs are permitted/);
+  assert.match(fetchDef.description, /do not retry the same URL or downgrade to http:\/\//);
+});
+
+check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: Step-5 reasoning model gets 2048 attempt-1 memory output budget to avoid per-turn pendingMessages retry cascade', async () => {
+  const data = store(), sessionId = id(), manager = SessionManager.inMemory(process.cwd(), { id: sessionId });
+  const redactor = new Redactor([]);
+  const transcript = new SessionTranscript(data, sessionId, redactor);
+  const policy = SessionMemoryPolicySchema.parse({ initializeTokens: 100, growthTokens: 50, toolCalls: 2, maxInputChars: 48_000 });
+  const memory = new SessionMemoryStore(data, transcript, 'badcase-step5-cap', policy, redactor);
+  let sent = 0, headerSent = false;
+  const maxTokensSeen: number[] = [];
+  const flush = () => {
+    transcript.append([...(!headerSent ? [manager.getHeader()!] : []), ...manager.getEntries().slice(sent)].map(e => ({ ...e })));
+    headerSent = true;
+    sent = manager.getEntries().length;
+  };
+  const hooks: Pick<AgentSessionHooks, 'sessionMemory' | 'beforeRequest' | 'onUsage'> = {
+    sessionMemory: req => memory.handle(req),
+    beforeRequest: () => ({ maxOutputTokens: 4096 }),
+    onUsage: () => {},
+  };
+  const archive = async (type: string, value: unknown) => { manager.appendCustomEntry(type, value); flush(); };
+  const updater = new PiSessionMemory(manager, hooks, policy, 150_000, 32_000, archive);
+  const { model } = await createPiRuntime('stepfun', 'step-5-preview', { apiKey: 'key', baseUrl: 'https://api.stepfun.com/v1' }, new AbortController().signal);
+  const runtime = {
+    completeSimple: async (_model: unknown, _context: any, options: { maxTokens?: number }) => {
+      maxTokensSeen.push(options.maxTokens ?? 0);
+      return { role: 'assistant', content: [{ type: 'text', text: JSON.stringify(validState('step5 single-shot memory')) }], usage, stopReason: 'stop' };
+    },
+  } as unknown as ModelRuntime;
+
+  manager.appendMessage({ role: 'user', content: 'Investigate GLM releases', timestamp: Date.now() });
+  for (let r = 1; r <= 2; r++) {
+    manager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Round ' + r }, { type: 'toolCall', id: 'c' + r, name: 'web_search', arguments: { query: 'GLM ' + r, limit: 5 } }],
+      api: 'openai-completions', provider: 'stepfun', model: 'step-5-preview', usage, stopReason: 'toolUse', timestamp: Date.now(),
+    });
+    manager.appendMessage({
+      role: 'toolResult', toolCallId: 'c' + r, toolName: 'web_search',
+      content: [{ type: 'text', text: '{"status":"success_empty","signals":[],"raw":"{}"}' }], isError: false, timestamp: Date.now(),
+    });
+  }
+  flush();
+
+  await updater.prepare(15_000, runtime, model, 4096, new AbortController().signal);
+  assert.deepEqual(maxTokensSeen, [2048]);
+  assert.equal(memory.load()?.pendingMessages, false);
 });

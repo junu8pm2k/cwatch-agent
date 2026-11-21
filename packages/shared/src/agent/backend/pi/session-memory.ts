@@ -146,7 +146,8 @@ export class PiSessionMemory {
       signal.throwIfAborted();
       const recovery = attempt > 1;
       const allowance = await this.hooks.beforeRequest?.('memory');
-      const maxTokens = Math.min(attempt === 1 ? 1024 : 4096, outputTokens, model.maxTokens, allowance?.maxOutputTokens ?? outputTokens);
+      const firstAttemptCap = 'reasoning' in contract ? 2048 : 1024;
+      const maxTokens = Math.min(attempt === 1 ? firstAttemptCap : 4096, outputTokens, model.maxTokens, allowance?.maxOutputTokens ?? outputTokens);
       if (maxTokens <= 0) throw new Error('budget_tokens: no allowance for memory');
       const maxInputBudget = Math.min(this.maxChars, this.policy.maxInputChars);
       const targetBudget = recovery ? Math.min(maxInputBudget, RECOVERY_MAX_INPUT_CHARS) : maxInputBudget;
