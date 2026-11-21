@@ -12,6 +12,8 @@ export interface WorkflowCheckpoint {
   plan?: Plan; submitted: boolean; analyzed: boolean; reviewed: boolean; drafted: boolean;
   claims: Array<{ id: string }>; evidenceIds: string[]; report?: string; gaps: string[];
   review: { decision: string; issues: string[] };
+  reworkCount?: number; reworkAvailable?: boolean;
+  canReworkCollect?(): boolean;
 }
 interface ResourceRead {
   kind: 'source_guide' | 'skill_resource' | 'tool_result' | 'plan' | 'transcript'; path?: string; sourceSlug?: string; skill?: string;
@@ -96,12 +98,15 @@ export class WorkingStateTracker {
         progress: pending ? 'unresolved' : statuses.includes('success_with_data') ? 'collected' : statuses.some(status => ['success_empty', 'unstructured'].includes(status)) ? 'attempted_with_gaps' : statuses.length ? 'failed' : 'not_started' };
     });
     const unresolved = executions.filter(record => ['awaiting_permission', 'executing', 'unknown'].includes(record.state));
-    const nextAction = unresolved.length ? 'reconcile_unresolved_execution' : !workflow ? 'continue_task_using_selected_skills' : !workflow.submitted ? 'workflow__save_plan' : !workflow?.analyzed && sourceProgress.some(source => source.progress === 'not_started' && source.active) ? 'collect_remaining_planned_sources' : !workflow?.analyzed ? 'workflow__analyze' : !workflow?.reviewed ? 'workflow__review' : !workflow?.drafted ? 'workflow__draft' : 'respond';
+    const reworkCount = workflow?.reworkCount ?? 0;
+    const reworkAvailable = workflow?.canReworkCollect ? workflow.canReworkCollect() : Boolean(workflow?.reworkAvailable);
+    const nextAction = unresolved.length ? 'reconcile_unresolved_execution' : !workflow ? 'continue_task_using_selected_skills' : !workflow.submitted ? 'workflow__save_plan' : !workflow?.analyzed && sourceProgress.some(source => source.progress === 'not_started' && source.active) ? 'collect_remaining_planned_sources' : !workflow?.analyzed ? 'workflow__analyze' : !workflow?.reviewed ? 'workflow__review' : reworkAvailable ? 'rework_collect_or_workflow__draft' : !workflow?.drafted ? 'workflow__draft' : 'respond';
     const plan = workflow?.submitted ? verifiedPlan(store, runId, workflow?.plan, true) : undefined;
     if (plan) plan.text = JSON.stringify(this.clean(workflow?.plan));
     const investigationSnapshot = {
       version: 1, taskId: task.taskId, runId, capturedAt: now(), permissionMode,
       phases: { planSaved: workflow?.submitted, analyzed: workflow?.analyzed, reviewed: workflow?.reviewed, drafted: workflow?.drafted },
+      reworkCount, reworkAvailable,
       planPath: plan?.path ?? null,
       plan: plan ? { integrity: 'verified', path: plan.path, hash: plan.hash, preview: plan.text.slice(0, 4000), previewTruncated: plan.text.length > 4000, reRead: { tool: 'workflow__read_plan', args: { offset: 0, limit: 1024 } } } : { integrity: 'not_saved' },
       planMode: { supported: false }, sourceProgress, nextAction,

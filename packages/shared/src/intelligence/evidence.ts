@@ -2,7 +2,7 @@ import { SignalSchema, RetrievalSchema, hash, now, type CompetitorSignal, type C
 import { FileStore } from "../sessions/storage.ts";
 import { readFileSync } from 'node:fs';
 
-export interface Evidence { id: string; signal: CompetitorSignal; rawPath: string; snapshotHash: string; provenance: 'fixture' | 'live'; attribution: 'matched' | 'ambiguous' | 'wrong_entity'; timeStatus: 'in_window' | 'out_of_window' | 'unknown_time' }
+export interface Evidence { id: string; signal: CompetitorSignal; rawPath: string; snapshotHash: string; provenance: 'fixture' | 'live'; attribution: 'matched' | 'ambiguous' | 'wrong_entity'; timeStatus: 'in_window' | 'out_of_window' | 'unknown_time'; excerpt?: string }
 export interface EventRecord { id: string; entityId: string; product: string; signalType: string; eventKey: string; versionIds: string[]; evidenceIds: string[] }
 export interface FactVersion { id: string; eventId: string; value: string; title: string; firstSeenAt: string; evidenceIds: string[]; polarity: 'supports' | 'contradicts' }
 export interface Claim { id: string; text: string; eventId: string; versionId: string; evidenceIds: string[] }
@@ -37,7 +37,7 @@ export class EvidenceStore {
   evidence(): Evidence[] { return this.store.read('evidence/index.json', []); }
   events(): EventRecord[] { return this.store.read('facts/events.json', []); }
   versions(): FactVersion[] { return this.store.read('facts/versions.json', []); }
-  ingest(task: CompetitorTask, rawResult: RetrievalResult): { evidenceIds: string[]; eventIds: string[]; gaps: string[] } {
+  ingest(task: CompetitorTask, rawResult: RetrievalResult, options?: { excerpts?: readonly (string | undefined)[] }): { evidenceIds: string[]; eventIds: string[]; gaps: string[] } {
     const result = RetrievalSchema.parse(rawResult);
     const evidences = this.evidence(), events = this.events(), versions = this.versions();
     const evidenceIds: string[] = [], eventIds: string[] = [], gaps: string[] = [];
@@ -45,13 +45,17 @@ export class EvidenceStore {
     if ((result.searchResults?.length || result.pages?.length) && !result.signals.length) gaps.push('discovery_only: search/page content retained; structured facts require a verified source parser');
     if (result.snapshot) { if (hash(readFileSync(this.store.path(result.snapshot.path), 'utf8')) !== result.snapshot.hash) throw new Error('retrieval_snapshot_mismatch'); }
     if (result.rawTruncated && !result.snapshot) throw new Error('missing_full_retrieval_snapshot');
-    for (const value of result.signals) {
+    for (let index = 0; index < result.signals.length; index++) {
+      const value = result.signals[index];
       const signal = SignalSchema.parse(value);
       if (!task.allowedSources.includes(signal.sourceSlug)) throw new Error('evidence_source_outside_task');
       const attr = attribution(task, signal), time = timeStatus(task, signal);
       const snapshotHash = result.snapshot?.hash ?? hash(result.raw), evidenceId = 'ev-' + hash({ signal, snapshotHash }).slice(0, 24);
-      const evidence: Evidence = { id: evidenceId, signal, rawPath: result.snapshot?.path ?? 'evidence/snapshots/' + snapshotHash + '.txt', snapshotHash, provenance: result.provenance, attribution: attr, timeStatus: time };
-      if (!evidences.some(e => e.id === evidenceId)) { evidences.push(evidence); if (!result.snapshot) this.store.text(evidence.rawPath, result.raw); }
+      const excerpt = options?.excerpts?.[index];
+      const evidence: Evidence = { id: evidenceId, signal, rawPath: result.snapshot?.path ?? 'evidence/snapshots/' + snapshotHash + '.txt', snapshotHash, provenance: result.provenance, attribution: attr, timeStatus: time, ...(excerpt !== undefined ? { excerpt } : {}) };
+      const existing = evidences.find(e => e.id === evidenceId);
+      if (!existing) { evidences.push(evidence); if (!result.snapshot) this.store.text(evidence.rawPath, result.raw); }
+      else if (excerpt !== undefined && !existing.excerpt) { existing.excerpt = excerpt; }
       evidenceIds.push(evidenceId);
       if (attr !== 'matched' || time !== 'in_window' || !task.signalTypes.includes(signal.signalType)) { gaps.push(evidenceId + ': ' + [attr, time].join('/')); continue; }
       const eventId = 'event-' + hash({ entity: task.competitor.id, product: signal.product, kind: signal.signalType, key: signal.eventKey }).slice(0, 24);

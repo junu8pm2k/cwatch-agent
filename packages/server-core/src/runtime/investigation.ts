@@ -13,7 +13,7 @@ export function runInvestigation(rawTask: unknown, model: Parameters<typeof runT
       skill: () => loadInvestigationSkill(options.skillPath), skillPath: options.skillPath ?? 'skills/competitor-investigation/SKILL.md', skillName: 'competitor-investigation',
       completionInstruction: 'Do not finish before workflow__draft succeeded.',
       checkPrerequisites: binding => binding.action === 'collect' && !workflow.submitted ? { allowed: false, blockReason: 'plan_required_before_collection' }
-        : binding.action === 'collect' && workflow.analyzed ? { allowed: false, blockReason: 'collection_after_analysis_requires_new_run' } : { allowed: true },
+        : binding.action === 'collect' && workflow.analyzed && !workflow.canReworkCollect() ? { allowed: false, blockReason: 'collection_after_analysis_requires_new_run' } : { allowed: true },
       finish: () => { if (!workflow.drafted) throw new Error('no_progress: response_before_verified_draft');
         return { status: workflow.gaps.length || workflow.review.decision !== 'accept' ? 'partial' : 'complete', report: workflow.report }; },
     };
