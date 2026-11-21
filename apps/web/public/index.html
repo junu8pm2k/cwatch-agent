@@ -216,11 +216,11 @@
                     <div class="field-row">
                       <label class="field" for="timeout">
                         <span>总时限（秒）</span>
-                        <input id="timeout" type="number" value="180" min="1" max="600">
+                        <input id="timeout" type="number" value="300" min="1" max="600">
                       </label>
                       <label class="field" for="tokens">
                         <span>Token 上限</span>
-                        <input id="tokens" type="number" value="100000" min="100" max="2000000">
+                        <input id="tokens" type="number" value="400000" min="100" max="2000000">
                       </label>
                     </div>
                   </div>
@@ -270,7 +270,8 @@
           </div>
           <div class="run-bar-actions">
             <button type="button" id="cancel-run" class="button danger sm" hidden>停止任务</button>
-            <button type="button" class="button ghost sm" data-clone-run title="以此配置新建任务">复用配置</button>
+            <button type="button" id="retry-run" class="button primary sm" data-retry-run hidden title="以原任务与配置立即重新运行">尝试重试</button>
+            <button type="button" class="button ghost sm" data-clone-run title="以此配置返回首页编辑">复用配置</button>
           </div>
         </div>
 

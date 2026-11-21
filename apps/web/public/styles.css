@@ -2013,6 +2013,18 @@ main#main {
   border-color: var(--error-border);
   color: var(--error);
 }
+.run-error-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.run-error-bar > span {
+  flex: 1;
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
 
 .empty-state {
   padding: 36px 24px;
@@ -2034,6 +2046,11 @@ main#main {
 }
 .empty-actions {
   margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* ==================== Markdown Typography ==================== */

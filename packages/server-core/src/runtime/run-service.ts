@@ -150,7 +150,7 @@ export class RunService {
         run.view.status='running';this.changed(run);
         const approvals=new ApprovalManager((request,approvalSignal)=>this.awaitApproval(run,request,approvalSignal),Math.min(60000,input.limits.toolTimeoutMs??45000));
         const result=await (isInvestigationTask(task)?runInvestigation:runAgent)(task,model,registry,run.data,input.mode,{
-          timeoutMs:input.limits.timeoutMs??180000,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens:input.limits.maxTokens??100000,
+          timeoutMs:input.limits.timeoutMs??300000,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens:input.limits.maxTokens??400000,
           workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
           ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
           onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});},
@@ -196,7 +196,9 @@ export class RunService {
     }else if(event.type==='execution_finished'){
       const tool=run.tools.get(String(data.requestId))??'工具';
       if(data.state==='completed')run.view.toolCalls++;
-      this.activity(run,data.state==='completed'?'tool':'error',tool+(data.state==='completed'?' 已完成':' 未完成'),{tool,state:String(data.state),...(data.error?{detail:String(data.error).slice(0,2200)}:{})});
+      const softErr=data.state==='completed'&&data.result&&typeof data.result==='object'&&typeof (data.result as {error?:unknown}).error==='string'?String((data.result as {error:string}).error):undefined;
+      const errDetail=data.error?String(data.error).slice(0,2200):softErr?softErr.slice(0,2200):undefined;
+      this.activity(run,data.state==='completed'?'tool':'error',tool+(data.state==='completed'?' 已完成':' 未完成'),{tool,state:String(data.state),...(errDetail?{detail:errDetail}:{})});
     }else if(event.type==='agent_process')this.activity(run,'system',data.state==='ready'?'Agent 子进程已就绪。':data.state==='exited'?'Agent 子进程已退出。':'Agent 进程：'+String(data.state));
     else if(event.type==='run_failed'||event.type==='run_cancelled')this.activity(run,'error',String(data.error??event.type));
   }
