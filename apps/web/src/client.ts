@@ -185,10 +185,10 @@ function populateProfileForm(task = currentProfile().task, preserveWebChoice = f
   $<HTMLTextAreaElement>('instruction').required = !domain;
 
   if (state.view === 'workbench') {
-    $('page-title').textContent = domain ? '竞品调查' : '通用 Agent';
+    $('page-title').textContent = domain ? '产品调查' : '通用 Agent';
   }
 
-  $('intro-title').textContent = domain ? '结构化调查竞品动态' : '今天想调查或完成什么？';
+  $('intro-title').textContent = domain ? '结构化调查产品动态' : '今天想调查或完成什么？';
   $('intro-description').textContent = domain
     ? '指定对象、产品与时间窗，联网采集公开信息并生成带可核验引用的调查草稿。'
     : '直接提问、联网检索公开资料或读取本地文件，每一步都在本机可审计执行。';
@@ -313,7 +313,7 @@ function showView(view: 'workbench' | 'connections'): void {
     renderExtensions();
   } else {
     const activeTask = state.current?.task ?? currentProfile().task;
-    $('page-title').textContent = isInvestigation(activeTask) ? '竞品调查' : '通用 Agent';
+    $('page-title').textContent = isInvestigation(activeTask) ? '产品调查' : '通用 Agent';
   }
   syncHeaderControls();
 }
