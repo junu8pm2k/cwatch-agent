@@ -1,10 +1,11 @@
-import { mkdirSync, readdirSync, readFileSync, openSync, closeSync, unlinkSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, openSync, closeSync, unlinkSync, existsSync, rmSync, lstatSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { id, now, parseTask, parseAgentTask, AgentTaskSchema, isInvestigationTask, hash, type AgentTask, type CompetitorTask, type ModelPort, type Decision } from '@cwatch/core/types';
-import type { RunSnapshot, RunProfile, RunActivity, RunStartInput, RunMessageInput, PendingRunApproval } from '@cwatch/core/types/runs';
+import type { RunSnapshot, RunProfile, RunActivity, RunStartInput, RunMessageInput, PendingRunApproval, WorkbenchExtensions, SkillDetail, McpTestResult } from '@cwatch/core/types/runs';
 import { ActionPolicy, ApprovalManager, type ApprovalRequest } from '@cwatch/shared/agent/core/permission-manager';
 import { SourceServerBuilder, readSourceConfigs, type SourceConfig } from '@cwatch/shared/sources/server-builder';
+import { allowedUrl } from '@cwatch/shared/sources/web';
 import { ReplayModel, PiModel } from '@cwatch/shared/agent/models';
 import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { proxyToolName, registeredToolName } from '@cwatch/shared/tools/tool-names';
@@ -13,7 +14,7 @@ import { Redactor, Trace, type TraceEvent } from '@cwatch/shared/sessions/trace'
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { UserMcpStore, mcpSecrets } from '@cwatch/shared/mcp/storage';
 import { UserMcpSource } from '@cwatch/shared/mcp/source';
-import { SkillStore } from '@cwatch/shared/skills/storage';
+import { SkillStore, parseSkill } from '@cwatch/shared/skills/storage';
 import { reportedTokens } from '@cwatch/shared/agent/core/budgets';
 import { apiSecrets } from '@cwatch/shared/sources/api-tools';
 import { runInvestigation, type RunResult } from './investigation.ts';
@@ -22,16 +23,18 @@ import type { Claim, Evidence } from '@cwatch/shared/intelligence/evidence';
 
 const genericTask = () => ({ kind: 'agent' as const, taskId: 'general-agent-task', instruction: '读取 README.md，说明项目能力和运行方法，并说明依据。', allowedSources: [] as string[] });
 const definitions = [
-  { id: 'standard', name: '官网与发布', description: '通用网页读取', task: 'examples/task.json', sources: 'examples/sources.json' },
-  { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: 'examples/sources-web.json' },
-  { id: 'adapters', name: '浏览器读取', description: '只读浏览器', task: 'examples/task-adapters.json', sources: 'examples/sources-adapters.json' },
+  { id: 'standard', name: '官网与发布', description: '通用网页读取', task: 'examples/task.json', sources: ['examples/sources.json'] },
+  { id: 'web', name: '联网调研', description: '联网搜索 / 网页读取；真实模式使用配置的搜索服务', task: 'examples/task-web.json', sources: ['examples/sources-web.json'] },
+  { id: 'adapters', name: '浏览器读取', description: '只读浏览器', task: 'examples/task-adapters.json', sources: ['examples/sources-adapters.json'] },
+  { id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: ['examples/sources-web.json', 'examples/sources.json'] },
 ];
-definitions.push({ id: 'agent', name: '通用 Agent', description: '输入任务，选择 Skill 和工具，由 Agent 执行', task: 'examples/task-agent.json', sources: 'examples/sources.json' });
 const names: Record<string,string> = { official: '官方网站', browser: '浏览器读取', web: '联网搜索与读取' };
+const domainItem = z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
 const startSchema = z.object({
   profile: z.enum(['agent','standard','web','adapters']).default('agent'), mode: z.enum(['live','replay']).default('replay'),
   permission: z.enum(['explore','ask','allow-all']).default('explore'), task: AgentTaskSchema.optional(),
   skills: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).max(20).default([]),
+  webDomains: z.array(domainItem).max(20).optional(),
   conversation: z.boolean().default(false),
   limits: z.object({ timeoutMs: z.number().int().min(1000).max(600000).optional(), toolTimeoutMs: z.number().int().min(1000).max(120000).optional(), maxTokens: z.number().int().min(100).max(2000000).optional() }).strict().default({}),
 }).strict();
@@ -67,10 +70,21 @@ export class RunService {
     } catch(error){closeSync(this.lock);unlinkSync(resolve(this.outputRoot,'.host.lock'));throw error;}
   }
   private redactor():Redactor {return new Redactor(Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''));}
+  private profileSourceConfigs(profile: (typeof definitions)[number]): SourceConfig[] {
+    const bySlug = new Map<string, SourceConfig>();
+    for (const file of profile.sources) {
+      const full = resolve(this.root, file);
+      if (!existsSync(full)) continue;
+      for (const source of readSourceConfigs(full)) {
+        if (!bySlug.has(source.slug)) bySlug.set(source.slug, source);
+      }
+    }
+    return [...bySlug.values()];
+  }
   profiles():RunProfile[] {
     return definitions.map(profile=>({id:profile.id,name:profile.name,description:profile.description,
       task:profile.id==='agent'?genericTask():parseTask(JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))),
-      sources:[...readSourceConfigs(resolve(this.root,profile.sources)).map(source=>({slug:source.slug,name:names[source.slug]??source.slug,channel:['api','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active})),...new UserMcpStore(this.root).list().map(source=>({slug:source.slug,name:'自定义 · '+source.slug,channel:'mcp',active:source.enabled}))],
+      sources:[...this.profileSourceConfigs(profile).map(source=>({slug:source.slug,name:names[source.slug]??source.slug,channel:['api','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active})),...new UserMcpStore(this.root).list().map(source=>({slug:source.slug,name:'自定义 · '+source.slug,channel:'mcp',active:source.enabled}))],
     }));
   }
   skills(){return new SkillStore(this.root).list().map(item=>({name:item.name,description:item.description,enabled:item.enabled}));}
@@ -95,7 +109,17 @@ export class RunService {
     const task=parseAgentTask(input.task??(profile.id==='agent'?genericTask():JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))));
     if((profile.id==='agent')===isInvestigationTask(task))throw Error('task_template_mismatch');
     if(input.conversation&&isInvestigationTask(task))throw Error('conversation_requires_generic_agent');
-    const configs=readSourceConfigs(resolve(this.root,profile.sources)).filter(c=>task.allowedSources.includes(c.slug));
+    const overrideDomains=input.mode==='live'
+      ? [...new Set((input.webDomains?.length?input.webDomains:isInvestigationTask(task)?task.competitor.domains.map(d=>d.trim().toLowerCase()).filter(Boolean):[]))]
+      : [];
+    const rawConfigs=this.profileSourceConfigs(profile).filter(c=>task.allowedSources.includes(c.slug));
+    const configs=rawConfigs.map(config=>{
+      if(input.mode==='live'&&config.slug==='web'&&config.kind==='web'&&overrideDomains.length){
+        for(const host of overrideDomains)allowedUrl('https://'+host,[host]);
+        return {...config,allowedDomains:overrideDomains};
+      }
+      return config;
+    });
     const customStore=new UserMcpStore(this.root),custom=customStore.select(task.allowedSources.filter(slug=>customStore.list().some(c=>c.slug===slug)));
     if(custom.some(c=>configs.some(config=>config.slug===c.slug)))throw Error('mcp_source_slug_collision');
     if(input.mode==='replay'&&custom.length)throw Error('custom_mcp_requires_live_mode');
@@ -234,6 +258,109 @@ export class RunService {
     waiter.resolve(null);return this.snapshot(run);
   }
   cancel(runId:string):RunSnapshot {const run=this.require(runId);if(active(run.view.status)){run.view.status='cancelling';this.activity(run,'system','正在取消调查并回收资源。');run.controller.abort(Error('user_cancelled'));}return this.snapshot(run);}
+  delete(runId:string):{deleted:string} {
+    if(!/^[a-f0-9-]{36}$/.test(runId))throw Error('run_not_found');
+    const run=this.require(runId);
+    if(active(run.view.status))throw Error('run_active:运行中的任务无法删除，请先取消或结束会话');
+    const dir=resolve(this.outputRoot,runId);
+    if(!dir.startsWith(this.outputRoot+sep))throw Error('invalid_run_path');
+    this.runs.delete(runId);
+    if(existsSync(dir))rmSync(dir,{recursive:true,force:true});
+    return{deleted:runId};
+  }
+  private listBuiltinSkillResources(dir:string,prefix=''):string[] {
+    if(!existsSync(dir))return [];
+    const results:string[]=[];
+    for(const entry of readdirSync(dir,{withFileTypes:true})){
+      if(entry.isSymbolicLink())continue;
+      const key=prefix?prefix+'/'+entry.name:entry.name;
+      if(entry.isDirectory())results.push(...this.listBuiltinSkillResources(join(dir,entry.name),key));
+      else if(entry.isFile()&&key!=='SKILL.md')results.push(key);
+    }
+    return results.sort();
+  }
+  extensions():WorkbenchExtensions {
+    const redactor=this.redactor();
+    const sourceMap=new Map<string,{slug:string;name:string;channel:string;active:boolean;profiles:string[]}>();
+    for(const profile of definitions){
+      for(const source of this.profileSourceConfigs(profile)){
+        const existing=sourceMap.get(source.slug);
+        if(existing){
+          if(!existing.profiles.includes(profile.name))existing.profiles.push(profile.name);
+          existing.active=existing.active||source.active;
+        }else{
+          sourceMap.set(source.slug,{slug:source.slug,name:names[source.slug]??source.slug,channel:['api','mcp'].includes(source.kind)?'mcp':'builtin',active:source.active,profiles:[profile.name]});
+        }
+      }
+    }
+    const mcpServers=new UserMcpStore(this.root).list().map(server=>{
+      const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(server,process.env)]);
+      return serverRedactor.clean({
+        slug:server.slug,enabled:server.enabled,transport:server.transport,
+        ...(server.url?{endpoint:server.url}:server.command?{endpoint:server.command}:{}),
+        defaultAction:server.defaultAction,resultFormat:server.resultFormat,
+        toolSemanticsCount:Object.keys(server.toolSemantics).length,
+        hasAuth:Boolean(server.tokenEnv||Object.keys(server.env).length>0),
+      });
+    });
+    const builtinSkills:WorkbenchExtensions['builtinSkills']=[];
+    const skillsRoot=resolve(this.root,'skills');
+    if(existsSync(skillsRoot)){
+      for(const entry of readdirSync(skillsRoot,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){
+        if(!entry.isDirectory()||entry.isSymbolicLink())continue;
+        const skillDir=resolve(skillsRoot,entry.name),skillFile=join(skillDir,'SKILL.md');
+        if(!skillDir.startsWith(skillsRoot+sep)||!existsSync(skillFile)||lstatSync(skillFile).isSymbolicLink())continue;
+        try{
+          const parsed=parseSkill(readFileSync(skillFile,'utf8'));
+          builtinSkills.push({name:parsed.name,description:parsed.description,resources:this.listBuiltinSkillResources(skillDir)});
+        }catch{/* Skip malformed local draft directories. */}
+      }
+    }
+    const userSkills=new SkillStore(this.root).list().map(item=>({
+      name:item.name,description:item.description,enabled:item.enabled,
+      originKind:item.origin.kind,installedAt:item.installedAt,fileCount:item.files.length,
+    }));
+    return redactor.clean({builtinSources:[...sourceMap.values()],mcpServers,builtinSkills,userSkills});
+  }
+  skillDetail(name:string):SkillDetail {
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))throw Error('skill_not_found');
+    const redactor=this.redactor(),store=new SkillStore(this.root);
+    const installed=store.list().find(item=>item.name===name);
+    if(installed){
+      const doc=store.select([name],true).documents[0];
+      return redactor.clean({name:doc.name,kind:'user',description:doc.description,enabled:installed.enabled,body:doc.body,resources:doc.resources,installedAt:installed.installedAt,origin:installed.origin});
+    }
+    const skillsRoot=resolve(this.root,'skills'),skillDir=resolve(skillsRoot,name),skillFile=join(skillDir,'SKILL.md');
+    if(skillDir.startsWith(skillsRoot+sep)&&existsSync(skillFile)&&!lstatSync(skillFile).isSymbolicLink()){
+      const parsed=parseSkill(readFileSync(skillFile,'utf8'));
+      return redactor.clean({name:parsed.name,kind:'builtin',description:parsed.description,enabled:true,body:parsed.body,resources:this.listBuiltinSkillResources(skillDir)});
+    }
+    throw Error('skill_not_found');
+  }
+  toggleSkill(name:string,enabled:boolean):WorkbenchExtensions {
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))throw Error('skill_not_found');
+    new SkillStore(this.root).change(name,enabled);
+    return this.extensions();
+  }
+  toggleMcp(slug:string,enabled:boolean):WorkbenchExtensions {
+    if(!/^[a-zA-Z0-9_-]{1,40}$/.test(slug))throw Error('mcp_not_found');
+    new UserMcpStore(this.root).change(slug,enabled);
+    return this.extensions();
+  }
+  async testMcp(slug:string,signal?:AbortSignal):Promise<McpTestResult> {
+    if(!/^[a-zA-Z0-9_-]{1,40}$/.test(slug))throw Error('mcp_not_found');
+    const config=new UserMcpStore(this.root).list().find(item=>item.slug===slug);
+    if(!config)throw Error('mcp_not_found');
+    const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(config,process.env)]);
+    const started=Date.now(),source=new UserMcpSource(config,this.root);
+    const timeout=AbortSignal.timeout(15_000),combined=signal?AbortSignal.any([signal,timeout]):timeout;
+    try{
+      const tools=await source.listTools(combined);
+      return serverRedactor.clean({slug,ok:true,durationMs:Date.now()-started,tools:tools.map(t=>({name:t.name,description:t.description??'',action:t.action}))});
+    }catch(error){
+      return serverRedactor.clean({slug,ok:false,durationMs:Date.now()-started,tools:[],error:error instanceof Error?error.message:String(error)});
+    }finally{await source.close();}
+  }
   report(runId:string):string {const run=this.require(runId);if(!run.reportPath||!existsSync(run.data.path(run.reportPath)))throw Error('report_not_ready');return run.redactor.clean(readFileSync(run.data.path(run.reportPath),'utf8'));}
   trace(runId:string):StructuredTrace {const run=this.require(runId),traceId=run.view.traceRunId;if(!traceId)throw Error('trace_not_ready');
     return new Trace(run.data,run.view.task.taskId,traceId,run.redactor).exportStructured();}

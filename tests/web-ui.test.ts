@@ -3,9 +3,11 @@ import { FileStore } from '@cwatch/shared/sessions/storage';
 import { validateTrace, type TraceEvent } from '@cwatch/shared/sessions/trace';
 import assert from 'node:assert/strict';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RunService, type RunServiceOptions } from '@cwatch/server-core/runtime/run-service';
+import { ReplayModel } from '@cwatch/shared/agent/models';
+import { UserMcpStore } from '@cwatch/shared/mcp/storage';
 import { abortable, type ModelPort } from '@cwatch/core/types';
 import { startWebServer } from '../apps/web/src/server.ts';
 import { WorkbenchPage } from './web-ui-page.ts';
@@ -79,8 +81,8 @@ check('integration','Web conversation sends real user follow-ups through one Pi 
 });
 
 async function browserHarness(name:string,options:Partial<RunServiceOptions>={}){
-  const data=store(),service=new RunService({root:process.cwd(),outputRoot:data.root,...options});
-  const app=await startWebServer({root:process.cwd(),port:0,service});let browser:Browser|undefined,context:BrowserContext|undefined,page:Page;
+  const data=store(),root=options.root??process.cwd(),service=new RunService({root,outputRoot:data.root,...options});
+  const app=await startWebServer({root,port:0,service});let browser:Browser|undefined,context:BrowserContext|undefined,page:Page;
   const errors:string[]=[];mkdirSync('artifacts/web-eval',{recursive:true});
   try{browser=await chromium.launch({executablePath:browserExecutable(),headless:true});context=await browser.newContext({viewport:{width:1440,height:1080}});await context.tracing.start({screenshots:true,snapshots:true});page=await context.newPage();page.on('pageerror',error=>errors.push(String(error)));}catch(error){await browser?.close();await app.close();throw error;}
   return{app,service,page,ui:new WorkbenchPage(page,app.origin),errors,
@@ -167,4 +169,90 @@ check('integration','Web live mode runs a real Pi worker and the unified Web too
   }finally{
     await h?.close();await provider.close();for(const key of Object.keys(variables)){if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key];}
   }
+});
+
+check('integration','Web UI renders safe Markdown (code blocks, tables, safe links), toggles dark theme and collapses inspector',async()=>{
+  const md=[
+    '## 结论摘要',
+    '',
+    '支持 **加粗**、`inline_code`、[安全链接](https://example.com/docs) 与 [拦截链接](javascript:alert(1))。',
+    '',
+    '| 项目 | 状态 |',
+    '| --- | --- |',
+    '| Trace | 已接入 |',
+    '',
+    '```ts',
+    'const ok = "<img src=x onerror=window.__mdXss=1>";',
+    '```',
+  ].join('\n');
+  const h=await browserHarness('dark-markdown',{modelFactory:()=>new ReplayModel([{kind:'respond',text:md}])});
+  try{
+    await h.ui.open('agent');
+    await h.ui.start();await h.ui.completed();await h.ui.report();
+    assert.equal(await h.page.locator('.md-code-block pre code').count(),1);
+    assert.equal(await h.page.locator('.md-table tbody tr').count(),1);
+    assert.equal(await h.page.locator('.report-document a[href="https://example.com/docs"]').count(),1);
+    assert.equal(await h.page.locator('.report-document a[href^="javascript:"]').count(),0);
+    assert.equal(await h.page.evaluate(()=>Reflect.get(window,'__mdXss')),undefined);
+    await h.page.locator('#theme-toggle').click();
+    assert.equal(await h.page.evaluate(()=>document.documentElement.dataset.theme),'dark');
+    await h.page.screenshot({path:'artifacts/web-eval/dark-markdown.png',fullPage:true});
+    await h.page.reload();await h.ui.completed();
+    assert.equal(await h.page.evaluate(()=>document.documentElement.dataset.theme),'dark');
+    await h.page.locator('#toggle-inspector').click();
+    assert.equal(await h.page.locator('.workbench').getAttribute('data-inspector'),'false');
+    assert.equal(await h.page.locator('#right-rail').isVisible(),false);
+    await h.page.locator('#toggle-inspector').click();
+    assert.equal(await h.page.locator('#right-rail').isVisible(),true);
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
+});
+
+check('integration','Web UI inspects structured Trace steps, filters history and deletes completed runs',async()=>{
+  const h=await browserHarness('trace-and-history');
+  try{
+    await h.ui.open('standard');
+    await h.ui.start();await h.ui.completed();
+    await h.page.getByRole('tab',{name:'Trace 检查',exact:true}).click();
+    await h.page.locator('.trace-tree .trace-row').first().waitFor({state:'visible'});
+    assert.ok(await h.page.locator('.trace-tree .trace-row').count()>=3);
+    await h.page.getByRole('button',{name:/工具/}).click();
+    await h.page.locator('.trace-tree .trace-row').first().click();
+    await h.page.locator('.trace-detail').waitFor({state:'visible'});
+    await h.page.screenshot({path:'artifacts/web-eval/trace-inspector.png',fullPage:true});
+    await h.page.locator('#history-search').fill('不存在的关键词');
+    await h.page.getByText('没有匹配的任务记录',{exact:true}).waitFor();
+    await h.page.locator('#history-search').fill('');
+    await h.page.locator('.history-delete').first().click();
+    await h.page.getByText('还没有任务记录',{exact:true}).waitFor();
+    assert.equal(h.service.list().length,0);
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
+});
+
+check('integration','Web UI Extensions view inspects Skill markdown and runs live MCP connectivity test',async()=>{
+  const temp=store(),root=resolve(temp.root,'workspace');
+  mkdirSync(resolve(root,'examples'),{recursive:true});
+  mkdirSync(resolve(root,'skills','general-agent'),{recursive:true});
+  for(const name of ['task.json','task-web.json','task-adapters.json','sources.json','sources-web.json','sources-adapters.json'])copyFileSync(resolve('examples',name),resolve(root,'examples',name));
+  copyFileSync(resolve('skills','general-agent','SKILL.md'),resolve(root,'skills','general-agent','SKILL.md'));
+  new UserMcpStore(root).add({
+    slug:'custom-demo',transport:'stdio',command:'node',
+    args:['--experimental-transform-types',resolve('examples/user-mcp-server.ts')],
+    defaultAction:'modify',toolSemantics:{get_release:'collect'},enabled:true,
+  });
+  const h=await browserHarness('extensions-view',{root});
+  try{
+    await h.page.goto(h.app.origin);await h.page.getByText('本地服务已连接',{exact:true}).waitFor();
+    await h.page.locator('#nav-sources').click();
+    await h.page.getByRole('heading',{name:'来源与连接',exact:true}).waitFor();
+    await h.page.locator('[data-inspect-skill="general-agent"]').click();
+    await h.page.locator('.skill-drawer .md-body').waitFor({state:'visible'});
+    await h.page.locator('[data-test-mcp="custom-demo"]').click();
+    await h.page.getByText(/连通正常 · 发现 2 个工具/).waitFor({timeout:15000});
+    await h.page.screenshot({path:'artifacts/web-eval/extensions-view.png',fullPage:true});
+    await h.page.setViewportSize({width:390,height:844});
+    assert.equal(await h.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    assert.deepEqual(h.errors,[]);
+  }finally{await h.close();}
 });

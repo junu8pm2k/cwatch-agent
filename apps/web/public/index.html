@@ -1,86 +1,294 @@
 <!doctype html>
-<html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Cwatch · Agent 工作台</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/styles.css"><script type="module" src="/client.js"></script></head>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Cwatch · Agent 工作台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/client.js"></script>
+</head>
 <body>
 <a class="skip-link" href="#main">跳到主内容</a>
 <div class="app">
   <aside class="sidebar" aria-label="工作区导航">
-    <a class="brand" href="/" aria-label="Cwatch 首页"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M25 8a12 12 0 1 0 0 16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M16 9v7l5 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span>Cwatch</span></a>
-    <div class="workspace-label">个人工作区</div>
-    <button class="nav-link selected" id="nav-workbench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M9 9v11"/></svg>工作台</button>
-    <button class="nav-link" id="nav-sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 15 6-6m-7 4-2 2a4 4 0 0 0 6 6l3-3m1-7 2-2a4 4 0 0 0-6-6L9 6"/></svg>来源与连接</button>
-    <div class="history-heading">任务记录 <span id="history-count">0</span></div>
-    <nav id="history-list" class="history-list" aria-label="任务记录"><p class="sidebar-empty">还没有任务记录</p></nav>
-    <div class="sidebar-bottom"><span class="workspace-avatar" aria-hidden="true">C</span><span>本地工作区<small><span class="dot"></span> 记录保存在你的电脑</small></span></div>
+    <div class="sidebar-top">
+      <a class="brand" href="/" aria-label="Cwatch 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M25 8a12 12 0 1 0 0 16" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><path d="M16 9v7l5 3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="brand-text">Cwatch</span>
+      </a>
+      <button type="button" class="sidebar-new-btn" id="sidebar-new-run" title="新建任务">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+        <span>新建</span>
+      </button>
+    </div>
+
+    <div class="nav-group" role="navigation" aria-label="主导航">
+      <button type="button" class="nav-link selected" id="nav-workbench">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M9 9v11"/></svg>
+        <span>工作台</span>
+      </button>
+      <button type="button" class="nav-link" id="nav-sources" aria-expanded="false" aria-controls="connections-panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 15 6-6m-7 4-2 2a4 4 0 0 0 6 6l3-3m1-7 2-2a4 4 0 0 0-6-6L9 6"/></svg>
+        <span>来源与连接</span>
+      </button>
+    </div>
+
+    <div id="capacity-meter" class="capacity-meter" aria-label="并发任务槽位"></div>
+
+    <div class="history-section">
+      <div class="history-heading">
+        <span>任务记录</span>
+        <span id="history-count" class="history-count">0</span>
+      </div>
+      <div class="history-controls">
+        <label class="sr-only" for="history-search">搜索任务记录</label>
+        <input id="history-search" type="search" class="history-search" placeholder="搜索任务记录…">
+        <div class="history-filters" role="group" aria-label="按状态筛选">
+          <button type="button" class="history-filter active" data-history-filter="all" aria-pressed="true">全部</button>
+          <button type="button" class="history-filter" data-history-filter="active" aria-pressed="false">进行中</button>
+          <button type="button" class="history-filter" data-history-filter="done" aria-pressed="false">已完成</button>
+          <button type="button" class="history-filter" data-history-filter="error" aria-pressed="false">异常</button>
+        </div>
+      </div>
+      <nav id="history-list" class="history-list" aria-label="任务记录"><p class="sidebar-empty">还没有任务记录</p></nav>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="workspace-meta">
+        <span class="workspace-avatar" aria-hidden="true">C</span>
+        <span class="workspace-copy">本地工作区<small><span class="dot"></span> 仅保存在本机</small></span>
+      </div>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false" aria-label="切换到深色模式" title="切换浅色/深色主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        <span class="theme-label">深色模式</span>
+      </button>
+    </div>
   </aside>
+
   <main id="main">
-    <header class="page-header"><h1 id="page-title">通用 Agent</h1><div class="header-actions"><span class="connection" id="connection"><span class="dot"></span>正在连接</span><button class="button secondary" id="new-run"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>新建任务</button></div></header>
+    <header class="page-header">
+      <div class="header-left">
+        <h1 id="page-title">通用 Agent</h1>
+      </div>
+      <div class="header-actions">
+        <span class="connection" id="connection"><span class="dot"></span>正在连接</span>
+        <button type="button" class="button ghost sm" id="toggle-inspector" hidden aria-expanded="true" aria-controls="right-rail" title="显示或折叠右侧检查器">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M12.5 3.5v13"/></svg>
+          <span>检查器</span>
+        </button>
+        <button type="button" class="button secondary sm" id="new-run">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+          <span>新建任务</span>
+        </button>
+      </div>
+    </header>
+
     <div id="alert" class="alert" role="alert" hidden></div>
+
+    <div class="mobile-history">
+      <label for="history-select">任务记录</label>
+      <select id="history-select"><option value="">新建任务</option></select>
+      <button type="button" class="button secondary sm" id="mobile-sources" aria-expanded="false" aria-controls="connections-panel">连接</button>
+    </div>
+
     <section id="connections-panel" class="connections-panel" hidden aria-label="来源与连接"></section>
-    <div class="mobile-history"><label for="history-select">任务记录</label><select id="history-select"><option value="">新建任务</option></select><button class="button secondary" id="mobile-sources" aria-expanded="false" aria-controls="connections-panel">连接</button></div>
-    <div class="workbench" data-has-run="false">
+
+    <div class="workbench" data-has-run="false" data-conversation="false" data-inspector="true">
       <section class="run-panel" aria-labelledby="run-title">
-        <div class="run-heading"><div><span id="run-label" class="run-label">准备就绪</span><h2 id="run-title" tabindex="-1">一份有来源的情报简报</h2></div><button id="cancel-run" class="button danger" hidden>停止调查</button></div>
+        <div class="run-heading">
+          <div class="run-heading-main">
+            <span id="run-label" class="run-label tone-idle">准备就绪</span>
+            <h2 id="run-title" tabindex="-1">任务空间</h2>
+          </div>
+          <button type="button" id="cancel-run" class="button danger sm" hidden>停止调查</button>
+        </div>
+
         <div id="pipeline" class="pipeline" aria-label="调查阶段"></div>
-        <div class="run-stats" id="run-stats"><div><span>工具调用</span><strong id="stat-tools">—</strong></div><div><span>模型轮次</span><strong id="stat-turns">—</strong></div><div><span>Token 用量</span><strong id="stat-tokens">—</strong></div><div><span>运行用时</span><strong id="stat-time">—</strong></div></div>
-        <div class="tabs" role="tablist" aria-label="调查详情"><button id="tab-process" role="tab" aria-selected="true" aria-controls="panel-process" data-tab="process">运行过程</button><button id="tab-report" role="tab" aria-selected="false" aria-controls="panel-report" data-tab="report">调查报告</button><button id="tab-approvals" role="tab" aria-selected="false" aria-controls="panel-approvals" data-tab="approvals">待处理审批 <span id="approval-count" class="count-badge">0</span></button></div>
-        <div id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="tab-panel"><div id="process-content"></div></div>
+        <div id="approval-banner" class="approval-banner" role="region" aria-label="待审批提醒" hidden></div>
+
+        <div class="tabs" role="tablist" aria-label="任务详情">
+          <button type="button" id="tab-process" role="tab" aria-selected="true" aria-controls="panel-process" data-tab="process">运行过程</button>
+          <button type="button" id="tab-report" role="tab" aria-selected="false" aria-controls="panel-report" data-tab="report">任务结果</button>
+          <button type="button" id="tab-approvals" role="tab" aria-selected="false" aria-controls="panel-approvals" data-tab="approvals">待处理审批 <span id="approval-count" class="count-badge">0</span></button>
+          <button type="button" id="tab-trace" role="tab" aria-selected="false" aria-controls="panel-trace" data-tab="trace">Trace 检查</button>
+        </div>
+
+        <div id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="tab-panel">
+          <div id="process-content"></div>
+        </div>
+
         <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" class="tab-panel" hidden>
-        <section id="conversation" class="conversation" aria-label="会话" hidden>
-          <h3>对话</h3>
-          <div id="conversation-messages" aria-label="对话记录"></div>
-          <form id="message-form">
-            <label class="field" for="follow-up">继续追问<textarea id="follow-up" rows="3" maxlength="24000" required placeholder="补充要求，或继续询问上一轮的内容"></textarea></label>
-            <p id="conversation-note" class="field-note"></p>
-            <div class="conversation-actions"><button id="send-message" class="button primary" type="submit">发送追问</button><button id="end-conversation" class="button secondary" type="button">结束会话</button></div>
-          </form>
-        </section>
+          <section id="conversation" class="conversation" aria-label="会话" hidden>
+            <div id="conversation-messages" class="conversation-messages" aria-label="对话记录"></div>
+            <form id="message-form" class="message-form">
+              <label class="field" for="follow-up">
+                <span>继续追问</span>
+                <textarea id="follow-up" rows="3" maxlength="24000" required placeholder="补充要求，或继续询问上一轮的内容…"></textarea>
+              </label>
+              <div class="message-form-bar">
+                <p id="conversation-note" class="field-note"></p>
+                <div class="conversation-actions">
+                  <button id="end-conversation" class="button secondary sm" type="button">结束会话</button>
+                  <button id="send-message" class="button primary sm" type="submit">发送追问</button>
+                </div>
+              </div>
+            </form>
+          </section>
           <div id="report-content"></div>
         </div>
-        <div id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" class="tab-panel" hidden><div id="approval-content"></div></div>
 
-        <div class="run-footer"><span id="run-footer-text">每次工具调用均经过权限检查并留下记录。</span><span id="provenance-label">仅生成本地草稿</span></div>
+        <div id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" class="tab-panel" hidden>
+          <div id="approval-content"></div>
+        </div>
+
+        <div id="panel-trace" role="tabpanel" aria-labelledby="tab-trace" class="tab-panel" hidden>
+          <div id="trace-content"></div>
+        </div>
+
+        <div class="run-footer">
+          <span id="run-footer-text">每次工具调用均经过权限检查并留下记录。</span>
+          <span id="provenance-label">仅生成本地草稿</span>
+        </div>
       </section>
-      <section class="task-panel" aria-labelledby="task-title">
-        <div class="task-intro">
-          <h2 id="intro-title">交给 Agent 一项任务</h2>
-          <p id="intro-description">描述你要完成的事，然后选择 Agent 可以用的来源和权限。</p>
+
+      <aside id="right-rail" class="right-rail" aria-label="检查器与任务设置">
+        <div class="inspector-card" id="inspector-panel">
+          <div class="run-stats" id="run-stats">
+            <div><span>工具调用</span><strong id="stat-tools">—</strong></div>
+            <div><span>模型轮次</span><strong id="stat-turns">—</strong></div>
+            <div><span>Token 用量</span><strong id="stat-tokens">—</strong></div>
+            <div><span>运行用时</span><strong id="stat-time">—</strong></div>
+          </div>
+          <div id="inspector-meta" class="inspector-section"></div>
+          <div id="inspector-feed" class="inspector-section"></div>
         </div>
-        <div class="composer-column">
-        <form id="run-form">
-          <div class="panel-heading"><h2 id="task-title">任务设置</h2></div>
-          <div class="composer-body">
-          <div class="field" id="agent-fields"><label class="sr-only" for="instruction">任务描述</label><textarea id="instruction" name="instruction" rows="4" maxlength="24000" placeholder="描述你想完成的事，也可以附上材料和输出要求…" aria-describedby="mode-note"></textarea></div>
-          <div id="investigation-fields">
-          <div class="field-row"><label class="field" for="competitor-name">竞品名称<input id="competitor-name" name="competitor" required maxlength="100"></label><label class="field" for="product">产品<input id="product" name="product" required maxlength="100"></label></div>
-          <details class="advanced-identity"><summary>实体标识与域名</summary><label class="field" for="competitor-id">稳定标识<input id="competitor-id" required maxlength="100"></label><label class="field" for="domains">允许域名<input id="domains" required placeholder="example.com，多个域名用逗号分隔"></label></details>
-          <fieldset class="date-field"><legend>调查时间窗</legend><div class="field-row"><label class="field" for="start-date">开始日期<input type="date" id="start-date" required></label><label class="field" for="end-date">结束日期（不含）<input type="date" id="end-date" required></label></div><p class="field-note">按发布时间核验 · Asia/Shanghai</p></fieldset>
+
+        <section class="task-panel" aria-labelledby="task-title">
+          <div class="task-intro">
+            <span class="intro-eyebrow">Local Agent Workbench</span>
+            <h2 id="intro-title">交给 Agent 一项任务</h2>
+            <p id="intro-description">描述你要完成的事，选择允许的来源与权限，在统一工作台追踪每一步。</p>
           </div>
+
+          <div class="composer-column">
+            <form id="run-form">
+              <div class="panel-heading"><h2 id="task-title">任务设置</h2></div>
+              <div class="composer-body">
+                <div class="field" id="agent-fields">
+                  <label class="sr-only" for="instruction">任务描述</label>
+                  <textarea id="instruction" name="instruction" rows="4" maxlength="24000" placeholder="描述你想完成的事，也可以附上材料、背景和输出要求…" aria-describedby="mode-note"></textarea>
+                </div>
+                <div id="investigation-fields" hidden>
+                  <div class="field-row">
+                    <label class="field" for="competitor-name">竞品名称<input id="competitor-name" name="competitor" required maxlength="100"></label>
+                    <label class="field" for="product">产品<input id="product" name="product" required maxlength="100"></label>
+                  </div>
+                  <label class="field" for="domains">允许域名<input id="domains" required placeholder="精确 HTTPS 域名，多个用逗号分隔，如 bigmodel.cn, open.bigmodel.cn, zcode.z.ai"></label>
+                  <details class="advanced-identity">
+                    <summary>高级实体标识</summary>
+                    <div class="details-body">
+                      <label class="field" for="competitor-id">稳定标识<input id="competitor-id" required maxlength="100"></label>
+                    </div>
+                  </details>
+                  <fieldset class="date-field">
+                    <legend>调查时间窗</legend>
+                    <div class="field-row">
+                      <label class="field" for="start-date">开始日期<input type="date" id="start-date" required></label>
+                      <label class="field" for="end-date">结束日期（不含）<input type="date" id="end-date" required></label>
+                    </div>
+                    <p class="field-note">按发布时间核验 · Asia/Shanghai</p>
+                  </fieldset>
+                </div>
+              </div>
+
+              <div class="composer-toolbar">
+                <div class="field profile-field">
+                  <label class="sr-only" for="profile">任务模板</label>
+                  <select id="profile" name="profile" title="任务模板"></select>
+                </div>
+                <fieldset class="mode-field">
+                  <legend class="sr-only">运行方式</legend>
+                  <div class="segmented">
+                    <label><input type="radio" name="mode" value="replay" checked><span>离线演示</span></label>
+                    <label><input type="radio" name="mode" value="live"><span>真实运行</span></label>
+                  </div>
+                </fieldset>
+                <div class="field permission-field">
+                  <label class="sr-only" for="permission">工具权限</label>
+                  <select id="permission" title="工具权限" aria-describedby="permission-note">
+                    <option value="explore">只读探索</option>
+                    <option value="ask">写入前审批</option>
+                    <option value="allow-all">允许已配置操作</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="composer-context">
+                <p class="field-note" id="mode-note">当前为固定样例，切换真实运行可编辑任务。</p>
+                <p class="sr-only" id="permission-note">可读取与分析，禁止修改、发送和发布。</p>
+              </div>
+
+              <fieldset class="sources-field">
+                <legend>可用来源</legend>
+                <div id="source-options"></div>
+              </fieldset>
+              <div class="field agent-web-domains" id="agent-web-domains-wrap" hidden>
+                <label for="agent-web-domains">联网允许域名</label>
+                <input id="agent-web-domains" placeholder="精确 HTTPS 域名，多个用逗号分隔，如 bigmodel.cn, open.bigmodel.cn, zcode.z.ai">
+                <p class="field-note">联网工具仅访问此处填写的公开 HTTPS 域名（不含 GitHub API 与本机地址）。</p>
+              </div>
+
+              <div class="composer-bottom">
+                <details class="budget-details">
+                  <summary>技能与运行限制</summary>
+                  <div class="details-body">
+                    <div class="field-row">
+                      <label class="field" for="timeout">总时限（秒）<input id="timeout" type="number" value="180" min="1" max="600"></label>
+                      <label class="field" for="tokens">Token 上限<input id="tokens" type="number" value="100000" min="100" max="2000000"></label>
+                    </div>
+                    <p class="skills-label">任务技能</p>
+                    <div id="skill-options"></div>
+                  </div>
+                </details>
+                <div class="form-footer">
+                  <button class="button primary" type="submit" id="start-run">开始任务</button>
+                </div>
+              </div>
+            </form>
+            <p id="start-note" class="start-note">演示使用合成数据，全程在本机运行。</p>
           </div>
-          <div class="composer-toolbar">
-            <div class="field profile-field"><label class="sr-only" for="profile">任务模板</label><select id="profile" name="profile" title="任务模板"></select></div>
-            <fieldset class="mode-field"><legend class="sr-only">运行方式</legend><div class="segmented"><label><input type="radio" name="mode" value="replay" checked><span>离线演示</span></label><label><input type="radio" name="mode" value="live"><span>真实运行</span></label></div></fieldset>
-            <div class="field permission-field"><label class="sr-only" for="permission">工具权限</label><select id="permission" title="工具权限" aria-describedby="permission-note"><option value="explore">只读探索</option><option value="ask">写入前审批</option><option value="allow-all">允许已配置操作</option></select></div>
-          </div>
-          <div class="composer-context"><p class="field-note" id="mode-note">固定样例，切换真实运行可编辑任务。</p><p class="sr-only" id="permission-note">允许采集、分析和保存本地草稿。</p></div>
-          <fieldset class="sources-field"><legend>可用来源</legend><div id="source-options"></div></fieldset>
-          <div class="composer-bottom">
-          <details class="budget-details"><summary>技能与运行限制</summary><div class="field-row"><label class="field" for="timeout">总时限（秒）<input id="timeout" type="number" value="180" min="1" max="600"></label><label class="field" for="tokens">Token 上限<input id="tokens" type="number" value="100000" min="100" max="2000000"></label></div><p class="skills-label">任务技能</p><div id="skill-options"></div></details>
-          <div class="form-footer"><button class="button primary" type="submit" id="start-run">开始任务</button></div>
-          </div>
-        </form>
-        <p id="start-note" class="start-note">演示使用合成数据，全程在本机运行。</p>
-        </div>
-        <section class="task-suggestions" id="task-suggestions" aria-labelledby="suggestions-title">
-          <h3 id="suggestions-title">从模板开始</h3>
-          <button type="button" data-template="agent" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg><span>阅读与整理<small>先读懂这个项目</small></span></button>
-          <button type="button" data-template="standard" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg><span>竞品研究<small>看看产品有哪些变化</small></span></button>
-          <button type="button" data-template="web" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg><span>公开资料<small>从网页中收集线索</small></span></button>
+
+          <section class="task-suggestions" id="task-suggestions" aria-labelledby="suggestions-title">
+            <h3 id="suggestions-title">从模板开始</h3>
+            <div class="suggestions-grid">
+              <button type="button" data-template="agent" aria-pressed="true">
+                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7m-7 4h5"/></svg></span>
+                <span>阅读与整理<small>先读懂这个项目或文档</small></span>
+              </button>
+              <button type="button" data-template="standard" aria-pressed="false">
+                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10h6m-3-3v6"/></svg></span>
+                <span>竞品研究<small>追踪产品发布并核验证据</small></span>
+              </button>
+              <button type="button" data-template="web" aria-pressed="false">
+                <span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>
+                <span>公开资料<small>通过联网搜索与读取收集线索</small></span>
+              </button>
+            </div>
+          </section>
         </section>
-      </section>
+      </aside>
     </div>
-    <footer class="page-footer"><span id="model-status">模型配置检查中</span></footer>
+
+    <footer class="page-footer">
+      <span id="model-status">模型配置检查中</span>
+    </footer>
   </main>
 </div>
 <div class="sr-only" id="announcer" role="status" aria-live="polite"></div>
-</body></html>
+</body>
+</html>
