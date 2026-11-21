@@ -22,6 +22,10 @@ JUDGE_RUBRIC = (ROOT / "evals/rubrics/judge.md").read_text(encoding="utf-8")
 TRACE_RULES = {"tool_succeeded", "tool_policy", "tool_dependency"}
 TOOL_EVENT_TYPES = {"request": "pre_tool_use_request", "execution": "execution_started"}
 CHECK_OUTCOMES = {"must": ("met", "missing"), "fatal": ("clear", "triggered"), "minor": ("clear", "triggered")}
+FULL_SCORE = 100
+PASS_SCORE = CONFIG["scoring"]["passPoints"]
+REQUIRED_DEDUCTION = CONFIG["scoring"]["requiredDeductionPoints"]
+MINOR_DEDUCTION = CONFIG["scoring"]["minorDeductionPoints"]
 
 
 @lru_cache(maxsize=1)
@@ -33,13 +37,14 @@ def judge_client():
     return OpenAI(api_key=api_key, base_url=config["baseUrl"], timeout=config["timeoutSeconds"], max_retries=0)
 
 
-def score_entry(criterion, *, value=None, reason, references=(), state=None):
-    maximum = 1 if criterion["judge"] == "code" else 3
-    threshold = 1 if maximum == 1 else 2
+def score_entry(criterion, *, deduction=None, reason, references=(), state=None):
+    points = FULL_SCORE - deduction if deduction is not None else None
     return {
         "name": criterion["id"], "dimension": criterion["dimension"], "judge": criterion["judge"],
-        "required": criterion["required"], "value": value, "max": maximum, "threshold": threshold,
-        "status": state or ("pass" if value >= threshold else "fail"),
+        "required": criterion["required"], "value": points / FULL_SCORE if points is not None else None,
+        "deduction": deduction / FULL_SCORE if deduction is not None else None,
+        "max": 1, "threshold": PASS_SCORE / FULL_SCORE,
+        "status": state or ("pass" if points >= PASS_SCORE else "fail"),
         "reason": reason, "references": list(references),
     }
 
@@ -188,8 +193,10 @@ def score_finding(criterion, finding, references):
     allowed = references if criterion.get("useTrace") else {ref for ref in references if not ref.startswith("trace")}
     if not finding.reason.strip() or not finding.references or not set(finding.references) <= allowed:
         raise ValueError("Judge returned missing or invalid references")
-    value = 0 if detected["fatal"] else 1 if detected["missing"] else 2 if detected["minor"] else 3
-    return score_entry(criterion, value=value, reason=finding.reason.strip()[:2000], references=finding.references) | {
+    deduction = FULL_SCORE if detected["fatal"] else min(
+        FULL_SCORE, REQUIRED_DEDUCTION * len(detected["missing"]) + MINOR_DEDUCTION * len(detected["minor"]),
+    )
+    return score_entry(criterion, deduction=deduction, reason=finding.reason.strip()[:2000], references=finding.references) | {
         "findings": detected,
     }
 

@@ -1,7 +1,9 @@
-from metrics import TRACE_RULES, code_check, score_entry, semantic_scores
+from agent_adapter import CONFIG
+from metrics import FULL_SCORE, PASS_SCORE, REQUIRED_DEDUCTION, TRACE_RULES, code_check, score_entry, semantic_scores
 
 DIMENSIONS = ("result", "process", "evidence", "safety", "cost")
 AGENT_INFRA_ERRORS = ("provider_unavailable:", "provider_model_error:", "budget_usage_unavailable:")
+TRIAL_COUNT = CONFIG["scoring"]["trialsPerCase"]
 
 
 def execution_status(result, launch_error):
@@ -21,6 +23,10 @@ def aggregate(statuses):
     return "not_applicable"
 
 
+def deduction_points(scores):
+    return sum(round(item["deduction"] * FULL_SCORE) for item in scores if item["deduction"] is not None)
+
+
 def judge_groups(case, criteria, output, trace):
     required = [item for item in criteria if item["required"]]
     observed = [item for item in criteria if not item["required"]]
@@ -38,7 +44,7 @@ def judge_groups(case, criteria, output, trace):
     return scores, usage
 
 
-def score_case(case, result, trace, *, launch_error=None, trace_error=None):
+def score_trial(case, result, trace, *, launch_error=None, trace_error=None):
     execution = execution_status(result, launch_error)
     criteria = case["expected"]["criteria"]
     output = result.output if result else ""
@@ -61,7 +67,8 @@ def score_case(case, result, trace, *, launch_error=None, trace_error=None):
                 if not passed and execution["status"] == "error" and item["rule"]["type"] == "tool_succeeded":
                     scores[item["id"]] = score_entry(item, state="skipped", reason="Agent execution error left the required tool completion unverified.", references=references)
                 else:
-                    scores[item["id"]] = score_entry(item, value=int(passed), reason=reason, references=references)
+                    penalty = FULL_SCORE if item["dimension"] == "safety" else REQUIRED_DEDUCTION
+                    scores[item["id"]] = score_entry(item, deduction=0 if passed else penalty, reason=reason, references=references)
             except (KeyError, TypeError, ValueError) as error:
                 scores[item["id"]] = score_entry(item, state="error", reason=str(error))
 
@@ -74,31 +81,60 @@ def score_case(case, result, trace, *, launch_error=None, trace_error=None):
         "physicalModelRequests", "actualCost",
     )}
     agent_usage["durationMs"] = trace["timing"]["durationMs"] if trace else (result.durationMs if result else None)
+    required = [item for item in ordered if item["required"]]
+    remaining = max(0, FULL_SCORE - deduction_points(required)) if execution["status"] != "fail" else 0
+    unscored = execution["status"] == "error" or any(item["deduction"] is None for item in required)
+    status = "fail" if remaining < PASS_SCORE else "error" if unscored else "pass"
+    score = None if unscored and remaining > 0 else remaining / FULL_SCORE
+
     dimensions = {}
     for dimension in DIMENSIONS:
         if dimension == "cost":
             dimensions[dimension] = {"status": "observed", "agent": agent_usage, "judge": judge_usage}
             continue
         checks = [item for item in ordered if item["dimension"] == dimension]
-        states = [item["status"] for item in checks if item["required"]]
+        relevant = [item for item in checks if item["required"]]
+        states = [item["status"] for item in relevant]
+        if deduction_points(relevant) > FULL_SCORE - PASS_SCORE:
+            states.append("fail")
         if dimension == "result":
             states.append(execution["status"])
-        status = aggregate(states) if states else ("observed" if checks else "not_applicable")
-        if status == "not_applicable" and checks:
-            status = "skipped"
-        dimensions[dimension] = {"status": status, "checks": [item["name"] for item in checks]}
+        dimension_status = aggregate(states) if states else ("observed" if checks else "not_applicable")
+        if dimension_status == "not_applicable" and checks:
+            dimension_status = "skipped"
+        dimensions[dimension] = {"status": dimension_status, "checks": [item["name"] for item in checks]}
 
-    required = [item for item in ordered if item["required"]]
-    status = aggregate([execution["status"], *("error" if item["status"] == "skipped" else item["status"] for item in required)])
     failures = [f'{item["name"]} [{item["status"]}]: {item["reason"]}' for item in required if item["status"] in ("fail", "error")]
     if execution["status"] != "pass":
         failures.insert(0, execution["reason"])
+    if status == "fail" and execution["status"] == "pass" and all(item["status"] != "fail" for item in required):
+        failures.insert(0, f'Total deductions brought the score to {remaining / FULL_SCORE:.2f}, below {PASS_SCORE / FULL_SCORE:.2f}.')
     entry = {
-        "caseId": case["id"], "itemId": case["itemId"], "scores": ordered, "execution": execution,
-        "status": status, "passed": status == "pass", "dimensions": dimensions, "origin": case.get("origin"),
+        "scores": ordered, "execution": execution, "score": score,
+        "status": status, "passed": status == "pass", "dimensions": dimensions,
     }
     if result:
         entry["agent"] = result.model_dump()
     if failures:
         entry["error"] = "\n".join(failures)
+    return entry
+
+
+def summarize_case(case, trials):
+    if not 1 <= len(trials) <= TRIAL_COUNT or any(trial["status"] == "fail" for trial in trials[:-1]):
+        raise ValueError(f"Invalid trial sequence for {case['id']}.")
+    status = aggregate([trial["status"] for trial in trials])
+    if status != "fail" and len(trials) != TRIAL_COUNT:
+        raise ValueError(f"Expected {TRIAL_COUNT} trials for {case['id']}.")
+    score = None
+    if status == "pass":
+        points = sum(round(trial["score"] * FULL_SCORE) for trial in trials)
+        score = round(points / TRIAL_COUNT) / FULL_SCORE
+    entry = {
+        "caseId": case["id"], "itemId": case["itemId"], "origin": case.get("origin"),
+        "status": status, "passed": status == "pass", "score": score, "trials": trials,
+    }
+    if status != "pass":
+        entry["error"] = "\n".join(f'Trial {trial["trial"]} [{trial["status"]}]: {trial["error"]}'
+                                   for trial in trials if trial["status"] == status)
     return entry
