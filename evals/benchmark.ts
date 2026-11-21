@@ -12,6 +12,7 @@ import { loadReviewTestCases } from './review-tests.ts';
 const [mode, ...args] = process.argv.slice(2);
 
 const reportSchema = z.object({
+  scoring: z.object({ trialsPerCase: z.int().positive() }),
   summary: z.object({
     expected: z.int().positive(),
     executed: z.int().nonnegative(),
@@ -20,7 +21,10 @@ const reportSchema = z.object({
     errors: z.int().nonnegative(),
     complete: z.boolean(),
   }),
-  cases: z.array(z.object({ caseId: z.string(), status: z.enum(['pass', 'fail', 'error']), error: z.string().optional() })),
+  cases: z.array(z.object({
+    caseId: z.string(), status: z.enum(['pass', 'fail', 'error']), error: z.string().optional(),
+    score: z.number().nullable(), trials: z.array(z.object({ status: z.enum(['pass', 'fail', 'error']), score: z.number().nullable() })),
+  })),
 });
 
 function run(command: string, parameters: string[], env = process.env) {
@@ -35,14 +39,22 @@ function printBenchmarkSummary(reportPath: string) {
     console.error('Benchmark case report was not generated. See the test runner output above.');
     return;
   }
-  const { summary, cases } = reportSchema.parse(readJson(reportPath));
+  const { scoring, summary, cases } = reportSchema.parse(readJson(reportPath));
   const notRun = summary.expected - summary.executed;
   console.log(`Benchmark (all selected cases) passed ${summary.passed}/${summary.expected} (${summary.failed} failed, ${summary.errors} evaluation errors, ${notRun} not run).`);
   const redactor = new Redactor(Object.entries(process.env)
     .filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(key)).map(([, value]) => value ?? ''));
-  for (const item of cases.filter(item => item.status !== 'pass')) {
+  for (const item of cases) {
     const reason = item.error && redactor.clean(item.error).split(/\r?\n/, 1)[0].trim().slice(0, 500);
-    console.error(`${item.status.toUpperCase()} ${item.caseId}${reason ? ' — ' + reason : ''}`);
+    const passedTrials = item.trials.filter(trial => trial.status === 'pass').length;
+    const failedScore = item.trials.find(trial => trial.status === 'fail')?.score;
+    const details = [`${passedTrials}/${scoring.trialsPerCase} trials passed`];
+    if (item.score !== null) details.unshift(`average ${item.score.toFixed(2)}`);
+    if (failedScore != null) details.push(`failed trial scored ${failedScore.toFixed(2)}`);
+    if (item.trials.length < scoring.trialsPerCase) details.push(`${item.trials.length} run`);
+    const detail = `${item.status.toUpperCase()} ${item.caseId} (${details.join(', ')})`;
+    if (item.status === 'pass') console.log(detail);
+    else console.error(`${detail}${reason ? ' — ' + reason : ''}`);
   }
   return summary;
 }

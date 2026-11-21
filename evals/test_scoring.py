@@ -7,7 +7,7 @@ import pytest
 import evaluation
 import metrics
 from agent_adapter import AgentResult, ROOT, load_manifest
-from evaluation import score_case
+from evaluation import score_trial, summarize_case
 from metrics import Finding, code_check, score_entry, score_finding, semantic_scores
 
 
@@ -51,7 +51,7 @@ def test_calibration(cases, sample):
         scores, _ = semantic_scores(case, [criterion], sample["answer"], trace_with([]))
         score = scores[criterion["id"]]
         assert score["status"] in ("pass", "fail"), score["reason"]
-        assert score["value"] == (3 if sample["passed"] else 0), score["reason"]
+        assert score["value"] == (1.0 if sample["passed"] else 0.0), score["reason"]
         passed = score["status"] == "pass"
     assert passed is sample["passed"]
 
@@ -62,7 +62,7 @@ def test_calibration_multiple_criteria(cases):
     case = cases["inventory-count"]
     criteria = [item for item in case["expected"]["criteria"] if item["judge"] == "llm"]
     scores, _ = semantic_scores(case, criteria, "SKU ALPHA-7 的可用库存为 12 件。", None)
-    assert {key: score["value"] for key, score in scores.items()} == {"result": 3, "evidence": 3}, scores
+    assert {key: score["value"] for key, score in scores.items()} == {"result": 1.0, "evidence": 1.0}, scores
 
 
 def test_structured_judge_keeps_independent_criteria(cases, monkeypatch):
@@ -79,7 +79,7 @@ def test_structured_judge_keeps_independent_criteria(cases, monkeypatch):
 
     monkeypatch.setattr(metrics, "judge_client", lambda: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=complete))))
     scores, usage = semantic_scores(case, criteria, "SKU ALPHA-7 的可用库存为 12 件。", None)
-    assert scores["result"]["value"] == 3
+    assert scores["result"]["value"] == 1.0
     assert scores["evidence"]["status"] == "error"
     assert usage["totalTokens"] is None
 
@@ -110,9 +110,10 @@ def test_exact_json_distinguishes_booleans_and_rejects_duplicate_keys():
     assert not code_check(rule, '{"n":0,"n":1}', None)[0]
 
 
-@pytest.mark.parametrize(("defect", "expected"), [({"fatal-1": "triggered"}, 0), ({"must-1": "missing"}, 1),
-                                                  ({"minor-1": "triggered"}, 2), ({}, 3)])
-def test_grade_uses_explicit_rubric_anchors(defect, expected):
+@pytest.mark.parametrize(("defect", "expected"), [({"fatal-1": "triggered"}, 0.0), ({"must-1": "missing"}, 0.75),
+                                                  ({"minor-1": "triggered"}, 0.95), ({}, 1.0),
+                                                  ({"must-1": "missing", "minor-1": "triggered"}, 0.70)])
+def test_grade_deducts_for_rubric_findings(defect, expected):
     criterion = {"id": "evidence", "dimension": "evidence", "required": True, "judge": "llm",
                  "fatal": ["fatal"], "must": ["must"], "minor": ["minor"]}
     checks = {"must-1": "met", "fatal-1": "clear", "minor-1": "clear"} | defect
@@ -125,33 +126,33 @@ def test_grade_uses_explicit_rubric_anchors(defect, expected):
 def test_failure_has_priority_over_evaluation_error(cases):
     case = cases["sop-review-format-stop"]
     result = AgentResult(runId="trace-1", status="complete", output="错", durationMs=1, error=None)
-    report = score_case(case, result, None, trace_error="missing trace")
+    report = score_trial(case, result, None, trace_error="missing trace")
     assert report["status"] == "fail"
     assert report["dimensions"]["result"]["status"] == "fail"
     assert report["dimensions"]["process"]["status"] == "error"
     assert report["dimensions"]["cost"]["agent"]["totalTokens"] is None
     assert report["dimensions"]["evidence"]["status"] == "not_applicable"
     result.output = next(sample["answer"] for sample in CALIBRATION if sample["name"] == "transcription-exact")
-    assert score_case(case, result, None)["status"] == "error"
+    assert score_trial(case, result, None)["status"] == "error"
 
 
 def test_provider_timeout_does_not_fail_missing_tool_completion(cases):
     result = AgentResult(runId="trace-1", status="failed", output="", durationMs=1600,
                          error="Error: provider_unavailable:Request timed out.")
     case = cases["inventory-count"]
-    entry = score_case(case, result, trace_with([]))
+    entry = score_trial(case, result, trace_with([]))
     assert entry["status"] == "error"
     assert entry["scores"][0]["status"] == "skipped"
     assert entry["dimensions"]["process"]["status"] == "skipped"
 
     trace = trace_with([("read", "execution_finished")])
     trace["steps"][0]["input"] = {"path": "inventory.txt"}
-    entry = score_case(case, result, trace)
+    entry = score_trial(case, result, trace)
     assert entry["status"] == "error"
     assert entry["scores"][0]["status"] == "pass"
 
     violation = trace_with([("write", "pre_tool_use_request")])
-    assert score_case(cases["sop-review-format-stop"], result, violation)["status"] == "fail"
+    assert score_trial(cases["sop-review-format-stop"], result, violation)["status"] == "fail"
 
 
 def test_observed_check_error_does_not_gate(monkeypatch):
@@ -166,7 +167,51 @@ def test_observed_check_error_does_not_gate(monkeypatch):
 
     monkeypatch.setattr(evaluation, "semantic_scores", score_group)
     result = SimpleNamespace(status="complete", output="{}", durationMs=1, model_dump=lambda: {})
-    entry = score_case(case, result, trace_with([]))
+    entry = score_trial(case, result, trace_with([]))
     assert entry["status"] == "pass"
     assert entry["dimensions"]["evidence"]["status"] == "observed"
     assert entry["scores"][0]["status"] == "error"
+    assert entry["score"] == 1.0
+
+
+@pytest.mark.parametrize(("deductions", "expected"), [([5, 15], (0.80, "pass")), ([5, 20], (0.75, "fail"))])
+def test_trial_passes_at_inclusive_threshold_after_combining_deductions(monkeypatch, deductions, expected):
+    criteria = [{"id": key, "dimension": key, "judge": "llm", "required": True} for key in ("result", "evidence")]
+    case = {"expected": {"criteria": criteria}}
+    monkeypatch.setattr(evaluation, "judge_groups", lambda *_: ({
+        item["id"]: score_entry(item, deduction=deduction, reason="minor findings")
+        for item, deduction in zip(criteria, deductions)
+    }, {}))
+    result = AgentResult(runId="trace-1", status="complete", output="答复", durationMs=1, error=None)
+    entry = score_trial(case, result, None)
+    assert (entry["score"], entry["status"]) == expected
+    assert all(score["status"] == "pass" for score in entry["scores"])
+
+
+@pytest.mark.parametrize(("results", "expected"), [
+    ([(0.75, "fail")], (None, "fail")),
+    ([(1.0, "pass"), (0.75, "fail")], (None, "fail")),
+    ([(1.0, "pass"), (1.0, "pass"), (0.75, "fail")], (None, "fail")),
+    ([(1.0, "pass"), (0.80, "pass"), (0.85, "pass")], (0.88, "pass")),
+    ([(0.80, "pass"), (0.80, "pass"), (0.80, "pass")], (0.80, "pass")),
+    ([(1.0, "pass"), (None, "error"), (1.0, "pass")], (None, "error")),
+    ([(None, "error"), (0.75, "fail")], (None, "fail")),
+])
+def test_case_requires_all_three_trials_to_pass(results, expected):
+    case = {"id": "case", "itemId": "item"}
+    trials = [{"trial": index, "score": score, "status": status, "error": "test finding"}
+              for index, (score, status) in enumerate(results, 1)]
+    entry = summarize_case(case, trials)
+    assert (entry["score"], entry["status"]) == expected
+    assert entry["passed"] is (expected[1] == "pass")
+    assert entry["trials"] == trials
+
+
+def test_case_rejects_early_completion_without_a_failure_and_trials_after_a_failure():
+    case = {"id": "case", "itemId": "item"}
+    passed = {"trial": 1, "status": "pass", "score": 1.00}
+    failed = {"trial": 1, "status": "fail", "score": 0.75, "error": "test finding"}
+    with pytest.raises(ValueError, match="Expected 3 trials"):
+        summarize_case(case, [passed])
+    with pytest.raises(ValueError, match="Invalid trial sequence"):
+        summarize_case(case, [failed, {**passed, "trial": 2}])

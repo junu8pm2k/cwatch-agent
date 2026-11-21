@@ -7,7 +7,8 @@ from importlib.metadata import version
 from uuid import uuid4
 
 from agent_adapter import CONFIG, ROOT
-from metrics import JUDGE_RUBRIC
+from evaluation import TRIAL_COUNT
+from metrics import FULL_SCORE, JUDGE_RUBRIC, MINOR_DEDUCTION, PASS_SCORE, REQUIRED_DEDUCTION
 
 
 def now():
@@ -19,12 +20,14 @@ class BenchmarkReport:
         self.directory = directory
         self.cases = {}
         self.metadata = {
-            "schemaVersion": 2,
+            "schemaVersion": 4,
             "runId": os.environ["BENCHMARK_RUN_ID"],
             "commitSha": os.environ["BENCHMARK_COMMIT"],
             "treeState": os.environ["BENCHMARK_TREE_STATE"],
             "dataset": manifest["dataset"], "suite": suite, "suiteHashes": manifest["suites"],
             "agent": CONFIG["agent"], "judge": CONFIG["judge"],
+            "scoring": {"trialsPerCase": TRIAL_COUNT, "max": 1, "threshold": PASS_SCORE / FULL_SCORE,
+                        "requiredDeduction": REQUIRED_DEDUCTION / FULL_SCORE, "minorDeduction": MINOR_DEDUCTION / FULL_SCORE},
             "limits": CONFIG["limits"], "fixtureHashes": manifest["fixtureHashes"],
             "skillHashes": manifest["skillHashes"],
             "rubricHashes": {"judge.md": hashlib.sha256(JUDGE_RUBRIC.encode("utf-8")).hexdigest()},
@@ -38,8 +41,8 @@ class BenchmarkReport:
         }
         self.write()
 
-    def case_dir(self, case_id):
-        path = self.directory / "cases" / case_id
+    def trial_dir(self, case_id, trial):
+        path = self.directory / "cases" / case_id / f"trial-{trial}"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

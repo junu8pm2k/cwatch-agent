@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from agent_adapter import load_manifest, load_trace, run_agent
-from evaluation import score_case
+from evaluation import TRIAL_COUNT, score_trial, summarize_case
 from reporting import BenchmarkReport
 
 if os.getenv("API_KEY") or os.getenv("CONFIDENT_API_KEY"):
@@ -27,9 +27,8 @@ def report():
     return BenchmarkReport(Path(os.environ["BENCHMARK_RUN_DIR"]), MANIFEST, SUITE, CASES)
 
 
-@pytest.fixture
-def verdict(case, report, record_property):
-    case_dir = report.case_dir(case["id"])
+def run_trial(case, report, trial):
+    case_dir = report.trial_dir(case["id"], trial)
     result = trace = launch_error = trace_error = None
     try:
         result = run_agent(case, case_dir, MANIFEST["fixtureHashes"][case["fixture"]])
@@ -40,9 +39,22 @@ def verdict(case, report, record_property):
             trace = load_trace(case, case_dir, result)
         except (OSError, KeyError, TypeError, ValueError) as error:
             trace_error = str(error)
-    entry = score_case(case, result, trace, launch_error=launch_error, trace_error=trace_error)
+    return {"trial": trial, **score_trial(case, result, trace, launch_error=launch_error, trace_error=trace_error)}
+
+
+@pytest.fixture
+def verdict(case, report, record_property):
+    trials = []
+    for trial in range(1, TRIAL_COUNT + 1):
+        result = run_trial(case, report, trial)
+        trials.append(result)
+        if result["status"] == "fail":
+            break
+    entry = summarize_case(case, trials)
     report.record(entry)
     record_property("benchmark_status", entry["status"])
+    if entry["score"] is not None:
+        record_property("benchmark_score", f'{entry["score"]:.2f}')
     if entry["status"] == "error":
         pytest.fail(entry["error"], pytrace=False)
     return entry
