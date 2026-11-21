@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_adapter import load_manifest, load_trace, run_agent
+from agent_adapter import load_manifest, run_agent_trial
 from evaluation import TRIAL_COUNT, score_trial, summarize_case
 from reporting import BenchmarkReport
 
@@ -29,17 +29,12 @@ def report():
 
 def run_trial(case, report, trial):
     case_dir = report.trial_dir(case["id"], trial)
-    result = trace = launch_error = trace_error = None
-    try:
-        result = run_agent(case, case_dir, MANIFEST["fixtureHashes"][case["fixture"]])
-    except (OSError, RuntimeError, ValueError) as error:
-        launch_error = str(error)
-    if result is not None:
-        try:
-            trace = load_trace(case, case_dir, result)
-        except (OSError, KeyError, TypeError, ValueError) as error:
-            trace_error = str(error)
-    return {"trial": trial, **score_trial(case, result, trace, launch_error=launch_error, trace_error=trace_error)}
+    attempt, retry = run_agent_trial(case, case_dir, MANIFEST["fixtureHashes"][case["fixture"]])
+    result, trace, launch_error, trace_error = attempt
+    entry = {"trial": trial, **score_trial(case, result, trace, launch_error=launch_error, trace_error=trace_error)}
+    if retry is not None:
+        entry["providerRetry"] = retry
+    return entry
 
 
 @pytest.fixture
