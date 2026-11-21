@@ -29,6 +29,12 @@ function hostMatchesDomains(host: string, domains: string[]): boolean {
     return host === allowed || host.endsWith('.' + allowed);
   });
 }
+function queryReferencesDomain(query: string, domain: string): boolean {
+  const clean = domain.trim().toLowerCase();
+  if (!clean || clean === '*') return false;
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[\\s.:/@])${escaped}(?:$|[\\s/?#,;])`, 'i').test(query);
+}
 export function allowedUrl(value: string, domains: string[]): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('web_scope: invalid URL'); }
   assertNetworkUrlAllowed(url);
@@ -81,7 +87,9 @@ export class PreferredWebSource implements SourceClient {
     if (name === 'web_fetch') { try { allowedUrl(String(args.url), this.options.allowedDomains); } catch { return 'web_url_outside_scope'; } }
     else if (name === 'web_search' && isInvestigationTask(task)) {
       const query = String(args.query).toLowerCase();
-      if (![task.competitor.name, task.product, ...task.competitor.aliases].some(value => value && query.includes(value.toLowerCase()))) return 'web_query_outside_entity_scope';
+      const matchesEntity = [task.competitor.name, task.product, ...task.competitor.aliases].some(value => value && query.includes(value.toLowerCase()));
+      const matchesDomain = task.competitor.domains.some(domain => queryReferencesDomain(query, domain));
+      if (!matchesEntity && !matchesDomain) return 'web_query_outside_entity_scope';
     } else if (name !== 'web_search') return 'unknown_web_operation';
     return undefined;
   }
