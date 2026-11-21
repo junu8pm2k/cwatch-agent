@@ -4259,7 +4259,8 @@ button.pipeline-step:focus-visible {
   .skip-link,
   .report-toc,
   .md-copy-btn,
-  .report-sub-hint {
+  .report-sub-hint,
+  .evidence-card-footer {
     display: none !important;
   }
 

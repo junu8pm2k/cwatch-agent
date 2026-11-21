@@ -1,4 +1,5 @@
 import '../tests/web-ui.test.ts';
+import '../tests/web-ui-rail-trace.test.ts';
 import { cases } from '../tests/harness.ts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 const startedAt=new Date().toISOString(),results:Array<{name:string;group:string;passed:boolean;durationMs:number;error?:string}>=[];
