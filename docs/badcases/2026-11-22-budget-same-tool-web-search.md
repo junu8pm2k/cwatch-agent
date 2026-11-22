@@ -5,10 +5,12 @@
 - **来源运行**：
   1. `.runtime/web/dce87021-ea0c-4150-b4b6-7b58b1dbe15f`（Trace `259b9772-a73f-48eb-ae11-4e722b4f772e`，智谱 GLM 18 个月发布调研，`callsByTool: { workflow__save_plan: 1, web_search: 9, web_fetch: 5 }`，`totalTokens: 226107`，耗时 `275.9s`，停留在阶段 1 采集）
   2. `.runtime/web/baba6bd8-f8f9-4d8c-a288-be4387eb4a5b`（Trace `ea1d4a6b-6a41-4531-9ff8-f49b5a45dc6b`，同任务重试，`callsByTool: { workflow__save_plan: 1, web_search: 9, web_fetch: 4 }`，`totalTokens: 185228`，停留在阶段 1 采集）
-  3. `.runtime/web/f92c12f1-b3cd-475a-a08d-a6ca3f9c877b`（Trace `1cfcec82-c0a2-4690-bb74-aa6dcc204df4`，未重启旧 `npm run web` 进程下的重试，`web_fetch` 已成功，但触发 `Error: Path not found: ...\retrievals\0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt` 并继续逐条补搜触发 `9/8`）
+  3. `.runtime/web/f92c12f1-b3cd-475a-a08d-a6ca3f9c877b`（Trace `1cfcec82-c0a2-4690-bb74-aa6dcc204df4`，未重启旧 `npm run web` 父进程下的重试，`web_fetch` 已成功，但触发 `Error: Path not found: ...\retrievals\0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt` 并继续逐条补搜触发 `9/8`）
+  4. `.runtime/web/d3bb9ab2-b7a6-4644-8298-494896777b39`（Trace `6a7c4218-aa2e-418c-a7cd-ee3ab86a78f4`，未重启旧 `npm run web` 父进程下的重试，子进程已生效剔除冗余 `raw`，但因产品调查默认暴露了本地工作区 `ls/find/read` 工具，模型在保存计划前后空转调用了 13 次 `ls/find/read` 浏览本地仓库，撞上旧父进程 `Error: budget_tools: 21/20`）
 - **致命错误现象**：
   - `Error: budget_same_tool: 9/8 tool=web_search`（从未进入 `workflow__analyze` / `workflow__review` / `workflow__draft`）
   - `Error: Path not found: C:\Users\Swing\Desktop\Cwatch-agent\retrievals\0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt`
+  - `Error: budget_tools: 21/20`（13/21 次工具调用消耗在本地工作区 `ls / find / read`）
 
 ## 根因分析
 
@@ -30,6 +32,7 @@
 2. **`packages/shared/src/agent/core/budgets.ts`、`packages/core/src/types/runs.ts`、`packages/server-core/src/runtime/run-service.ts`、`apps/web/src/client.ts`**：
    - 将基础默认限额提升至 `maxSteps: 32, maxToolCalls: 36, maxSameToolCalls: 12`。
    - 为 `RunStartInput.limits` 与 `RunService` 新增有界 `maxSteps` / `maxToolCalls` / `maxSameToolCalls` 校验，并按 Web 调研深度自动配套预算：快速 `24/28/12`、标准 `40/48/16`、深度 `80/96/30`；前端表单与「尝试重试」统一透传。
+   - 在 `RunService` 启动竞品/产品调查（`isInvestigationTask(task)`）时显式设置 `builtinTools: false`（仅通用 Agent 保留 `read/ls/find/grep/write/edit/bash`），杜绝模型在产品联网调研中空转调用 10+ 次 `ls/find/read` 浏览本地代码仓库并耗尽总工具预算。
 3. **`packages/core/src/types/domain.ts`、`packages/shared/src/agent/core/prompt-builder.ts`、`packages/server-core/src/runtime/task-runtime.ts`、`packages/server-core/src/runtime/working-state.ts`、`packages/shared/src/agent/backend/pi/tool-hooks.ts`、`packages/shared/src/agent/backend/pi/session.ts`**：
    - 在不变的 `stable` 系统提示尾部声明本次 `RUN BUDGETS`（保持 `prefixHash` 与跨轮 Prompt Cache 稳定）。
    - 在压缩后的 `WorkingStateTracker` 附件中保留当前 `budgets` 计数。

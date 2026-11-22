@@ -83,6 +83,21 @@ check('contract', 'Default and RunService tool budgets scale with depth tiers an
     assert.equal(explicit.maxSteps, 50);
     assert.equal(explicit.maxToolCalls, 60);
     assert.equal(explicit.maxSameToolCalls, 22);
+
+    // Competitor investigation runs in RunService must not expose local workspace builtin tools (ls/find/grep/read), while generic agent runs keep them.
+    const agentStarted = service.start({ profile: 'agent', mode: 'replay', permission: 'explore' });
+    const agentDone = await service.wait(agentStarted.id);
+    const agentEvents = new FileStore(resolve(data.root, 'runs', agentStarted.id)).lines<TraceEvent>('traces/' + agentDone.traceRunId + '.jsonl');
+    const agentTools = (agentEvents.find(e => e.type === 'context_prepared')!.data.tools as Array<{ proxyName: string }>).map(t => t.proxyName);
+    assert.ok(agentTools.includes('read') && agentTools.includes('ls') && agentTools.includes('find'));
+
+    const invStarted = service.start({ profile: 'standard', mode: 'replay', permission: 'explore' });
+    const invDone = await service.wait(invStarted.id);
+    const invEvents = new FileStore(resolve(data.root, 'runs', invStarted.id)).lines<TraceEvent>('traces/' + invDone.traceRunId + '.jsonl');
+    const invTools = (invEvents.find(e => e.type === 'context_prepared')!.data.tools as Array<{ proxyName: string }>).map(t => t.proxyName);
+    for (const localTool of ['read', 'ls', 'find', 'grep', 'write', 'edit', 'bash']) {
+      assert.equal(invTools.includes(localTool), false);
+    }
   } finally {
     await service.close();
   }

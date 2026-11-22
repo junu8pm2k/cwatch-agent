@@ -176,6 +176,7 @@ export class RunService {
           maxSteps:input.limits.maxSteps??toolBudgets.maxSteps,
           maxToolCalls:input.limits.maxToolCalls??toolBudgets.maxToolCalls,
           maxSameToolCalls:input.limits.maxSameToolCalls??toolBudgets.maxSameToolCalls,
+          builtinTools:!isInvestigationTask(task),
           workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
           ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
           onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});run.view.plan=run.redactor.clean(plan);this.changed(run);},
