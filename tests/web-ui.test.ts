@@ -319,18 +319,21 @@ check('integration','Web UI investigation form quick date presets and 3-tier dep
     for(const days of ['7','30','90']){
       assert.equal(await h.page.locator(`[data-window-days="${days}"]`).isDisabled(),true);
     }
-    // 3-tier depth presets sync #timeout and #tokens
-    assert.equal(await h.page.locator('#timeout').inputValue(),'300');
-    assert.equal(await h.page.locator('#tokens').inputValue(),'400000');
-    assert.equal(await h.page.locator('[data-depth-preset="standard"]').getAttribute('aria-pressed'),'true');
-    await h.page.locator('[data-depth-preset="fast"]').click();
-    assert.equal(await h.page.locator('#timeout').inputValue(),'120');
-    assert.equal(await h.page.locator('#tokens').inputValue(),'150000');
-    assert.equal(await h.page.locator('[data-depth-preset="fast"]').getAttribute('aria-pressed'),'true');
-    await h.page.locator('[data-depth-preset="deep"]').click();
-    assert.equal(await h.page.locator('#timeout').inputValue(),'600');
-    assert.equal(await h.page.locator('#tokens').inputValue(),'1000000');
-    assert.equal(await h.page.locator('[data-depth-preset="deep"]').getAttribute('aria-pressed'),'true');
+    // Each depth preset's visible budget matches the form values when selected.
+    const standard=h.page.getByRole('button',{name:'标准核验 480s · 750k',exact:true});
+    const fast=h.page.getByRole('button',{name:'快速速览 180s · 250k',exact:true});
+    const deep=h.page.getByRole('button',{name:'深度穷举 900s · 1.5M',exact:true});
+    assert.equal(await h.page.locator('#timeout').inputValue(),'480');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'750000');
+    assert.equal(await standard.getAttribute('aria-pressed'),'true');
+    await fast.click();
+    assert.equal(await h.page.locator('#timeout').inputValue(),'180');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'250000');
+    assert.equal(await fast.getAttribute('aria-pressed'),'true');
+    await deep.click();
+    assert.equal(await h.page.locator('#timeout').inputValue(),'900');
+    assert.equal(await h.page.locator('#tokens').inputValue(),'1500000');
+    assert.equal(await deep.getAttribute('aria-pressed'),'true');
 
     // Manual edit in Settings Popover preserves custom value and clears active depth preset
     await h.ui.openSettings();
