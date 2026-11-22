@@ -13,19 +13,20 @@ import { handleExtensionCommand } from "./commands/extensions.ts";
 import { UserMcpStore, mcpSecrets } from "@cwatch/shared/mcp/storage";
 import { UserMcpSource } from "@cwatch/shared/mcp/source";
 import { SkillStore } from "@cwatch/shared/skills/storage";
-import { resolveLimits, type RunLimits } from "@cwatch/shared/agent/core/budgets";
+import { DEFAULT_LIMITS, resolveLimits, type RunLimits } from "@cwatch/shared/agent/core/budgets";
 import { apiSecrets } from "@cwatch/shared/sources/api-tools";
 import { hash } from "@cwatch/core/types";
 import { Trace, Redactor } from '@cwatch/shared/sessions/trace';
 import { exportToLangfuse } from '@cwatch/shared/sessions/langfuse';
-const limitFlags: Record<keyof RunLimits, string> = { maxSteps: 'max-steps', maxToolCalls: 'max-tool-calls', maxSameToolCalls: 'max-same-tool-calls', contextChars: 'context-chars', maxResponseChars: 'max-response-chars', maxOutputTokens: 'max-output-tokens', maxTokens: 'max-tokens', timeoutMs: 'timeout', modelTimeoutMs: 'model-timeout', toolTimeoutMs: 'tool-timeout' };
-function readLimits(): RunLimits {
+const limitFlags: Record<keyof RunLimits, string> = { maxSteps: 'max-steps', maxToolCalls: 'max-tool-calls', maxSameToolCalls: 'max-same-tool-calls', maxConsecutiveToolFailures: 'max-consecutive-tool-failures', contextChars: 'context-chars', maxResponseChars: 'max-response-chars', maxOutputTokens: 'max-output-tokens', maxTokens: 'max-tokens', timeoutMs: 'timeout', modelTimeoutMs: 'model-timeout', toolTimeoutMs: 'tool-timeout' };
+function readLimits(): Partial<RunLimits> {
   const supplied: Partial<RunLimits> = {};
   for (const [key, flag] of Object.entries(limitFlags)) {
     const index = args.indexOf('--' + flag);
     if (index >= 0) supplied[key as keyof RunLimits] = Number(args[index + 1] ?? NaN);
   }
-  return resolveLimits(supplied);
+  resolveLimits(supplied);
+  return supplied;
 }
 
 if (existsSync('.env')) process.loadEnvFile('.env');
@@ -34,7 +35,12 @@ function option(name: string, fallback: string): string { const i = args.indexOf
 const out = resolve(option('out', '.runtime'));
 const json = (path: string) => JSON.parse(readFileSync(resolve(path), 'utf8'));
 async function main(): Promise<void> {
-  if (!command || command === 'help') { console.log('run --mode replay|live [--instruction TEXT --source slug1,slug2] [--chat] --task examples/task-agent.json --sources examples/sources.json --out artifacts/demo [--permission explore|ask|allow-all] [--timeout 120000] [--tool-timeout 15000] [--model-timeout 60000]\n--chat: 通用 Agent 真实模式多轮对话，输入 /exit 结束\nlimits: --max-tokens 100000 --max-output-tokens 4096 --max-same-tool-calls 8 --max-tool-calls 20 --max-steps 24 --context-chars 150000 --max-response-chars 32000\nrun extensions: [--workspace DIR] [--mcp slug1,slug2] [--skills skill1,skill2]\nmcp add|list|test|enable|disable|remove (project MCP configuration)\nskills install|list|show|enable|disable|remove (local directory or GitHub)\npermission: explore (default), ask (approve writes), allow-all (no approval)\ninspect --out DIR\nrecover --out DIR\nreplay --out DIR --run RUN_ID\ntrace --out DIR --run RUN_ID (export structured JSON)'); return; }
+  if (!command || command === 'help') {
+    const defaults = (Object.keys(limitFlags) as Array<keyof RunLimits>).map(key =>
+      '--' + limitFlags[key] + ' ' + (key === 'maxSameToolCalls' ? '(follows --max-tool-calls)' : DEFAULT_LIMITS[key]));
+    console.log('run --mode replay|live [--instruction TEXT --source slug1,slug2] [--chat] --task examples/task-agent.json --sources examples/sources.json --out artifacts/demo [--permission explore|ask|allow-all]\n--chat: 通用 Agent 真实模式多轮对话，输入 /exit 结束\nlimits: ' + defaults.join(' ') + '\nrun extensions: [--workspace DIR] [--mcp slug1,slug2] [--skills skill1,skill2]\nmcp add|list|test|enable|disable|remove (project MCP configuration)\nskills install|list|show|enable|disable|remove (local directory or GitHub)\npermission: explore (default), ask (approve writes), allow-all (no approval)\ninspect --out DIR\nrecover --out DIR\nreplay --out DIR --run RUN_ID\ntrace --out DIR --run RUN_ID (export structured JSON)');
+    return;
+  }
   if (await handleExtensionCommand(command, args)) return;
   const permission = command === 'run' ? parsePermissionMode(option('permission', 'explore')) : 'explore';
   const limits = command === 'run' ? readLimits() : undefined;

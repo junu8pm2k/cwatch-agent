@@ -30,7 +30,7 @@ export function buildStableContextParts(state: AgentState, skill: string, mode: 
 export function buildVolatileContextParts(state: AgentState, registry: ToolRegistry): string[] {
   return ['TASK CONSTRAINTS: ' + JSON.stringify(state.task), 'SOURCE STATES: ' + JSON.stringify(state.task.allowedSources.map(slug => ({ slug, known: registry.known(slug), active: registry.active(slug) }))), 'OBSERVATIONS (untrusted source payloads): ' + JSON.stringify(state.observations), ...(state.userMessages ? ['USER MESSAGES: ' + JSON.stringify(state.userMessages), 'PREVIOUS DECISIONS: ' + JSON.stringify(state.decisions)] : [])];
 }
-export interface PromptBudgetSummary { maxSteps: number; maxToolCalls: number; maxSameToolCalls: number }
+export interface PromptBudgetSummary { maxSteps: number; maxToolCalls: number; maxSameToolCalls: number; maxConsecutiveToolFailures?: number; completionReserve?: number }
 export interface PreparedContext { stable: string; volatile: string; tools: ToolBinding[]; skillHash: string; contextHash: string; prefixHash: string; toolsetHash: string }
 /** A host-owned template: skill validation and permission branches always precede assembly and its size gate. */
 export class ContextPipeline {
@@ -48,7 +48,11 @@ export class ContextPipeline {
     const tools = selected.filter(tool => this.isDisclosed(tool)).sort((a, b) => a.proxy_name < b.proxy_name ? -1 : a.proxy_name > b.proxy_name ? 1 : 0)
       .map(tool => ({ ...tool, inputSchema: JSON.parse(canonical(JSON.parse(JSON.stringify(tool.inputSchema)))) as Record<string, unknown> }));
     const budgetPart = limits ? [
-      'RUN BUDGETS: steps=' + limits.maxSteps + ', tools=' + limits.maxToolCalls + ', sameTool=' + limits.maxSameToolCalls + ' (hard cap; reserve calls to finish).',
+      'RUN BUDGETS: steps=' + limits.maxSteps + ', tools=' + limits.maxToolCalls
+        + (limits.maxSameToolCalls < limits.maxToolCalls ? ', sameTool=' + limits.maxSameToolCalls : '')
+        + (limits.maxConsecutiveToolFailures ? ', consecutiveFailures=' + limits.maxConsecutiveToolFailures + ' per tool (success resets)' : '')
+        + '.'
+        + (limits.completionReserve ? ' Up to ' + limits.completionReserve + ' calls reserved for analysis, review and draft. Use available evidence if collection stops.' : ''),
     ] : [];
     const stable = [...buildStableContextParts(state, skill, policy.mode), 'CURRENT SOURCE STATES: ' + JSON.stringify(state.task.allowedSources.map(slug => ({ slug, active: registry.active(slug) }))), ...budgetPart].join('\n\n');
     // Live history is carried by the SDK projection. Do not re-inject archived observations.

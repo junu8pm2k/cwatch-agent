@@ -1,5 +1,7 @@
 # Badcase 记录：Web 联网调研反复在采集阶段触发 `Error: budget_same_tool: 9/8 tool=web_search` 中止
 
+现行额度和超限行为见[运行限制](../run-limits.md)。下文保留故障现场及当时的修复方案。
+
 - **Badcase ID**：`bad-budget-same-tool-web-search`
 - **日期**：2026-11-22
 - **来源运行**：

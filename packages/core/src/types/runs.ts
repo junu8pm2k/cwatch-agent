@@ -32,7 +32,7 @@ export interface RunSnapshot {
   plan?: Plan; review?: RunReviewSummary; comparisons?: RunComparisonSummary[]; reworkCount?: number;
 }
 export interface RunProfile { id: string; name: string; description: string; task: AgentTask; sources: Array<{ slug: string; name: string; channel: string; active: boolean }> }
-export interface RunStartInput { profile: string; mode: 'live' | 'replay'; permission: Mode; conversation?: boolean; task?: AgentTask; skills?: string[]; webDomains?: string[]; limits?: { timeoutMs?: number; toolTimeoutMs?: number; maxTokens?: number; maxSteps?: number; maxToolCalls?: number; maxSameToolCalls?: number } }
+export interface RunStartInput { profile: string; mode: 'live' | 'replay'; permission: Mode; conversation?: boolean; task?: AgentTask; skills?: string[]; webDomains?: string[]; limits?: { timeoutMs?: number; toolTimeoutMs?: number; maxTokens?: number; maxSteps?: number; maxToolCalls?: number; maxSameToolCalls?: number; maxConsecutiveToolFailures?: number } }
 export interface BuiltinSourceSummary { slug: string; name: string; channel: string; active: boolean; profiles: string[] }
 export interface McpServerSummary { slug: string; enabled: boolean; transport: string; endpoint?: string; defaultAction: string; resultFormat: string; toolSemanticsCount: number; hasAuth: boolean }
 export interface BuiltinSkillSummary { name: string; description: string; resources: string[] }

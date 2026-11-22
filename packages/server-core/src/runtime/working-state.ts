@@ -20,9 +20,7 @@ interface ResourceRead {
   hash: string; offset: number; readChars: number; totalChars: number; text: string;
   reRead: { tool: string; args: Record<string, unknown> }; sequence: number;
 }
-export interface WorkingStateBudgets {
-  steps: number; maxSteps: number; toolCalls: number; maxToolCalls: number; maxSameToolCalls: number; callsByTool: Record<string, number>;
-}
+export type WorkingStateBudgets = import('@cwatch/core/types').ToolBudgetSnapshot & { steps: number; maxSteps: number };
 export interface WorkingStateInput {
   task: AgentTask; runId: string; state: AgentState; workflow?: WorkflowCheckpoint;
   store: FileStore; registry: ToolRegistry; permissionMode: string; visibleTools: ToolBinding[];
@@ -145,7 +143,7 @@ export class WorkingStateTracker {
       ...catalogAttachments('Loaded skills and resource usage', { invocationModel: 'host_injected_documents_and_explicit_resource_reads' }, skillRows),
       ...catalogAttachments('Current tool and MCP catalog', { discovery: 'eager', deferredLoadingSupported: false, descriptions: 'current_api_tool_definitions', catalogHash: hash(visibleTools) }, visibleTools.map(tool => ({ name: tool.proxy_name, source: tool.source_slug, channel: tool.channel, bindingId: tool.id, revision: tool.revision, action: tool.action, dynamicAction: tool.dynamicAction ?? false, descriptionHash: hash(tool.description), schemaHash: hash(tool.inputSchema) }))),
       { name: 'Source guide prerequisites', content: JSON.stringify({ guides: guideStates, rule: 'Reinjection does not mark an unread or changed guide as read. Use session__read_source_guide when required.' }) },
-      { name: 'Execution and agent status', content: JSON.stringify({ agentProcess: this.process ?? { state: 'not_started' }, toolExecution: 'sequential', unresolvedExecutions: unresolved.map(record => ({ requestId: record.requestId, tool: record.toolBinding.proxy_name, state: record.state, executeCount: record.execute_count })), ...(input.budgets ? { budgets: { steps: input.budgets.steps + '/' + input.budgets.maxSteps, tools: input.budgets.toolCalls + '/' + input.budgets.maxToolCalls, sameToolCap: input.budgets.maxSameToolCalls, byTool: input.budgets.callsByTool } } : {}), asyncAgents: { supported: false, running: [], unclaimedResults: [] }, automaticReplay: false }) },
+      { name: 'Execution and agent status', content: JSON.stringify({ agentProcess: this.process ?? { state: 'not_started' }, toolExecution: 'sequential', unresolvedExecutions: unresolved.map(record => ({ requestId: record.requestId, tool: record.toolBinding.proxy_name, state: record.state, executeCount: record.execute_count })), ...(input.budgets ? { budgets: { steps: input.budgets.steps + '/' + input.budgets.maxSteps, tools: input.budgets.toolCalls + '/' + input.budgets.maxToolCalls, sameToolCap: input.budgets.maxSameToolCalls, byTool: input.budgets.callsByTool, consecutiveFailureCap: input.budgets.maxConsecutiveToolFailures, failuresByTool: input.budgets.failuresByTool, reservedForCompletion: input.budgets.reservedForCompletion } } : {}), asyncAgents: { supported: false, running: [], unclaimedResults: [] }, automaticReplay: false }) },
     ];
   }
 }

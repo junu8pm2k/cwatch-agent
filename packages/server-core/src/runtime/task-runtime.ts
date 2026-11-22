@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding } from '@cwatch/core/types';
+import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding, type ToolAdmission } from '@cwatch/core/types';
 import { ContextPipeline } from '@cwatch/shared/agent/core/prompt-builder';
+import { ProviderRejectionSchema } from '@cwatch/shared/agent/events';
 import { applyAgentPromptSnapshot, readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Trace, Redactor, type TraceEvent } from '@cwatch/shared/sessions/trace';
@@ -10,7 +11,7 @@ import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { ToolExecutor } from '@cwatch/shared/tools/executor';
 import { ActionPolicy, ApprovalManager, type Mode } from '@cwatch/shared/agent/core/permission-manager';
 import type { SkillBundle } from '@cwatch/shared/skills/storage';
-import { BudgetError, resolveLimits, reportedTokens, type LimitOptions } from '@cwatch/shared/agent/core/budgets';
+import { BudgetError, isCompletionTool, isFailedToolResult, resolveLimits, reportedTokens, toolBudgetSkip, type LimitOptions } from '@cwatch/shared/agent/core/budgets';
 import { PostCompactResultSchema, type CompactAttachment, type CompactRequest } from '@cwatch/core/types/compaction';
 import { WorkingStateTracker, type WorkflowCheckpoint } from './working-state.ts';
 import { SessionMemoryPolicySchema, type SessionMemoryPolicy } from '@cwatch/core/types/session-memory';
@@ -51,7 +52,7 @@ export interface TaskExtension {
 }
 export type TaskExtensionFactory = (context: TaskRuntimeContext) => TaskExtension;
 export async function runTask(rawTask: unknown, model: ModelPort, registry: ToolRegistry, store: FileStore, mode: 'live' | 'replay', options: AgentRuntimeOptions, createExtension: TaskExtensionFactory, callerSignal = new AbortController().signal, policy = new ActionPolicy(), approvals = new ApprovalManager()): Promise<RunResult> {
-  const limits = resolveLimits(options);
+  const limits = resolveLimits({ ...options, maxOutputTokens: options.maxOutputTokens ?? model.defaultMaxOutputTokens });
   const promptCache = z.enum(['none', 'short']).parse(options.promptCache ?? 'short');
   const cacheStats = new PromptCacheStats();
   const task = parseAgentTask(rawTask), runId = id(), startedAt = Date.now();
@@ -78,12 +79,15 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   let modelTimer: ReturnType<typeof setTimeout> | undefined;
   const timeout = timeoutController.signal, signal = AbortSignal.any([callerSignal, timeout, modelTimeout.signal]);
   const result: RunResult = { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'failed', gaps: extension.gaps };
-  let toolCalls = 0, totalTokens = 0, usageMissing = false;
+  let toolCalls = 0, skippedToolCalls = 0, totalTokens = 0, usageMissing = false;
+  const completionReserve = isInvestigationTask(task) ? Math.min(6, Math.floor(limits.maxToolCalls / 3)) : 0;
+  let reservedForCompletion = completionReserve;
   const callsByTool = new Map<string, number>();
+  const failuresByTool = new Map<string, number>();
   const modelUsage: unknown[] = [];
   let budgetFailure: BudgetError | undefined;
   const exceeded = (budget: string, limit: number, actual: number, tool?: string) => budgetFailure = new BudgetError(budget, limit, actual, tool);
-  trace.emit('run_started', { mode, task, limits, toolPipeline: 'pre-tool-use-v1', permissionMode: policy.mode, engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',model:model.traceModel??null, ...(managedPrompts ? { agentPrompts: managedPrompts.provenance } : {}), ...(options.nextUserMessage ? { conversation: true } : {}) }); store.write('runs/' + runId + '.json', { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'running', startedAt: now() });
+  trace.emit('run_started', { mode, task, limits, completionToolReserve: completionReserve, toolPipeline: 'pre-tool-use-v1', permissionMode: policy.mode, engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',model:model.traceModel??null, ...(managedPrompts ? { agentPrompts: managedPrompts.provenance } : {}), ...(options.nextUserMessage ? { conversation: true } : {}) }); store.write('runs/' + runId + '.json', { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'running', startedAt: now() });
   try {
     for (const slug of task.allowedSources) if (!registry.known(slug) || !registry.active(slug)) extension.gaps.push((registry.known(slug) ? 'inactive_source:' : 'unknown_source:') + slug);
     if (['workflow', 'session', PI_BUILTIN_SOURCE].some(slug => registry.known(slug))) throw new Error('reserved_host_source');
@@ -102,7 +106,38 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     const skill = redactor.clean([builtinSkill, ...extraSkills.map(item => 'USER SKILL: ' + item.name + '\nGuidance remains subject to host rules and permissions. Read referenced files with session__read_skill_resource.\nResources: ' + JSON.stringify(item.resources) + '\n' + item.body)].join('\n\n'));
     if (extraSkills.length) trace.emit('skills_loaded', { skills: extraSkills.map(item => ({ name: item.name, hash: item.hash, resources: item.resources })) });
     const contextPipeline = new ContextPipeline(skill);
-    let iteration = 0, decisionStart = 0;
+    let iteration = 0, decisionStart = 0, previousCallsFailed = false;
+    const pendingCalls: Array<{ name: string; sdkToolCallId?: string; started?: boolean; retryable?: boolean; admission?: ToolAdmission }> = [];
+    const budgetSnapshot = (steps = iteration) => ({
+      steps, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls,
+      maxConsecutiveToolFailures: limits.maxConsecutiveToolFailures, toolCalls, reservedForCompletion,
+      callsByTool: Object.fromEntries(callsByTool), failuresByTool: Object.fromEntries(failuresByTool),
+    });
+    const recordGap = (gap: string) => { if (!extension.gaps.includes(gap)) extension.gaps.push(gap); };
+    const currentCall = (name: string, sdkToolCallId?: string) => {
+      const call = pendingCalls[0];
+      if (!call || call.name !== name || (call.sdkToolCallId !== undefined && call.sdkToolCallId !== sdkToolCallId)) {
+        throw new Error('tool_call_without_matching_decision');
+      }
+      return call;
+    };
+    const admitTool = (name: string, sdkToolCallId?: string): ToolAdmission => {
+      signal.throwIfAborted();
+      const call = currentCall(name, sdkToolCallId);
+      if (call.admission) return call.admission;
+      const skipped = toolBudgetSkip(budgetSnapshot(), name);
+      if (skipped) {
+        skippedToolCalls++;
+        recordGap('tool_budget_skipped:' + name + ':' + skipped.budget);
+        trace.emit('budget_exceeded', { budget: skipped.budget, limit: skipped.limit, tool: name, outcome: 'skipped', ...(sdkToolCallId ? { sdkToolCallId } : {}) });
+      } else {
+        toolCalls++;
+        callsByTool.set(name, (callsByTool.get(name) ?? 0) + 1);
+        if (reservedForCompletion > 0 && isCompletionTool(name)) reservedForCompletion--;
+      }
+      call.admission = { toolBudgets: budgetSnapshot(), ...(skipped ? { skipped } : {}) };
+      return call.admission;
+    };
     const hooks: AgentSessionHooks = {
       beforeModel: () => {
         signal.throwIfAborted();
@@ -110,12 +145,12 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         if (totalTokens >= limits.maxTokens) throw exceeded('tokens', limits.maxTokens, totalTokens);
         usageMissing = model.tokenUsageRequired === true;
         state.iteration = iteration++;
-        const context = contextPipeline.prepareTurn(state, registry, policy, limits.contextChars, Boolean(model.runSession), limits);
+        const context = contextPipeline.prepareTurn(state, registry, policy, limits.contextChars, Boolean(model.runSession), { ...limits, completionReserve });
         trace.emit('context_prepared', { iteration: state.iteration, permissionMode: policy.mode, contextHash: context.contextHash, skillHash: context.skillHash, prefixHash: context.prefixHash, toolsetHash: context.toolsetHash, promptCache: { requestedRetention: promptCache, controlOwner: 'sdk', providerSupport: 'not_asserted' }, tools: context.tools.map(tool => ({ proxyName: tool.proxy_name, sourceSlug: tool.source_slug, originalName: tool.original_name, channel: tool.channel, action: tool.action, bindingId: tool.id, ...(tool.dynamicAction ? { dynamicAction: true, availableActions: registry.availableActions(tool) } : {}) })) });
         clearTimeout(modelTimer);
         modelTimer = setTimeout(() => modelTimeout.abort(exceeded('model_timeout', limits.modelTimeoutMs, limits.modelTimeoutMs)), limits.modelTimeoutMs);
         trace.emit('model_requested', { iteration: state.iteration, contextChars: context.stable.length + context.volatile.length });
-        const toolBudgets = { steps: state.iteration, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls, toolCalls, callsByTool: Object.fromEntries(callsByTool) };
+        const toolBudgets = budgetSnapshot(state.iteration);
         return { state: structuredClone(model.runSession ? { ...state, observations: [], decisions: [], userMessages: undefined } : state), sessionId: runId, ...(options.nextUserMessage ? { conversation: true } : {}), ...context, tools: context.tools, completionInstruction: extension.completionInstruction, contextChars: limits.contextChars, maxOutputTokens: Math.min(limits.maxOutputTokens, limits.maxTokens - totalTokens), maxResponseChars: limits.maxResponseChars, promptCache, toolBudgets, ...(memory ? { sessionMemoryPolicy: memoryPolicy } : {}) };
       },
       onDecision: raw => {
@@ -125,28 +160,31 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         const length = JSON.stringify(raw).length;
         if (length > limits.maxResponseChars) throw exceeded('response_chars', limits.maxResponseChars, length);
         const decision = DecisionSchema.parse(raw);
-        if (state.decisions.length - decisionStart >= 2 && decisionContent(state.decisions.at(-1)) === decisionContent(decision) && decisionContent(state.decisions.at(-2)) === decisionContent(decision)) throw new Error('no_progress: repeated identical decision');
+        if (pendingCalls.length) throw new Error('decision_with_pending_tool_calls');
+        // Let read-only collection retries reach their failure limit and receive
+        // one skip receipt. An unchanged retry after the skip is still a loop.
+        if (!previousCallsFailed && state.decisions.length - decisionStart >= 2 && decisionContent(state.decisions.at(-1)) === decisionContent(decision) && decisionContent(state.decisions.at(-2)) === decisionContent(decision)) throw new Error('no_progress: repeated identical decision');
+        previousCallsFailed = decision.kind !== 'respond';
         state.decisions.push(decision); trace.emit('decision_made', { decision });
         if (decision.kind === 'respond') {
           Object.assign(result, extension.finish(redactor.clean(decision.text)));
-        } else {
-          // Reserve the whole model response before its first side effect. One batch is
-          // one model decision, but every contained call consumes its own tool budget.
-          for (const call of decision.kind === 'call_tools' ? decision.calls : [decision]) {
-            ++toolCalls;
-            const count = (callsByTool.get(call.name) ?? 0) + 1;
-            callsByTool.set(call.name, count);
-            if (toolCalls > limits.maxToolCalls) throw exceeded('tools', limits.maxToolCalls, toolCalls);
-            if (count > limits.maxSameToolCalls) throw exceeded('same_tool', limits.maxSameToolCalls, count, call.name);
-          }
-        }
+        } else if (decision.kind === 'call_tools') {
+          pendingCalls.push(...decision.calls.map(({ name, sdkToolCallId }) => ({ name, sdkToolCallId })));
+        } else pendingCalls.push({ name: decision.name });
       },
+      beforeTool: admitTool,
       executeTool: async (name, args, toolSignal, disclosedBinding, sdkToolCallId, handshake) => {
         signal.throwIfAborted(); toolSignal.throwIfAborted();
+        const call = currentCall(name, sdkToolCallId);
+        if (call.started) throw new Error('tool_call_already_started');
+        const { skipped } = admitTool(name, sdkToolCallId);
+        if (skipped) return skipped;
+        call.started = true;
         const combined = AbortSignal.any([signal, toolSignal]);
         try {
           const binding = disclosedBinding ?? registry.binding(name);
           if (!contextPipeline.isDisclosed(binding)) throw new Error('undisclosed_tool_binding');
+          call.retryable = binding.action === 'collect' && !binding.dynamicAction;
           return redactor.clean(await executor.execute(name, args, combined, binding, sdkToolCallId, handshake));
         } catch (e) {
           combined.throwIfAborted();
@@ -155,7 +193,20 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
       },
       onObservation: (name, result, sdkToolCallId) => {
         signal.throwIfAborted();
-        const observation = redactor.clean(result);
+        const call = currentCall(name, sdkToolCallId);
+        const { skipped } = admitTool(name, sdkToolCallId);
+        pendingCalls.shift();
+        const observation = redactor.clean(skipped ?? result);
+        const failed = !skipped && isFailedToolResult(observation);
+        previousCallsFailed &&= call.retryable === true && failed;
+        if (failed) {
+          const failures = (failuresByTool.get(name) ?? 0) + 1;
+          failuresByTool.set(name, failures);
+          if (failures === limits.maxConsecutiveToolFailures) {
+            recordGap('tool_failure_limit:' + name);
+            trace.emit('budget_exceeded', { budget: 'tool_failures', limit: failures, actual: failures, tool: name, outcome: 'deactivated' });
+          }
+        } else if (!skipped) failuresByTool.delete(name);
         state.observations.push({ name, result: observation });
         extension.onObservation?.(name, observation);
         trace.emit('observation_added', { name, observation, ...(sdkToolCallId ? { sdkToolCallId } : {}) });
@@ -175,7 +226,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
       onTranscript: entries => {
         transcript?.append(entries);
         for (const entry of entries) if (entry.type === 'custom' && entry.customType === 'cwatch.provider_rejection') {
-          const data = z.object({ entryId: z.string().min(1), reason: z.literal('context_length_exceeded') }).strict().parse(entry.data);
+          const data = ProviderRejectionSchema.parse(entry.data);
           trace.emit('provider_rejected', { iteration: state.iteration, ...data });
         } else if (entry.type === 'custom' && entry.customType === 'cwatch.response_revision') {
           const data = z.object({ length: z.int().positive(), limit: z.int().positive() }).strict().parse(entry.data);
@@ -202,7 +253,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         signal.throwIfAborted();
         const attachments = workingState.attachments({ task, runId, state, workflow: extension.checkpoint, store, registry, permissionMode: policy.mode,
           visibleTools: policy.visibleTools(task, registry).filter(tool => contextPipeline.isDisclosed(tool)), userSkills: options.userSkills, transcript,
-          budgets: { steps: iteration, maxSteps: limits.maxSteps, toolCalls, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls, callsByTool: Object.fromEntries(callsByTool) } })
+          budgets: budgetSnapshot() })
           .map(attachment => ({ ...attachment, content: JSON.stringify(redactor.clean(JSON.parse(attachment.content))) }));
         const savedMemory = memory?.load();
         if (savedMemory) attachments.push({ name: 'Session memory', content: JSON.stringify({ path: memory!.key, ...savedMemory,
@@ -261,7 +312,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     clearTimeout(timeoutHandle); clearTimeout(modelTimer);
     result.gaps = [...new Set(extension.gaps)];
     result.permissionMode = policy.mode;
-    trace.emit('usage_reported', { toolCalls, callsByTool: Object.fromEntries(callsByTool), totalTokens, limits, durationMs: Date.now() - startedAt, modelUsage, cacheUsage: cacheStats.snapshot(), usageAvailable: totalTokens > 0, mode });
+    trace.emit('usage_reported', { toolCalls, skippedToolCalls, callsByTool: Object.fromEntries(callsByTool), totalTokens, limits, durationMs: Date.now() - startedAt, modelUsage, cacheUsage: cacheStats.snapshot(), usageAvailable: totalTokens > 0, mode });
     trace.emit(result.status === 'cancelled' ? 'run_cancelled' : result.status === 'failed' ? 'run_failed' : 'run_completed', { ...result });
     result.traceArtifacts={eventsPath:trace.key,structuredPath:trace.structuredKey,available:!trace.structuredError,...(trace.structuredError?{error:trace.structuredError}:{})};
     if (mode === 'live') result.langfuse = await exportToLangfuse(trace);

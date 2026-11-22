@@ -40,6 +40,12 @@ async function faultyCase(mode: string, options: { ask?: boolean; pendingTool?: 
 check('contract', 'Agent worker environment excludes host source tokens, model keys and Node preload options', () => {
   assert.deepEqual(workerEnvironment({ PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy', SEARCH_MCP_TOKEN: 'secret', API_KEY: 'secret', ANTHROPIC_API_KEY: 'secret', LANGFUSE_PUBLIC_KEY: 'pk-lf-test', LANGFUSE_SECRET_KEY: 'sk-lf-test', NODE_OPTIONS: '--require bad', HOME: '/private' }), { PATH: '/node', SystemRoot: 'C:/Windows', HTTPS_PROXY: 'http://proxy' });
 });
+check('contract', 'A legacy Agent worker fails at startup when the host requires tool admission', async () => {
+  const actual = await faultyCase('legacy-ready');
+  assert.match(actual.result.error!, /tool_admission_version_mismatch.*Restart the Cwatch host/);
+  assert.equal(actual.data.executions().length, 0);
+  assert.ok(!actual.events.some(event => event.type === 'agent_process' && event.data.state === 'ready'));
+});
 for (const mode of ['exit-startup', 'disconnect', 'wrong-session', 'wrong-sequence', 'malformed', 'oversized', 'execute-first'] as const) check('contract', 'Agent subprocess rejects ' + mode + ' and preserves a terminal host Trace', async () => {
   const actual = await faultyCase(mode);
   assert.equal(actual.client.calls.length, 0); assert.equal(actual.data.executions().length, 0);

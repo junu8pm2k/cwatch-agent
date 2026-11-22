@@ -135,8 +135,12 @@ check('integration', 'plan callback failure distinct from file failure', async (
   const { result, data } = await replayRun({ onPlanSubmitted: async () => { throw new Error('callback_unavailable'); } });
   assert.equal(result.status, 'failed'); const events = data.lines<TraceEvent>('traces/' + result.runId + '.jsonl'); assert.ok(events.some(e => e.type === 'plan_saved')); assert.ok(events.some(e => e.type === 'plan_submit_failed')); assert.equal(data.executions().filter(e => e.toolBinding.action === 'collect' && e.execute_count > 0).length, 0);
 });
-check('contract', 'step and tool budgets terminate deterministically', async () => {
-  assert.match((await replayRun({ maxSteps: 1 })).result.error!, /budget_iterations/); assert.match((await replayRun({ maxToolCalls: 1 })).result.error!, /budget_tools/);
+check('contract', 'Step budget terminates a run and tool budget prevents further execution', async () => {
+  assert.match((await replayRun({ maxSteps: 1 })).result.error!, /budget_iterations/);
+  const { data, result } = await replayRun({ maxToolCalls: 1 });
+  assert.equal(result.status, 'failed'); // An explicit total of one call cannot fund a verified draft.
+  assert.equal(data.executions().length, 1);
+  assert.ok(data.lines<TraceEvent>('traces/' + result.runId + '.jsonl').some(e => e.type === 'budget_exceeded' && e.data.budget === 'tools' && e.data.outcome === 'skipped'));
 });
 check('contract', 'model cancellation and timeout persist terminal run', async () => {
   const wait: ModelPort = { decide: async (_input, signal) => { await new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); throw new Error('unreachable'); } };

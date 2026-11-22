@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { DecisionSchema, abortable, type AgentSessionHooks, type Decision, type ModelInput, type ModelPort } from "@cwatch/core/types";
 import { readModelConfig, type ModelConfig } from "../config/models.ts";
+import { isStep5Endpoint, STEP5_DEFAULT_OUTPUT_TOKENS } from './backend/pi/stepfun.ts';
 
 export class ReplayModel implements ModelPort {
   private cursor = 0;
@@ -30,6 +31,10 @@ export function encodePiRequest(input: ModelInput) {
   return { systemPrompt: input.stable + '\nTool calls execute sequentially in listed order, each subject to host authorization. Calls that need earlier results must use a later turn.' + (input.completionInstruction ? '\n' + input.completionInstruction : ''), messages: [{ role: 'user' as const, content: input.volatile, timestamp: Date.now() }], tools: input.tools.map(t => ({ name: t.proxy_name, description: t.description, parameters: t.inputSchema })) };
 }
 export class PiModel implements ModelPort {
+  get defaultMaxOutputTokens(): number | undefined {
+    return isStep5Endpoint(this.modelId, this.config?.baseUrl) ? STEP5_DEFAULT_OUTPUT_TOKENS : undefined;
+  }
+
   get traceModel() {
     const { reasoningEffort, providerMaxRetries } = this.config ?? {};
     return { provider: this.provider, id: this.modelId, ...(reasoningEffort ? { reasoningEffort } : {}),

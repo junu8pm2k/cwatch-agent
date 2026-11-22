@@ -38,10 +38,10 @@ const definitions = [
 ];
 const names: Record<string,string> = { official: '官方网站', browser: '浏览器读取', web: '联网搜索与读取' };
 const domainItem = z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
-function defaultWebToolBudgets(timeoutMs: number, maxTokens: number): { maxSteps: number; maxToolCalls: number; maxSameToolCalls: number } {
-  if (timeoutMs >= 500_000 || maxTokens >= 800_000) return { maxSteps: 80, maxToolCalls: 96, maxSameToolCalls: 30 };
-  if (timeoutMs <= 150_000 && maxTokens <= 200_000) return { maxSteps: 24, maxToolCalls: 28, maxSameToolCalls: 12 };
-  return { maxSteps: 40, maxToolCalls: 48, maxSameToolCalls: 16 };
+function defaultWebToolBudgets(timeoutMs: number, maxTokens: number) {
+  if (timeoutMs >= 600_000 || maxTokens >= 1_000_000) return { maxSteps: 120, maxToolCalls: 300 };
+  if (timeoutMs <= 180_000 && maxTokens <= 250_000) return { maxSteps: 40, maxToolCalls: 80 };
+  return { maxSteps: 72, maxToolCalls: 160 };
 }
 const startSchema = z.object({
   profile: z.enum(['agent','standard','web','adapters']).default('agent'), mode: z.enum(['live','replay']).default('replay'),
@@ -50,12 +50,13 @@ const startSchema = z.object({
   webDomains: z.array(domainItem).max(20).optional(),
   conversation: z.boolean().default(false),
   limits: z.object({
-    timeoutMs: z.number().int().min(1000).max(600000).optional(),
+    timeoutMs: z.number().int().min(1000).max(1_200_000).optional(),
     toolTimeoutMs: z.number().int().min(1000).max(120000).optional(),
-    maxTokens: z.number().int().min(100).max(2000000).optional(),
-    maxSteps: z.number().int().min(1).max(120).optional(),
-    maxToolCalls: z.number().int().min(1).max(200).optional(),
-    maxSameToolCalls: z.number().int().min(1).max(60).optional(),
+    maxTokens: z.number().int().min(100).max(3_000_000).optional(),
+    maxSteps: z.number().int().min(1).max(180).optional(),
+    maxToolCalls: z.number().int().min(1).max(480).optional(),
+    maxSameToolCalls: z.number().int().min(1).max(480).optional(),
+    maxConsecutiveToolFailures: z.number().int().min(1).max(20).optional(),
   }).strict().default({}),
 }).strict();
 const active = (status: RunSnapshot['status']) => ['preparing','running','awaiting_approval','awaiting_user','cancelling'].includes(status);
@@ -168,14 +169,16 @@ export class RunService {
         await this.options.configureRegistry?.(registry,signal);signal.throwIfAborted();
         clearTimeout(timeout); // Runtime owns active execution time; preparation must not time out an idle conversation.
         run.view.status='running';this.changed(run);
-        const approvals=new ApprovalManager((request,approvalSignal)=>this.awaitApproval(run,request,approvalSignal),Math.min(60000,input.limits.toolTimeoutMs??45000));
-        const timeoutMs=input.limits.timeoutMs??300000,maxTokens=input.limits.maxTokens??400000;
+        const toolTimeoutMs = input.limits.toolTimeoutMs ?? 60_000;
+        const approvals=new ApprovalManager((request,approvalSignal)=>this.awaitApproval(run,request,approvalSignal),Math.min(60_000, toolTimeoutMs));
+        const timeoutMs=input.limits.timeoutMs??480_000,maxTokens=input.limits.maxTokens??750_000;
         const toolBudgets=defaultWebToolBudgets(timeoutMs,maxTokens);
         const result=await (isInvestigationTask(task)?runInvestigation:runAgent)(task,model,registry,run.data,input.mode,{
-          timeoutMs,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens,
+          timeoutMs,toolTimeoutMs,maxTokens,
           maxSteps:input.limits.maxSteps??toolBudgets.maxSteps,
           maxToolCalls:input.limits.maxToolCalls??toolBudgets.maxToolCalls,
-          maxSameToolCalls:input.limits.maxSameToolCalls??toolBudgets.maxSameToolCalls,
+          maxSameToolCalls:input.limits.maxSameToolCalls,
+          maxConsecutiveToolFailures:input.limits.maxConsecutiveToolFailures,
           builtinTools:!isInvestigationTask(task),
           workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
           ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
@@ -219,6 +222,9 @@ export class RunService {
           this.activity(run,/^(workflow|session)__/.test(call.name)?'analysis':'tool','准备调用 '+call.name,{tool:call.name,detail:detail(call.args)});
         }
       }
+    }else if(event.type==='budget_exceeded'&&data.outcome==='skipped'){
+      const tool=String(data.tool);
+      this.activity(run,'tool',tool+' 已跳过（工具额度受限）',{tool,state:'skipped'});
     }else if(event.type==='execution_finished'){
       const tool=run.tools.get(String(data.requestId))??'工具';
       if(data.state==='completed')run.view.toolCalls++;

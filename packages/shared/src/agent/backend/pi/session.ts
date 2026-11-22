@@ -5,9 +5,13 @@ import { type AgentSessionHooks, type ModelInput } from "@cwatch/core/types";
 import { buildProxyTools, wrapToolsWithHooks } from "./tool-hooks.ts";
 import { PiContextManager, getMessagesAfterCompactBoundary } from './context.ts';
 import { assertCompleteApiRounds } from './api-rounds.ts';
-import { isContextRejection, PROVIDER_REJECTION, ReactiveCompactCircuit } from './provider-rejections.ts';
+import { providerRejectionReason, PROVIDER_REJECTION, ReactiveCompactCircuit } from './provider-rejections.ts';
+import { type ProviderRejectionReason } from '../../events.ts';
+import { remainingToolBudget, reportedTokens, toolBudgetSkip } from '../../core/budgets.ts';
+import { STEP5_INITIAL_OUTPUT_TOKENS, usesStep5ReasoningEffort } from './stepfun.ts';
 
 type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
+const TRUNCATION_RETRY_INSTRUCTION = '\nThe previous attempt reached its output token limit. Use brief reasoning and emit only the next necessary tool action with concise arguments, or the complete answer if the task is ready. Preserve the task scope and all workflow requirements.';
 
 /** SDK owns the live loop. Host callbacks own business meaning and execution policy. */
 export async function runPiSession(runtime: ModelRuntime, model: Model, input: ModelInput, hooks: AgentSessionHooks, signal: AbortSignal, providerMaxRetries = 0): Promise<void> {
@@ -33,33 +37,34 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   let revisingResponse = false;
   let currentStable = input.stable, prepareUserPrompt = false;
   let currentToolBudgets = input.toolBudgets ? structuredClone(input.toolBudgets) : undefined;
-  let pendingRejection = false;
-  const READBACK_TOOLS = new Set(['session__read_tool_result', 'session__read_transcript', 'session__read_session_memory', 'workflow__read_plan']);
+  let pendingRejection: ProviderRejectionReason | undefined;
+  let retryingTruncatedResponse = false;
   const formatBudgetNotice = (toolName: string): string | undefined => {
     const budget = currentToolBudgets;
-    if (!budget || budget.maxSameToolCalls <= 0) return undefined;
+    if (!budget) return undefined;
     const used = budget.callsByTool[toolName] ?? 0;
-    const remSame = Math.max(0, budget.maxSameToolCalls - used);
+    const { sameTool: remSame, available } = remainingToolBudget(budget, toolName);
     const remTotal = Math.max(0, budget.maxToolCalls - budget.toolCalls);
-    const lowSame = remSame === 0 || (budget.maxSameToolCalls >= 4 && remSame <= Math.min(3, Math.floor(budget.maxSameToolCalls / 2)));
-    const lowTotal = budget.maxToolCalls >= 8 && remTotal <= 5;
-    if (!lowSame && !lowTotal) return undefined;
+    const lowSame = budget.maxSameToolCalls < budget.maxToolCalls && remSame <= 3;
+    if (!lowSame && available > 5) return undefined;
     const guidance = remSame === 0
       ? `Do NOT call ${toolName} again; it has reached its per-tool cap. Proceed with other tools or analysis/review/draft.`
-      : `Do not exceed ${remSame} call(s) of ${toolName} in your next batch, and reserve calls for remaining workflow steps.`;
+      : available === 0
+        ? 'Proceed with the available evidence. Any reserved calls are for analysis, review and drafting.'
+        : `At most ${Math.min(remSame, available)} more call(s) of ${toolName} are available.`;
     return `Tool ${toolName}: ${used}/${budget.maxSameToolCalls} used (${remSame} remaining); total tools: ${budget.toolCalls}/${budget.maxToolCalls} (${remTotal} remaining). ${guidance}`;
   };
-  const resolveBindings = (nextTools: ModelInput['tools'], revising: boolean) => {
-    const permitted = revising ? [] : nextTools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
-    const budget = currentToolBudgets;
-    const active = !budget || budget.maxSameToolCalls <= 0
-      ? permitted
-      : permitted.filter(binding => READBACK_TOOLS.has(binding.proxy_name) || (budget.callsByTool[binding.proxy_name] ?? 0) < budget.maxSameToolCalls);
-    return { permitted, active };
-  };
+  const resolveBindings = (nextTools: ModelInput['tools'], revising: boolean) =>
+    revising ? [] : nextTools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
   const circuit = new ReactiveCompactCircuit();
   let eventQueue: Promise<void> = Promise.resolve();
-  const customTools = wrapToolsWithHooks(buildProxyTools([...bindings.values()], { ...hooks, executeTool: async (...args) => { await eventQueue; if (fatal) throw fatal; return hooks.executeTool(...args); } }, { formatBudgetNotice }), {
+  const customTools = wrapToolsWithHooks(buildProxyTools([...bindings.values()], { ...hooks, executeTool: async (...args) => {
+    await eventQueue;
+    if (fatal) throw fatal;
+    const admission = await hooks.beforeTool?.(args[0], args[4]);
+    if (admission) currentToolBudgets = admission.toolBudgets;
+    return admission?.skipped ?? hooks.executeTool(...args);
+  } }, { formatBudgetNotice }), {
     signal, throwIfStopped: () => { if (fatal) throw fatal; },
   });
   const { session } = await createAgentSession({
@@ -71,7 +76,8 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   // ResourceLoader adds a static cwd suffix. Preserve it on every refresh, including retries.
   if (!session.systemPrompt.startsWith(initialHostPrompt)) { session.dispose(); throw new Error('sdk_system_prompt_contract_changed'); }
   const sdkSystemSuffix = session.systemPrompt.slice(initialHostPrompt.length);
-  const systemPromptFor = (stable: string) => stable + executionRule + sdkSystemSuffix;
+  const systemPromptFor = (stable: string) => stable + executionRule + sdkSystemSuffix +
+    (retryingTruncatedResponse ? TRUNCATION_RETRY_INSTRUCTION : '');
   const resultPolicy = (tools: ModelInput['tools']) => ({
     canRead: tools.some(binding => binding.proxy_name === 'session__read_tool_result'),
     canReadTranscript: tools.some(binding => binding.proxy_name === 'session__read_transcript'),
@@ -94,21 +100,26 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       }
     }
     if (event.type !== 'tool_execution_end' && event.type !== 'message_end') return;
+    const rejection = event.type === 'message_end' && event.message.role === 'assistant' ? providerRejectionReason(event.message) : undefined;
     // A final answer must stop the SDK loop synchronously, before the host acknowledgement arrives.
-    if (event.type === 'message_end' && event.message.role === 'assistant' && (revisingResponse || !event.message.content.some(item => item.type === 'toolCall'))) terminal = !isContextRejection(event.message);
+    if (event.type === 'message_end' && event.message.role === 'assistant' && (revisingResponse || !event.message.content.some(item => item.type === 'toolCall'))) terminal = !rejection;
     eventQueue = eventQueue.then(async () => {
       await contextManager.flush();
       if (fatal || signal.aborted) return;
       if (event.type === 'message_end' && event.message.role === 'assistant') {
-        if (isContextRejection(event.message)) {
-          pendingRejection = true;
+        if (rejection) {
+          pendingRejection = rejection;
           await hooks.onUsage(event.message.usage, 'rejected');
+          if (rejection === 'output_token_limit' && reportedTokens(event.message.usage) === undefined) {
+            throw new Error('budget_usage_unavailable: truncated response did not report positive token usage');
+          }
           return;
         }
         contextManager.recordUsage(event.message.usage);
         await hooks.onUsage(event.message.usage);
         const decision = decodePiMessage(event.message);
         circuit.success();
+        retryingTruncatedResponse = false;
         if (revisingResponse && decision.kind !== 'respond') throw new Error('response_revision_requires_text');
         if (responseCharacterLimit !== undefined && decision.kind === 'respond') {
           // Match Python str.isspace() in the benchmark, and count Unicode code points.
@@ -120,12 +131,6 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
           }
         }
         await hooks.onDecision(decision);
-        if (currentToolBudgets && decision.kind !== 'respond') {
-          for (const call of decision.kind === 'call_tools' ? decision.calls : [decision]) {
-            currentToolBudgets.toolCalls += 1;
-            currentToolBudgets.callsByTool[call.name] = (currentToolBudgets.callsByTool[call.name] ?? 0) + 1;
-          }
-        }
         terminal = decision.kind === 'respond';
       }
       if (event.type === 'tool_execution_end') {
@@ -142,14 +147,22 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   const originalStream = session.agent.streamFunction;
   session.agent.streamFunction = (selected, originalContext, options) => {
     // SDK prompt() resets its base prompt. Always use current host rules on user follow-ups too.
-    const context = { ...originalContext, systemPrompt: systemPromptFor(currentStable) };
+    // Keep budget-blocked tools available to the dispatcher so it can return the host's
+    // skip receipt if a provider emits a call even after the tool was removed from its schema.
+    const budget = currentToolBudgets;
+    const tools = budget ? originalContext.tools?.filter(tool => !toolBudgetSkip(budget, tool.name)) : originalContext.tools;
+    const context = { ...originalContext, systemPrompt: systemPromptFor(currentStable), tools };
+    const step5 = usesStep5ReasoningEffort(selected);
+    const requestOutputTokens = step5 && !retryingTruncatedResponse ? Math.min(outputTokens, STEP5_INITIAL_OUTPUT_TOKENS) : outputTokens;
     assertCompleteApiRounds(context.messages);
-    contextManager.guardWindow(context, selected, outputTokens);
+    contextManager.guardWindow(context, selected, requestOutputTokens);
     contextManager.markRequest(context);
     // The provider SDK retries before consuming a response stream, within the same host deadline.
     return originalStream(selected, context, { ...options, maxRetries: providerMaxRetries, maxRetryDelayMs: 5000,
       cacheRetention: input.promptCache ?? 'short', sessionId: input.sessionId ?? session.agent.sessionId,
-      maxTokens: Math.min(outputTokens, selected.maxTokens) });
+      ...(retryingTruncatedResponse && step5
+        ? { samplingParams: { ...options?.samplingParams, reasoning_effort: 'low' } } : {}),
+      maxTokens: Math.min(requestOutputTokens, selected.maxTokens) });
   };
   const originalPayload = session.agent.onPayload;
   session.agent.onPayload = async (payload, selected) => {
@@ -167,14 +180,14 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   session.agent.prepareNextTurnWithContext = async (turn, sdkSignal) => {
     try {
       await eventQueue;
-      if (fatal || signal.aborted || terminal) return undefined;
+      if (fatal || signal.aborted || terminal || pendingRejection) return undefined;
       const next = await hooks.beforeModel();
       currentStable = next.stable;
       outputTokens = next.maxOutputTokens ?? 4096;
       if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
       // New/replaced bindings are not silently granted within an existing session.
-      const { permitted, active: activeBindings } = resolveBindings(next.tools, revisingResponse);
-      session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
+      const permitted = resolveBindings(next.tools, revisingResponse);
+      session.setActiveToolsByName(permitted.map(binding => binding.proxy_name));
       contextManager.setToolResultPolicy(resultPolicy(permitted));
       const update = await originalPrepare?.(turn, sdkSignal);
       const refreshed = { ...(update?.context ?? turn.context), systemPrompt: systemPromptFor(next.stable) };
@@ -204,7 +217,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
     outputTokens = Math.min(outputTokens, allowance?.maxOutputTokens ?? outputTokens);
     return active.messages;
   };
-  session.agent.shouldStopAfterTurn = () => Boolean(fatal || signal.aborted || terminal);
+  session.agent.shouldStopAfterTurn = () => Boolean(fatal || signal.aborted || terminal || pendingRejection);
   try {
     let userPrompt = input.volatile;
     while (true) {
@@ -218,37 +231,46 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       await eventQueue;
       while (pendingRejection && !fatal) {
         signal.throwIfAborted();
+        const reason = pendingRejection;
         const failed = session.sessionManager.getEntries().filter(entry => entry.type === 'message' && entry.message.role === 'assistant').at(-1);
-        if (!failed || failed.type !== 'message' || failed.message.role !== 'assistant' || !isContextRejection(failed.message)) throw new Error('context_recovery_identity_mismatch');
-        await contextManager.archive(PROVIDER_REJECTION, { entryId: failed.id, reason: 'context_length_exceeded' });
+        if (!failed || failed.type !== 'message' || failed.message.role !== 'assistant' || providerRejectionReason(failed.message) !== reason) throw new Error('provider_recovery_identity_mismatch');
+        await contextManager.archive(PROVIDER_REJECTION, { entryId: failed.id, reason });
+        const compact = reason === 'context_length_exceeded';
         try {
-          circuit.begin();
-          await contextManager.archive('cwatch.reactive_compact', { stage: 'started', rejectedEntryId: failed.id, ...circuit.snapshot() });
+          if (compact) {
+            circuit.begin();
+            await contextManager.archive('cwatch.reactive_compact', { stage: 'started', rejectedEntryId: failed.id, ...circuit.snapshot() });
+          } else {
+            if (retryingTruncatedResponse) throw new Error('model_response_truncated: truncated_response after one recovery attempt (output token limit reached)');
+            retryingTruncatedResponse = true;
+          }
           const next = await hooks.beforeModel();
           currentStable = next.stable;
           outputTokens = next.maxOutputTokens ?? 4096;
           if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
-          const { permitted, active: activeBindings } = resolveBindings(next.tools, revisingResponse);
-          session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
+          const permitted = resolveBindings(next.tools, revisingResponse);
+          session.setActiveToolsByName(permitted.map(binding => binding.proxy_name));
           contextManager.setToolResultPolicy(resultPolicy(permitted));
           session.agent.state.systemPrompt = systemPromptFor(next.stable);
           const before = { systemPrompt: session.agent.state.systemPrompt, tools: session.agent.state.tools, messages: getMessagesAfterCompactBoundary(session.sessionManager) };
-          const active = await contextManager.prepare(before, runtime, model, outputTokens, signal, true);
-          if (JSON.stringify(active).length >= JSON.stringify(before).length) throw new Error('context_recovery_unavailable: no reducible history; refusing an identical retry');
+          const active = compact ? await contextManager.prepare(before, runtime, model, outputTokens, signal, true) : before;
+          if (compact && JSON.stringify(active).length >= JSON.stringify(before).length) throw new Error('context_recovery_unavailable: no reducible history; refusing an identical retry');
           session.agent.state.messages = active.messages;
           const allowance = await hooks.beforeRequest?.('turn');
           outputTokens = Math.min(outputTokens, allowance?.maxOutputTokens ?? outputTokens);
           guardContext(active); contextManager.guardWindow(active, model, outputTokens);
-          await contextManager.archive('cwatch.reactive_compact', { stage: 'retry', charsBefore: JSON.stringify(before).length, charsAfter: JSON.stringify(active).length, ...circuit.snapshot() });
-          pendingRejection = false;
+          if (compact) await contextManager.archive('cwatch.reactive_compact', { stage: 'retry', charsBefore: JSON.stringify(before).length, charsAfter: JSON.stringify(active).length, ...circuit.snapshot() });
+          pendingRejection = undefined;
           // SDK continuation resumes the unfulfilled provider request; completed tools stay completed.
           await session.agent.continue();
           await eventQueue;
           if (fatal) throw fatal;
-          if (!pendingRejection) await contextManager.archive('cwatch.reactive_compact', { stage: 'recovered', ...circuit.snapshot() });
+          if (compact && !pendingRejection) await contextManager.archive('cwatch.reactive_compact', { stage: 'recovered', ...circuit.snapshot() });
         } catch (error) {
-          circuit.failed();
-          await contextManager.archive('cwatch.reactive_compact', { stage: 'stopped', error: String(error), ...circuit.snapshot() });
+          if (compact) {
+            circuit.failed();
+            await contextManager.archive('cwatch.reactive_compact', { stage: 'stopped', error: String(error), ...circuit.snapshot() });
+          }
           throw error;
         }
       }
@@ -278,8 +300,8 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       const next = await hooks.beforeModel();
       currentStable = next.stable; outputTokens = next.maxOutputTokens ?? 4096;
       if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
-      const { permitted, active: activeBindings } = resolveBindings(next.tools, false);
-      session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
+      const permitted = resolveBindings(next.tools, false);
+      session.setActiveToolsByName(permitted.map(binding => binding.proxy_name));
       contextManager.setToolResultPolicy(resultPolicy(permitted));
       userPrompt = message; prepareUserPrompt = true; revisingResponse = false;
     }

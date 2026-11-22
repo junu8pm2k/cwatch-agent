@@ -6,6 +6,11 @@ const text = z.string().min(1);
 const count = z.number().int().nonnegative();
 const mode = z.enum(PERMISSION_MODES);
 const identity = { requestId: text, taskId: text, toolName: text, bindingId: text, argsHash: text, sdkToolCallId: text.optional() };
+export const ProviderRejectionSchema = z.object({
+  entryId: text,
+  reason: z.enum(['context_length_exceeded', 'output_token_limit']),
+}).strict();
+export type ProviderRejectionReason = z.infer<typeof ProviderRejectionSchema>['reason'];
 const payloads = {
   run_started: z.object({ task: AgentTaskSchema.optional(), permissionMode: mode.optional(), mode: z.enum(['live','replay']).optional(), purpose: text.optional() }).passthrough(),
   agent_process: z.object({ state: z.enum(['started','ready','stopping','exited']), sessionId: text, pid: count.optional() }).passthrough(),
@@ -16,7 +21,7 @@ const payloads = {
   // api is accepted here only to read historical Trace v2; current ToolBinding cannot emit it.
   context_prepared: z.object({ iteration: count, permissionMode: mode, contextHash: text, skillHash: text, tools: z.array(z.object({ proxyName: text, sourceSlug: text, originalName: text, channel: z.enum(['builtin','api','mcp','workflow']), action: z.enum(['collect','analyze','local_draft','modify','send','publish']), bindingId: text, dynamicAction: z.boolean().optional(), availableActions: z.array(z.enum(['collect','analyze','local_draft','modify','send','publish'])).optional() }).strict()) }).passthrough(),
   model_requested: z.object({ iteration: count, contextChars: count }).passthrough(),
-  provider_rejected: z.object({ iteration: count, entryId: text, reason: z.literal('context_length_exceeded') }).strict(),
+  provider_rejected: ProviderRejectionSchema.extend({ iteration: count }),
   response_revision_requested: z.object({ iteration: count, length: count, limit: count.min(1) }).strict().refine(data => data.length > data.limit),
   model_usage: z.object({ iteration: count, usage: z.record(z.string(),z.unknown()) }).passthrough(),
   decision_made: z.object({ decision: DecisionSchema }).passthrough(),
