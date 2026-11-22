@@ -17,6 +17,8 @@ const inside = (root: string, path: string) => {
   const part = relative(root, path);
   return !part || !isAbsolute(part) && part !== '..' && !part.startsWith('..' + sep);
 };
+const STORE_READABLE_DIRS = new Set(['retrievals', 'plans', 'reports', 'claims', 'reviews', 'comparisons']);
+const invalidSegment = (part: string) => part.includes(':') || process.platform === 'win32' && (/[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 
 /** File-tool scope checks; an approved arbitrary shell is not an OS sandbox. */
 export class BuiltinFileScope {
@@ -25,9 +27,38 @@ export class BuiltinFileScope {
     this.root = realpathSync(resolve(root));
     this.protectedRoots = protectedRoots.map(path => realpathSync(resolve(path)));
   }
+  private resolveProtectedRead(input: string): string | undefined {
+    if (input.includes('\0')) return undefined;
+    for (const storeRoot of this.protectedRoots) {
+      const target = isAbsolute(input) ? resolve(input) : resolve(storeRoot, input);
+      if (!inside(storeRoot, target)) continue;
+      const parts = relative(storeRoot, target).split(sep).filter(Boolean);
+      if (!parts.length || !STORE_READABLE_DIRS.has(parts[0].toLowerCase()) || parts.some(invalidSegment)) continue;
+      if (parts.some(part => /^\.env(?:\.|$)/i.test(part))) continue;
+      if (!lstatSync(target, { throwIfNoEntry: false })) continue;
+      let ancestor = target;
+      while (!lstatSync(ancestor, { throwIfNoEntry: false }) && ancestor !== dirname(ancestor)) ancestor = dirname(ancestor);
+      if (!inside(storeRoot, realpathSync(ancestor))) throw Error('builtin_symlink_outside_workspace');
+      let prefix = storeRoot;
+      for (const part of parts) {
+        prefix = resolve(prefix, part);
+        if (!lstatSync(prefix, { throwIfNoEntry: false })) break;
+        if (!inside(storeRoot, realpathSync(prefix))) throw Error('builtin_symlink_outside_workspace');
+      }
+      return target;
+    }
+    return undefined;
+  }
   path(input: string, writing = false): string {
+    if (isAbsolute(input) || !lstatSync(resolve(this.root, input), { throwIfNoEntry: false })) {
+      const storeTarget = this.resolveProtectedRead(input);
+      if (storeTarget) {
+        if (writing) throw Error('builtin_protected_path');
+        return storeTarget;
+      }
+    }
     const target = resolve(this.root, input), parts = relative(this.root, target).split(sep).filter(Boolean);
-    if (!inside(this.root, target) || input.includes('\0') || parts.some(part => part.includes(':') || process.platform === 'win32' && (/[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)))) throw Error('builtin_path_outside_workspace');
+    if (!inside(this.root, target) || input.includes('\0') || parts.some(invalidSegment)) throw Error('builtin_path_outside_workspace');
     if (parts.some(part => /^\.env(?:\.|$)/i.test(part)) || ['.ssh', '.aws', '.cwatch'].includes(parts[0]?.toLowerCase())) throw Error('builtin_private_path');
     if (writing && (['.git', '.codex', '.agents', 'sources', 'skills'].includes(parts[0]?.toLowerCase()) || this.protectedRoots.some(root => inside(resolve(root), target)))) throw Error('builtin_protected_path');
     // Resolve the nearest existing parent too, so new files cannot escape through a junction.

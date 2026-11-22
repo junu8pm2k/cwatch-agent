@@ -14,6 +14,10 @@ import { validateTrace, type TraceEvent } from '@cwatch/shared/sessions/trace';
 import { SourceConfigsSchema } from '@cwatch/shared/sources/server-builder';
 import { readSearchMcp } from '@cwatch/shared/sources/web-mcp';
 import { createWebToolDefinitions } from '@cwatch/shared/sources/web-tools';
+import { PiBuiltinSource } from '@cwatch/shared/tools/pi-builtins';
+import { ToolExecutor } from '@cwatch/shared/tools/executor';
+import { ApprovalManager } from '@cwatch/shared/agent/core/permission-manager';
+import { Trace } from '@cwatch/shared/sessions/trace';
 import { runInvestigation } from '@cwatch/server-core/runtime/investigation';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
 import { WorkingStateTracker } from '@cwatch/server-core/runtime/working-state';
@@ -342,5 +346,110 @@ check('contract', 'Hard budget_same_tool guard still fails closed if a provider 
   } finally {
     await provider.close();
     await registry.close();
+  }
+});
+
+check('contract', 'PiBuiltinSource resolves read-only retrievals/<hash>.txt from store.root while blocking writes, and workflow__extract_signal corroborates same-URL date quotes', async () => {
+  const workspace = store(), audit = store(), registry = new ToolRegistry(), t: CompetitorTask = { ...task(), allowedSources: ['web'] };
+  const snapRel = 'retrievals/0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt';
+  audit.text(snapRel, '2026-08-26\nGLM-5.3-Flash 原生多模态模型上线\n2026-08-19\nGLM-5.3 新一代旗舰模型上线\n');
+  const builtins = new PiBuiltinSource(workspace.root, [audit.root]);
+  const trace = new Trace(audit, t.taskId, 'store-read-run');
+  trace.emit('run_started', { task: t });
+  await registry.register('pi', 'builtin', builtins, live);
+  try {
+    const executor = new ToolExecutor(registry, new ActionPolicy('allow-all'), new ApprovalManager(async () => true), audit, trace, t, 10_000);
+    // Read-only access to retrievals/<hash>.txt resolves cleanly to audit.root/retrievals/<hash>.txt instead of throwing Path not found in workspace.root.
+    assert.equal(builtins.validateScope('read', { path: snapRel }), undefined);
+    assert.equal(builtins.validateScope('grep', { path: snapRel, pattern: '2026-08-26' }), undefined);
+    const readRes = await executor.execute('read', { path: snapRel }, live) as { content: Array<{ type: string; text: string }> };
+    assert.match(readRes.content.map(c => c.text).join('\n'), /GLM-5\.3-Flash 原生多模态模型上线/);
+    // Writes to retrievals/<hash>.txt or non-whitelisted store paths remain blocked.
+    assert.equal(builtins.validateScope('write', { path: snapRel, content: 'forged' }), 'builtin_protected_path');
+    await assert.rejects(executor.execute('write', { path: snapRel, content: 'forged' }, live), /builtin_protected_path/);
+  } finally {
+    await registry.close();
+  }
+
+  // Test same-URL date-corroborated quote extraction when web_fetch markdown stripped date headers that web_search preserved for the exact same URL.
+  const runData = store(), runReg = new ToolRegistry();
+  const changelogUrl = 'https://docs.bigmodel.cn/cn/update/new-releases';
+  const zhipuTask: CompetitorTask = {
+    ...task(),
+    competitor: { id: 'zhipu', name: '智谱', aliases: [], domains: ['bigmodel.cn'] },
+    product: 'GLM',
+    allowedSources: ['web'],
+  };
+  await runReg.register('web', 'builtin', {
+    listTools: async () => createWebToolDefinitions({ allowedDomains: ['bigmodel.cn'], urls: [] }),
+    callTool: async (name: string) => {
+      if (name === 'web_search') {
+        const raw = JSON.stringify({ url: changelogUrl, snippet: '2026-08-26\nGLM-5.3-Flash 原生多模态模型上线\n原生融入视觉能力' });
+        return {
+          status: 'success_with_data' as const,
+          signals: [],
+          raw,
+          provenance: 'live' as const,
+          backend: 'mcp.remote',
+          searchResults: [{ url: changelogUrl, title: '模型与产品发布记录', snippet: '2026-08-26\nGLM-5.3-Flash 原生多模态模型上线\n原生融入视觉能力', published_at: null, retrieved_at: '2026-11-22T06:00:34Z' }],
+        };
+      }
+      const pageBody = '## 公告通知\n\nGLM-5.3-Flash 原生多模态模型上线\n\n原生融入视觉能力，使模型能够主动观察界面。';
+      return {
+        status: 'success_with_data' as const,
+        signals: [],
+        raw: JSON.stringify({ page: { url: changelogUrl, markdown: pageBody } }),
+        provenance: 'live' as const,
+        backend: 'mcp.remote',
+        pages: [{ url: changelogUrl, title: '模型与产品发布记录', text: pageBody, published_at: null, retrieved_at: '2026-11-22T06:01:29Z', truncated: false }],
+      };
+    },
+    close: async () => {},
+  }, live);
+  try {
+    const initialPlan = json<Decision[]>('fixtures/model-script.json')[0] as Extract<Decision, { kind: 'call_tool' }>;
+    const planStep: Decision = { ...initialPlan, args: { ...initialPlan.args, taskId: zhipuTask.taskId, sources: ['web'] } };
+    let cursor = 0;
+    const steps: Decision[] = [
+      planStep,
+      { kind: 'call_tool', name: 'web_search', args: { query: 'site:bigmodel.cn GLM 发布', limit: 5 } },
+      { kind: 'call_tool', name: 'web_fetch', args: { url: changelogUrl } },
+      {
+        kind: 'call_tool',
+        name: 'workflow__extract_signal',
+        args: {
+          url: changelogUrl,
+          signalType: 'release',
+          eventKey: 'release:glm-5.3-flash',
+          title: 'GLM-5.3-Flash 原生多模态模型上线',
+          value: '原生多模态模型上线',
+          quote: '2026-08-26 GLM-5.3-Flash 原生多模态模型上线',
+          publishedAt: '2026-08-26T00:00:00+08:00',
+        },
+      },
+      { kind: 'call_tool', name: 'workflow__analyze', args: {} },
+      { kind: 'call_tool', name: 'workflow__review', args: {} },
+      { kind: 'call_tool', name: 'workflow__draft', args: { narrative: 'Verified GLM-5.3-Flash release.', claimIds: [] } },
+      { kind: 'respond', text: 'Done.' },
+    ];
+    const model: ModelPort = {
+      async decide(input) {
+        const step = structuredClone(steps[cursor++]);
+        if (step.kind === 'call_tool' && step.name === 'workflow__draft') {
+          const latest = [...input.state.observations].reverse().find(o => o.name === 'workflow__analyze')?.result as { claims?: Array<{ id: string }> } | undefined;
+          step.args.claimIds = latest?.claims?.map(c => c.id) ?? [];
+        }
+        return step;
+      },
+    };
+    const res = await runInvestigation(zhipuTask, model, runReg, runData, 'replay');
+    assert.ok(['complete', 'partial'].includes(res.status), res.error);
+    const saved = runData.read<AgentState>('states/' + res.runId + '.json', null!);
+    const ext = saved.observations.find(o => o.name === 'workflow__extract_signal')?.result as Record<string, unknown>;
+    assert.equal(ext.extracted, true);
+    assert.equal(ext.attribution, 'matched');
+    assert.equal(ext.timeStatus, 'in_window');
+  } finally {
+    await runReg.close();
   }
 });

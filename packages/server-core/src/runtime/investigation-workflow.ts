@@ -72,7 +72,7 @@ export class InvestigationWorkflow implements SourceClient {
     ...await this.sessionTools.listTools(),
     ...(this.transcript ? [{ name: 'read_plan', description: 'Read a verified page of the saved plan for this run. No path argument; use nextOffset for subsequent pages.', action: 'analyze' as const, inputSchema: z.toJSONSchema(ReadPlanSchema, { target: 'draft-7' }) }] : []),
     { name: 'save_plan', description: 'Persist and verify a scoped investigation plan, then submit via host callback.', action: 'local_draft', inputSchema: z.toJSONSchema(PlanSchema, { target: 'draft-7' }) },
-    { name: 'extract_signal', description: 'Extract a verifiable CompetitorSignal from an already fetched page using an exact verbatim quote checked against the fetched text and snapshot.', action: 'analyze', inputSchema: extractSignalInputSchema },
+    { name: 'extract_signal', description: 'Extract a verifiable CompetitorSignal from an already fetched page using a verbatim quote checked against the fetched text/snapshot (publishedAt: ISO-8601 or null).', action: 'analyze', inputSchema: extractSignalInputSchema },
     { name: 'analyze', description: 'Normalize collected observations, attribute entities, store evidence/fact versions and compare history.', action: 'analyze', inputSchema: empty },
     { name: 'review', description: 'Read-only reviewer checks claim/evidence identity, chronology and counter evidence.', action: 'analyze', inputSchema: empty },
     { name: 'draft', description: 'Save a draft from reviewed claims and your narrative; only known claim IDs allowed.', action: 'local_draft', inputSchema: z.toJSONSchema(draftSchema, { target: 'draft-7' }) },
@@ -113,6 +113,24 @@ export class InvestigationWorkflow implements SourceClient {
       if (!candidates.length) throw new Error('fetched_page_not_found');
       const normalizedQuote = normalizeText(input.quote);
       if (!normalizedQuote) throw new Error('quote_not_found_in_fetched_page');
+      const strippedDateQuote = normalizeText(input.quote.replace(/^\s*(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?\s*)+/, ''));
+      const verifySameUrlSearchQuote = (sourceSlug: string): boolean => {
+        for (let idx = this.state.observations.length - 1; idx >= 0; idx--) {
+          const obs = this.state.observations[idx];
+          try { if (this.registry.binding(obs.name).source_slug !== sourceSlug) continue; } catch { continue; }
+          const parsed = RetrievalSchema.safeParse(obs.result);
+          if (!parsed.success || parsed.data.status !== 'success_with_data' || !parsed.data.searchResults?.some(hit => hit.url === input.url)) continue;
+          let searchSnap: string | undefined;
+          if (parsed.data.snapshot) {
+            try { searchSnap = readFileSync(this.store.path(parsed.data.snapshot.path), 'utf8'); } catch { throw new Error('retrieval_snapshot_mismatch'); }
+            if (hash(searchSnap) !== parsed.data.snapshot.hash) throw new Error('retrieval_snapshot_mismatch');
+          }
+          const inHit = parsed.data.searchResults.some(hit => hit.url === input.url && normalizeText([hit.title, hit.snippet].join(' ')).includes(normalizedQuote));
+          const inSearchSnap = searchSnap !== undefined && normalizeText(searchSnap).includes(normalizedQuote);
+          if (inHit || inSearchSnap) return true;
+        }
+        return false;
+      };
       let matched: (typeof candidates)[number] | undefined;
       for (const candidate of candidates) {
         let snapshotRaw: string | undefined;
@@ -121,9 +139,14 @@ export class InvestigationWorkflow implements SourceClient {
           catch { throw new Error('retrieval_snapshot_mismatch'); }
           if (hash(snapshotRaw) !== candidate.retrieval.snapshot.hash) throw new Error('retrieval_snapshot_mismatch');
         }
-        const inPage = normalizeText(candidate.page.text).includes(normalizedQuote);
-        const inSnapshot = snapshotRaw !== undefined && normalizeText(snapshotRaw).includes(normalizedQuote);
-        if (inPage || inSnapshot) { matched = candidate; break; }
+        const pageNorm = normalizeText(candidate.page.text);
+        const snapNorm = snapshotRaw !== undefined ? normalizeText(snapshotRaw) : '';
+        const inPage = pageNorm.includes(normalizedQuote);
+        const inSnapshot = snapNorm.includes(normalizedQuote);
+        const inSameUrlCorroborated = strippedDateQuote.length >= 10
+          && (pageNorm.includes(strippedDateQuote) || snapNorm.includes(strippedDateQuote))
+          && verifySameUrlSearchQuote(candidate.sourceSlug);
+        if (inPage || inSnapshot || inSameUrlCorroborated) { matched = candidate; break; }
       }
       if (!matched) throw new Error('quote_not_found_in_fetched_page');
       const hostname = new URL(input.url).hostname.toLowerCase();

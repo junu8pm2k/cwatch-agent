@@ -23,9 +23,18 @@ export function buildProxyTools(bindings: readonly ToolBinding[], hooks: AgentSe
           const content = (observation as PiBuiltinResult).content;
           return { content: notice ? [...content, { type: 'text' as const, text: '[HOST BUDGET NOTICE] ' + notice }] : content, details: observation };
         }
-        const payload = notice && observation && typeof observation === 'object' && !Array.isArray(observation)
-          ? { ...(observation as Record<string, unknown>), _hostBudgetNotice: notice }
-          : observation;
+        let basePayload: unknown = observation;
+        if (observation && typeof observation === 'object' && !Array.isArray(observation)) {
+          const rec = observation as Record<string, unknown>;
+          const hasNormalizedView = (Array.isArray(rec.pages) && rec.pages.length > 0) || (Array.isArray(rec.searchResults) && rec.searchResults.length > 0);
+          if (hasNormalizedView && typeof rec.raw === 'string' && rec.raw.length > 0) {
+            const { raw: _duplicateRaw, ...withoutRaw } = rec;
+            basePayload = withoutRaw;
+          }
+        }
+        const payload = notice && basePayload && typeof basePayload === 'object' && !Array.isArray(basePayload)
+          ? { ...(basePayload as Record<string, unknown>), _hostBudgetNotice: notice }
+          : basePayload;
         return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: observation };
       },
     };
