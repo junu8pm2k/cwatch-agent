@@ -18,9 +18,12 @@ function editsFor(manager: SessionManager): Map<string, Edit> {
   }
   return edits;
 }
-function render(message: ToolMessage, edit: Edit): ToolMessage {
+function withoutDetails(message: ToolMessage): ToolMessage {
   const { details: _archivedDetails, ...identity } = message;
-  return { ...identity, content: [{ type: 'text', text: edit.text }] };
+  return identity;
+}
+function render(message: ToolMessage, edit: Edit): ToolMessage {
+  return { ...withoutDetails(message), content: [{ type: 'text', text: edit.text }] };
 }
 /** Project by native message entry identity, including when providers reuse a toolCallId. */
 export function projectSessionEntries(manager: SessionManager, entries: SessionEntry[]) {
@@ -34,7 +37,10 @@ export function projectSessionEntries(manager: SessionManager, entries: SessionE
         return visible;
       });
     }
-    return entry.type === 'message' && entry.message.role === 'toolResult' && edit ? [render(entry.message, edit)] : sessionEntryToContextMessages(entry);
+    if (entry.type === 'message' && entry.message.role === 'toolResult') {
+      return [edit ? render(entry.message, edit) : withoutDetails(entry.message)];
+    }
+    return sessionEntryToContextMessages(entry);
   });
 }
 
@@ -69,6 +75,11 @@ export class ToolResultGovernor {
       if (size(current) <= this.maxResultChars) continue;
       const edit = this.createEdit(entry, 'snip'), reference = this.reference(edit);
       const text = entry.message.content.map(item => item.type === 'text' ? item.text : '[non-text content archived]').join('\n');
+      if (size(render(entry.message, { ...edit, text })) <= this.maxResultChars) {
+        edit.text = text;
+        this.commit(edit); changed = true;
+        continue;
+      }
       let low = 0, high = text.length;
       while (low < high) {
         const count = Math.ceil((low + high) / 2), head = Math.ceil(count / 2), tail = Math.floor(count / 2);

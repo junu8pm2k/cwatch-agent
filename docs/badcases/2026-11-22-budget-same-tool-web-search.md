@@ -7,10 +7,12 @@
   2. `.runtime/web/baba6bd8-f8f9-4d8c-a288-be4387eb4a5b`（Trace `ea1d4a6b-6a41-4531-9ff8-f49b5a45dc6b`，同任务重试，`callsByTool: { workflow__save_plan: 1, web_search: 9, web_fetch: 4 }`，`totalTokens: 185228`，停留在阶段 1 采集）
   3. `.runtime/web/f92c12f1-b3cd-475a-a08d-a6ca3f9c877b`（Trace `1cfcec82-c0a2-4690-bb74-aa6dcc204df4`，未重启旧 `npm run web` 父进程下的重试，`web_fetch` 已成功，但触发 `Error: Path not found: ...\retrievals\0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt` 并继续逐条补搜触发 `9/8`）
   4. `.runtime/web/d3bb9ab2-b7a6-4644-8298-494896777b39`（Trace `6a7c4218-aa2e-418c-a7cd-ee3ab86a78f4`，未重启旧 `npm run web` 父进程下的重试，子进程已生效剔除冗余 `raw`，但因产品调查默认暴露了本地工作区 `ls/find/read` 工具，模型在保存计划前后空转调用了 13 次 `ls/find/read` 浏览本地仓库，撞上旧父进程 `Error: budget_tools: 21/20`）
+  5. `.runtime/web/69314c13-4847-4226-a0ed-c2c2e3c08095`（Trace `7eda4fcf-61cc-4f39-a451-d552ae195f56`，`ToolResultGovernor.capResults()` 因把 21KB `entry.message.details` 计入尺寸，将仅 `7565` 字符的 `web_fetch` 误包装为 `Archived tool result (snip)... [...snipped...]`，迫使模型连续调用 `session__read_tool_result` 翻页并在第 4 次 Session Memory 增量更新时耗尽 `4096` 输出 Token）
 - **致命错误现象**：
   - `Error: budget_same_tool: 9/8 tool=web_search`（从未进入 `workflow__analyze` / `workflow__review` / `workflow__draft`）
   - `Error: Path not found: C:\Users\Swing\Desktop\Cwatch-agent\retrievals\0e2caa7352a1c11bb954328445a615828fc5aac127ee56c0d8143cb3dd5409b0.txt`
   - `Error: budget_tools: 21/20`（13/21 次工具调用消耗在本地工作区 `ls / find / read`）
+  - `Error: Error: session_memory_update_failed: output limit exhausted after 2 attempts; memory checkpoint unchanged`
 
 ## 根因分析
 
@@ -42,7 +44,10 @@
    - `BuiltinFileScope.path()` 支持只读工具（`read / grep / find / ls`）在工作区不存在同名路径时，安全解析 `store.root`（`protectedRoots`）下的 `retrievals/ | plans/ | reports/ | claims/ | reviews/ | comparisons/` 快照文件，同时继续严格拦截对该目录的 `write / edit`（`builtin_protected_path`），彻底消除 `Error: Path not found: ...\retrievals\0e2caa...txt`。
    - `buildProxyTools()` 在向模型返回已归一化出 `pages` 或 `searchResults` 的 `RetrievalResult` 时，从模型可见 `toolResult.content` 中剔除重复的 16KB 原始转义 `"raw"` 包裹（`details` / `state.observations` 仍完整保留 `raw`），避免 `web_fetch` 的 `pages[0].text` 因整包超过 16KB 被 `ToolResultGovernor` 攔腰截断而引发多轮无效翻页与本地检索。
    - `workflow__extract_signal` 在校验已抓取页面原文之外，支持当 `web_fetch` Markdown 转换丢失日期标题（如 `2026-08-26 GLM-5.3-Flash 原生多模态模型上线`）时，联合同一 `url` 已落盘校验的 `web_search` 快照与已抓取正文做交叉核验。
-5. **`packages/shared/src/sources/web-tools.ts` & `skills/competitor-investigation/SKILL.md`**：
+5. **`packages/shared/src/agent/backend/pi/tool-result-context.ts` & `packages/shared/src/agent/backend/pi/session-memory.ts`**：
+   - `projectSessionEntries()` 在构建活跃上下文消息时剥离不发给模型的 `entry.message.details`；`ToolResultGovernor.capResults()` 在剥离 `details` 后若 `text` 本身已 `<= maxResultChars`（如 `5.3KB` 的 `web_search` 与 `7.5KB` 的 `web_fetch`），直接保留完整 `text` 而不插入伪造的 `Archived tool result (snip)... [...snipped...]`，消除因假截断引发的 `session__read_tool_result` 连环翻页与 `windowTokens` 虚高。
+   - `PiSessionMemory` 对 `session__read_tool_result` 等分页回查结果同样提取紧凑 `memoryDigest`，在请求前由代码预裁剪 `currentMemory` 各数组长度并移除冲突的思考计数约束，同时将 `step-5-preview` 增量更新（`loaded !== null`）的首轮输出预算从 `2048` 提升至 `3072`，避免首轮触顶退回单轮提交造成 `pendingMessages: true` 死循环。
+6. **`packages/shared/src/sources/web-tools.ts` & `skills/competitor-investigation/SKILL.md`**：
    - 明确要求抓取到发布记录页后立即批量调用 `workflow__extract_signal` 并推进 `workflow__analyze`，不要按每个条目循环追加 `web_search`。
 
 ## 回归用例
