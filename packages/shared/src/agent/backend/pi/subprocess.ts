@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { canonical, hash, id, abortable, type AgentSessionHooks, type ModelInput } from "@cwatch/core/types";
+import { canonical, hash, id, abortable, type AgentSessionHooks, type ModelInput, type ToolBudgetSkip } from "@cwatch/core/types";
 import { type ModelConfig } from "../../../config/models.ts";
 import { Redactor } from "../../../sessions/trace.ts";
 import { MAX_FRAME_CHARS, parseFrame, PROTOCOL_VERSION, toolIdentity, WorkerMessageSchema, type Frame, type HostMessage, type WorkerMessage } from './protocol.ts';
@@ -30,9 +30,12 @@ export async function runPiSubprocess(config: ModelConfig, input: ModelInput, ho
   const pending = new Map<string, PendingTool>(), operations = new Set<Promise<void>>(), seen = new Set<string>();
   const bindings = new Map(input.tools.map(binding => [binding.proxy_name, structuredClone(binding)]));
   const redactor = new Redactor([config.apiKey]);
+  const beforeTool = hooks.beforeTool?.bind(hooks);
+  const toolAdmission = beforeTool ? true : undefined;
   let outgoing = 0, incoming = 0, ready = false, completed = false, closed = false, awaitingInput = false, fatal: unknown;
   const intents: Array<{ name: string; args: Record<string, unknown>; sdkToolCallId?: string }> = [];
   let intentConsumed = false, intentExecuted = false;
+  let intentAdmission: 'checking' | 'decided' | undefined, intentSkip: ToolBudgetSkip | undefined;
   let answerReady = false;
   let exitCode: number | null = null, exitSignal: NodeJS.Signals | null = null;
   let shutdownTimer: ReturnType<typeof setTimeout> | undefined;
@@ -64,13 +67,14 @@ export async function runPiSubprocess(config: ModelConfig, input: ModelInput, ho
     void operation.catch(stop).finally(() => operations.delete(operation));
   };
   const claimId = (requestId: string) => {
-    if (seen.has(requestId) || seen.size >= 4096) throw new Error('agent_protocol: duplicate_or_excess_request');
+    if (seen.has(requestId) || seen.size >= 8192) throw new Error('agent_protocol: duplicate_or_excess_request');
     seen.add(requestId);
   };
   const handle = async (message: WorkerMessage): Promise<void> => {
     combined.throwIfAborted();
     if (message.type === 'ready') {
       if (ready || message.pid !== child.pid) throw new Error('agent_protocol: invalid_ready');
+      if (message.toolAdmission !== toolAdmission) throw new Error('agent_protocol: tool_admission_version_mismatch. Restart the Cwatch host from the current checkout.');
       ready = true; clearTimeout(startupTimer); processEvent('ready'); return;
     }
     if (!ready || completed) throw new Error('agent_protocol: unexpected_message');
@@ -80,7 +84,7 @@ export async function runPiSubprocess(config: ModelConfig, input: ModelInput, ho
       const binding = bindings.get(request.toolName);
       const intent = intents[0];
       if (request.taskId !== taskId || !binding || binding.id !== request.bindingId || hash(request.input) !== request.argsHash || !request.sdkToolCallId ||
-          !intent || intentConsumed || intent.name !== request.toolName || canonical(intent.args) !== canonical(request.input) ||
+          !intent || intentConsumed || intentAdmission === 'checking' || intentSkip || intent.name !== request.toolName || canonical(intent.args) !== canonical(request.input) ||
           (intent.sdkToolCallId !== undefined && intent.sdkToolCallId !== request.sdkToolCallId) || pending.size) throw new Error('agent_protocol: invalid_tool_intent');
       intentConsumed = true;
       const call: PendingTool = { request: structuredClone(request), phase: 'checking', execute: deferred<void>() };
@@ -136,12 +140,23 @@ export async function runPiSubprocess(config: ModelConfig, input: ModelInput, ho
         await hooks.onDecision(message.decision);
         answerReady = message.decision.kind === 'respond';
         intentConsumed = false; intentExecuted = false;
+      } else if (message.type === 'before_tool') {
+        const intent = intents[0];
+        if (!beforeTool || pending.size || intentConsumed || intentAdmission || !intent || intent.name !== message.name ||
+            (intent.sdkToolCallId !== undefined && intent.sdkToolCallId !== message.sdkToolCallId)) throw new Error('agent_protocol: invalid_tool_admission');
+        intent.sdkToolCallId ??= message.sdkToolCallId;
+        intentAdmission = 'checking';
+        const admission = await beforeTool(message.name, message.sdkToolCallId);
+        intentSkip = admission?.skipped;
+        intentAdmission = 'decided';
+        value = admission;
       } else if (message.type === 'observation') {
         const intent = intents[0];
-        if (pending.size || !intent || intent.name !== message.name || (intent.sdkToolCallId !== undefined && intent.sdkToolCallId !== message.sdkToolCallId)) throw new Error('agent_protocol: unexpected_observation');
+        if (pending.size || intentAdmission === 'checking' || !intent || intent.name !== message.name || (intent.sdkToolCallId !== undefined && intent.sdkToolCallId !== message.sdkToolCallId)) throw new Error('agent_protocol: unexpected_observation');
         const sdkFailure = message.result !== null && typeof message.result === 'object' && 'status' in message.result && message.result.status === 'tool_failed';
-        if (!intentExecuted && !sdkFailure) throw new Error('agent_protocol: observation_without_execution');
-        await hooks.onObservation(message.name, message.result, message.sdkToolCallId); intents.shift(); intentConsumed = false; intentExecuted = false;
+        if (!intentExecuted && !sdkFailure && !intentSkip) throw new Error('agent_protocol: observation_without_execution');
+        await hooks.onObservation(message.name, intentSkip ?? message.result, message.sdkToolCallId);
+        intents.shift(); intentConsumed = false; intentExecuted = false; intentAdmission = undefined; intentSkip = undefined;
       } else if (message.type === 'transcript') await hooks.onTranscript?.(message.entries);
       else if (message.type === 'before_request') value = await hooks.beforeRequest?.(message.purpose);
       else if (message.type === 'post_compact') {
@@ -180,7 +195,7 @@ export async function runPiSubprocess(config: ModelConfig, input: ModelInput, ho
   });
   try {
     processEvent('started');
-    send({ type: 'init', config, input });
+    send({ type: 'init', config, input, ...(toolAdmission ? { toolAdmission } : {}) });
     if (signal.aborted) onAbort();
     await stopped.promise;
     await Promise.allSettled([...operations]); // No late execution/approval records after run terminal.

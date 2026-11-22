@@ -133,19 +133,14 @@ function parseDomains(raw: string): string[] {
 }
 
 const DEPTH_PRESETS = {
-  fast: { label: '快速速览', timeout: 120, tokens: 150000, maxSteps: 24, maxToolCalls: 28, maxSameToolCalls: 12, summary: '120 秒 · 15 万 tokens' },
-  standard: { label: '标准核验', timeout: 300, tokens: 400000, maxSteps: 40, maxToolCalls: 48, maxSameToolCalls: 16, summary: '300 秒 · 40 万 tokens' },
-  deep: { label: '深度穷举', timeout: 600, tokens: 1000000, maxSteps: 80, maxToolCalls: 96, maxSameToolCalls: 30, summary: '600 秒 · 100 万 tokens' },
+  fast: { label: '快速速览', timeout: 180, tokens: 250000, summary: '180 秒 · 25 万 tokens' },
+  standard: { label: '标准核验', timeout: 480, tokens: 750000, summary: '480 秒 · 75 万 tokens' },
+  deep: { label: '深度穷举', timeout: 900, tokens: 1500000, summary: '900 秒 · 150 万 tokens' },
 } as const;
 type DepthPresetKey = keyof typeof DEPTH_PRESETS;
 
 function buildRunLimits(timeoutSec: number, maxTokens: number): NonNullable<RunStartInput['limits']> {
-  const matched = (Object.values(DEPTH_PRESETS)).find(preset => preset.timeout === timeoutSec && preset.tokens === maxTokens);
-  return {
-    timeoutMs: timeoutSec * 1000,
-    maxTokens,
-    ...(matched ? { maxSteps: matched.maxSteps, maxToolCalls: matched.maxToolCalls, maxSameToolCalls: matched.maxSameToolCalls } : {}),
-  };
+  return { timeoutMs: timeoutSec * 1000, maxTokens };
 }
 
 function formatLocalDate(date: Date): string {
@@ -798,8 +793,8 @@ async function retryCurrentRun(): Promise<void> {
       task,
       skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(inputEl => inputEl.value),
       limits: buildRunLimits(
-        Math.max(Number($<HTMLInputElement>('timeout').value) || 300, 1),
-        Math.max(Number($<HTMLInputElement>('tokens').value) || 400000, 100),
+        Math.max(Number($<HTMLInputElement>('timeout').value) || DEPTH_PRESETS.standard.timeout, 1),
+        Math.max(Number($<HTMLInputElement>('tokens').value) || DEPTH_PRESETS.standard.tokens, 100),
       ),
     };
     const nextRun = await startRunApi(input);

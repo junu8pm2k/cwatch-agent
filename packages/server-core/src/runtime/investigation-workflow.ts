@@ -203,7 +203,8 @@ export class InvestigationWorkflow implements SourceClient {
         this.reworkCount++;
         this.reworkUnlocked = false;
         this.reviewed = false;
-        this.gaps.splice(0, this.gaps.length, ...this.baseGaps);
+        const budgetGaps = this.gaps.filter(gap => /^(tool_budget_skipped|tool_failure_limit):/.test(gap));
+        this.gaps.splice(0, this.gaps.length, ...this.baseGaps, ...budgetGaps);
         this.evidenceIds = [];
         this.eventIds = [];
       }
@@ -211,8 +212,8 @@ export class InvestigationWorkflow implements SourceClient {
         const observations = this.state.observations
           .map((observation, index) => ({ observation, index }))
           .filter(({ observation: o }) => { try {
-            const binding = this.registry.binding(o.name), generic = o.result as { kind?: string; isError?: boolean } | null;
-            return binding.source_slug === slug && !(binding.action !== 'collect' && generic?.kind === 'mcp_tool_result' && generic.isError === false);
+            const binding = this.registry.binding(o.name), generic = o.result as { kind?: string; isError?: boolean; status?: string } | null;
+            return binding.source_slug === slug && generic?.status !== 'tool_budget_skipped' && !(binding.action !== 'collect' && generic?.kind === 'mcp_tool_result' && generic.isError === false);
           } catch { return false; } });
         if (!observations.length) { this.gaps.push('source_not_collected:' + slug); continue; }
         for (const { observation, index } of observations) {

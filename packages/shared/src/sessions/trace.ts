@@ -2,7 +2,7 @@ import { FileStore } from "./storage.ts";
 import { now, canonical, DecisionSchema, type ToolCallIntent } from "@cwatch/core/types";
 import { z } from 'zod';
 import { PERMISSION_MODES } from "../agent/core/permission-manager.ts";
-import { AgentEventSchema, AGENT_EVENT_TYPES } from "../agent/events.ts";
+import { AgentEventSchema, AGENT_EVENT_TYPES, ProviderRejectionSchema } from "../agent/events.ts";
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { projectStructuredTrace, type StructuredTrace } from './structured-trace.ts';
@@ -90,7 +90,8 @@ export function validateTrace(events: TraceEvent[], forbiddenSecrets: string[] =
     const requestId = e.data.requestId as string;
     if (e.type === 'model_requested') { if (expectingDecision) errors.push('overlapping model request'); if (queuedCalls.length) errors.push('model request with unfinished tool batch'); expectingDecision = true; requestedIteration = e.data.iteration; }
     if (e.type === 'provider_rejected') {
-      if (!expectingDecision || requestedIteration !== e.data.iteration || rejectedEntries.has(e.data.entryId) || e.data.reason !== 'context_length_exceeded') errors.push('invalid provider rejection');
+      if (!expectingDecision || requestedIteration !== e.data.iteration || rejectedEntries.has(e.data.entryId) ||
+        !ProviderRejectionSchema.safeParse({ entryId: e.data.entryId, reason: e.data.reason }).success) errors.push('invalid provider rejection');
       rejectedEntries.add(e.data.entryId); expectingDecision = false;
     }
     if (e.type === 'response_revision_requested') {

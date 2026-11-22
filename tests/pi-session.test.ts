@@ -6,12 +6,14 @@ import { resolve } from 'node:path';
 import { type FileStore } from "@cwatch/shared/sessions/storage";
 import { check, CountingClient, deferred, emptySchema, fixture, json, store, task, waitTick } from './harness.ts';
 import { PiModel } from "@cwatch/shared/agent/models";
+import { createPiRuntime } from '@cwatch/shared/agent/backend/pi/model-runtime';
+import { runPiSession } from '@cwatch/shared/agent/backend/pi/session';
 import { runInvestigation, replayState, type RuntimeOptions } from "@cwatch/server-core/runtime/investigation";
 import { runAgent } from "@cwatch/server-core/runtime/agent";
 import { ToolRegistry } from "@cwatch/shared/tools/registry";
 import { ActionPolicy, ApprovalManager } from "@cwatch/shared/agent/core/permission-manager";
 import { validateTrace, type TraceEvent } from "@cwatch/shared/sessions/trace";
-import { hash, type CompetitorTask, type Decision, type GenericTask } from "@cwatch/core/types";
+import { hash, type CompetitorTask, type Decision, type GenericTask, type ModelInput } from "@cwatch/core/types";
 import { PrerequisiteManager } from '@cwatch/shared/agent/core/prerequisite-manager';
 
 type Step = Exclude<Decision, { kind: 'call_tools' }> | { calls: Array<{ id?: string; name: string; args: unknown }>; finish?: string; text?: string; thinking?: string } | { http: number } | { hold: true };
@@ -51,8 +53,8 @@ async function sessionCase(steps: Step[], options: Options = {}) {
       await options.onRequest?.(request, requests.length, registry, data);
       const injected = options.providerError?.(request, requests.length);
       if (injected) { res.writeHead(injected.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: injected.message, code: injected.code, type: 'invalid_request_error' } })); return; }
-      const summaryRequest = !options.agentTask && !request.tools?.length;
       const memoryRequest = JSON.stringify(request.messages[0]).includes('SESSION MEMORY UPDATE.');
+      const summaryRequest = memoryRequest || String(request.messages[0]?.content).startsWith('Create a continuation record');
       const step = memoryRequest && options.memorySteps ? structuredClone(options.memorySteps[memoryIndex++]) : summaryRequest ? { kind: 'respond' as const, text: memoryRequest && options.memoryResponse !== undefined ? options.memoryResponse : JSON.stringify({ userGoal: 'The investigation plan is saved.', completedWork: ['Saved investigation plan'], keyFiles: [], errorsAndFixes: [], unfinishedTasks: ['Finish evidence-backed draft'], nextSteps: ['Continue collecting, then analyze, review and draft using exact tool-returned claim IDs'], references: [], sourceGaps: [] }) } : structuredClone(steps[scriptIndex++]);
       if (!step) throw new Error('unexpected extra provider request');
       if ('hold' in step) return;
@@ -332,7 +334,8 @@ check('integration', 'Real Pi session incrementally persists isolated session me
 check('contract', 'Real Pi invalid memory response stops without a memory cursor or further business action', async () => {
   const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1 } }, memoryResponse: 'vague unsupported memory' });
   assert.match(actual.result.error!, /session_memory_update_failed/); assert.equal(actual.source.calls.length, 0);
-  assert.equal(actual.requests.length, 2);
+  assert.equal(actual.requests.length, 3);
+  assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 2);
   assert.equal(actual.data.read('session-memory/' + actual.result.runId + '.json', null), null);
   assert.ok(actual.data.lines<any>('sessions/' + actual.result.runId + '.jsonl').some(entry => entry.customType === 'cwatch.memory_response'));
 });
@@ -396,9 +399,14 @@ check('contract', 'Pi session step budget prevents the next HTTP request', async
   assert.match(actual.result.error!, /budget_iterations/); assert.equal(actual.requests.length, 1);
   assert.equal(actual.data.executions().length, 1); assert.equal(actual.state.observations.length, 1);
 });
-check('contract', 'Pi session tool budget rejects before any tool side effect', async () => {
-  const actual = await sessionCase([plan()], { runtime: { maxToolCalls: 0 } });
-  assert.match(actual.result.error!, /budget_tools/); assert.equal(actual.requests.length, 1);
+check('contract', 'Pi session with no tool budget can report partial progress without side effects', async () => {
+  const actual = await sessionCase([call('mcp__official__op'), done], {
+    agentTask: { kind: 'agent', taskId: 'zero-tool-budget', instruction: 'Read the source.', allowedSources: ['official'] },
+    runtime: { maxToolCalls: 0 },
+  });
+  assert.equal(actual.result.status, 'partial', actual.result.error);
+  assert.equal(actual.requests[0].tools?.length ?? 0, 0);
+  assert.match(JSON.stringify(actual.requests[1].messages), /tool_budget_skipped/);
   assert.equal(actual.data.executions().length, 0);
 });
 check('integration', 'Pi session executes every call in a response serially with complete identity-matched results', async () => {
@@ -438,18 +446,48 @@ check('contract', 'Pi batch approvals are independent even for identical tool na
   assert.equal(results.length, 2); assert.match(results[1].content, /denied|permission|approval/i);
 });
 
-check('contract', 'Pi batch reserves all tool budgets before any side effect', async () => {
-  const first = plan(); if (first.kind !== 'call_tool') throw Error('invalid fixture');
-  const actual = await sessionCase([{ calls: [first, { name: 'mcp__official__op', args: {} }] }], { runtime: { maxToolCalls: 1 } });
-  assert.match(actual.result.error!, /budget_tools/);
-  assert.equal(actual.source.calls.length, 0); assert.equal(actual.data.executions().length, 0);
-  assert.equal(actual.requests.length, 1);
+check('integration', 'Pi collection batch uses its available calls and leaves enough for a verified draft', async () => {
+  const batch = Array.from({ length: 7 }, () => ({ name: 'mcp__official__op', args: {} }));
+  const actual = await sessionCase([plan(), { calls: batch }, ...full().slice(2)], { runtime: { maxToolCalls: 9 } });
+  assert.equal(actual.result.status, 'partial', actual.result.error);
+  assert.ok(actual.result.report);
+  assert.equal(actual.source.calls.length, 5);
+  assert.equal(actual.data.executions().length, 9);
+  assert.equal(actual.events.filter(e => e.type === 'budget_exceeded' && e.data.budget === 'completion_reserve').length, 2);
+  const toolsAfterBatch = actual.requests[2].tools.map((tool: any) => tool.function.name);
+  assert.ok(!toolsAfterBatch.includes('mcp__official__op'));
+  for (const tool of ['workflow__analyze', 'workflow__review', 'workflow__draft']) assert.ok(toolsAfterBatch.includes(tool));
+  assert.match(readFileSync(actual.data.path(actual.result.report!), 'utf8'), /tool_budget_skipped:mcp__official__op:completion_reserve/);
 });
 
-check('contract', 'Pi batch counts repeated tool names against the same-tool budget', async () => {
-  const actual = await sessionCase([plan(), { calls: [{ name: 'mcp__official__op', args: {} }, { name: 'mcp__official__op', args: {} }] }], { runtime: { maxSameToolCalls: 1 } });
-  assert.match(actual.result.error!, /budget_same_tool/); assert.equal(actual.source.calls.length, 0);
-  assert.equal(actual.data.executions().length, 1);
+check('integration', 'Pi permits more than eight successful calls and stops only consecutive failures for the same tool', async () => {
+  const success = fixture();
+  const empty = { ...success, status: 'success_empty', signals: [] };
+  const unavailable = { ...empty, status: 'timeout', error: 'fixture timeout' };
+  const results = [...Array.from({ length: 9 }, () => success), unavailable, empty, unavailable, unavailable];
+  let index = 0;
+  const source = new CountingClient([op()], async () => results[index++]);
+  const calls = results.map(() => ({ name: 'mcp__official__op', args: {} }));
+  calls.push({ name: 'mcp__official__op', args: {} });
+  const actual = await sessionCase([plan(), { calls }, ...full().slice(2)], {
+    client: source, runtime: { maxConsecutiveToolFailures: 2 },
+  });
+  assert.equal(actual.result.status, 'partial', actual.result.error);
+  assert.equal(actual.source.calls.length, 13);
+  const resultMessages = actual.requests[2].messages.filter((message: any) => message.role === 'tool' && message.tool_call_id.startsWith('call-2-'));
+  assert.equal(resultMessages.length, 14);
+  assert.equal(JSON.parse(resultMessages.at(-1).content).budget, 'tool_failures');
+  assert.ok(!actual.requests[2].tools.some((tool: any) => tool.function.name === 'mcp__official__op'));
+  assert.ok(actual.result.gaps.includes('tool_failure_limit:mcp__official__op'));
+});
+
+check('integration', 'Pi identical calls can hit the failure limit and still finish instead of stopping the investigation', async () => {
+  const source = new CountingClient([op()], async () => { throw new Error('fixture timeout'); });
+  const retries = Array.from({ length: 5 }, () => call('mcp__official__op'));
+  const actual = await sessionCase([plan(), ...retries, ...full().slice(2)], { client: source });
+  assert.equal(actual.result.status, 'partial', actual.result.error);
+  assert.equal(actual.source.calls.length, 4);
+  assert.ok(actual.result.gaps.includes('tool_budget_skipped:mcp__official__op:tool_failures'));
 });
 
 check('contract', 'Pi rejects truncated batches before their first execution', async () => {
@@ -496,6 +534,70 @@ check('contract', 'Fresh SDK call IDs cannot hide repeated no-progress batches',
 check('contract', 'Pi session rejects truncated tool arguments even when JSON is parseable', async () => {
   const actual = await sessionCase([{ calls: [plan() as any], finish: 'length' }]);
   assert.match(actual.result.error!, /truncated_response/); assert.equal(actual.data.executions().length, 0);
+});
+check('integration', 'Pi retries a reasoning-only truncation after a tool result and continues the investigation', async () => {
+  const steps = full();
+  steps.splice(2, 0, { calls: [], finish: 'length', thinking: 'INCOMPLETE_REASONING' });
+  const actual = await sessionCase(steps, { runtime: { maxOutputTokens: 4096 } });
+  assert.equal(actual.result.status, 'complete', actual.result.error);
+  assert.equal(actual.source.calls.length, 1);
+  assert.equal(actual.requests.length, 7);
+  assert.deepEqual(actual.requests[3].messages.slice(1), actual.requests[2].messages.slice(1));
+  assert.match(actual.requests[3].messages[0].content, /previous attempt reached its output token limit/);
+  assert.equal(actual.requests[3].reasoning_effort, undefined);
+  assert.equal(actual.requests[3].max_tokens ?? actual.requests[3].max_completion_tokens, 4096);
+  assert.equal(actual.requests[4].messages[0].content, actual.requests[2].messages[0].content);
+  assert.deepEqual(actual.events.filter(event => event.type === 'provider_rejected').map(event => event.data.reason), ['output_token_limit']);
+  const usage = actual.events.filter(event => event.type === 'model_usage');
+  assert.deepEqual(usage.map(event => event.data.purpose), ['turn', 'turn', 'rejected', 'turn', 'turn', 'turn', 'turn']);
+  assert.equal(actual.events.find(event => event.type === 'usage_reported')?.data.totalTokens, 840);
+});
+check('contract', 'Pi retries truncated text once without sending partial text to the model or user', async () => {
+  const agentTask: GenericTask = { kind: 'agent', taskId: 'truncated-answer', instruction: 'Summarize the result.', allowedSources: [] };
+  const truncated = { calls: [], finish: 'length', text: 'INCOMPLETE_ANSWER' } satisfies Step;
+  const actual = await sessionCase([truncated, truncated], { agentTask });
+  assert.match(actual.result.error ?? '', /truncated_response after one recovery attempt/);
+  assert.equal(actual.result.response, undefined);
+  assert.deepEqual(actual.state.decisions, []);
+  assert.equal(actual.requests.length, 2);
+  assert.deepEqual(actual.requests[1].messages.slice(1), actual.requests[0].messages.slice(1));
+});
+check('contract', 'Pi stops before retrying a truncated response that exhausted the token budget', async () => {
+  const actual = await sessionCase([{ calls: [], finish: 'length', thinking: 'INCOMPLETE_REASONING' }], { runtime: { maxTokens: 120 } });
+  assert.match(actual.result.error ?? '', /budget_tokens/);
+  assert.equal(actual.requests.length, 1);
+  assert.deepEqual(actual.state.decisions, []);
+});
+check('integration', 'Step 5 output recovery sends a higher allowance and low reasoning on the retry', async () => {
+  const signal = new AbortController().signal;
+  const baseUrl = 'https://api.stepfun.com/step_plan/v1';
+  const port = PiModel.fromEnvironment({ MODEL_PROVIDER: 'stepfun', MODEL_ID: 'step-5-preview', API_KEY: 'fixture-key', BASE_URL: baseUrl });
+  const { model, runtime } = await createPiRuntime('stepfun', 'step-5-preview',
+    { apiKey: 'fixture-key', baseUrl, reasoningEffort: 'high' }, signal);
+  const requests: Array<{ reasoning_effort?: string; max_tokens?: number; max_completion_tokens?: number }> = [];
+  const stream = runtime.streamSimple.bind(runtime);
+  runtime.streamSimple = (selected, context, options) => stream(selected, context, { ...options, fetch: async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    const first = requests.length === 1;
+    const delta = first ? { reasoning_content: 'Incomplete reasoning' } : { content: 'Result.' };
+    const chunk = { id: 'fixture', choices: [{ index: 0, delta, finish_reason: first ? 'length' : 'stop' }],
+      usage: { prompt_tokens: 20, completion_tokens: first ? 8192 : 4, total_tokens: first ? 8212 : 24 } };
+    return new Response('data: ' + JSON.stringify(chunk) + '\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  } });
+  const input: ModelInput = {
+    state: { task: { kind: 'agent', taskId: 'step5-retry', instruction: 'Give the result.', allowedSources: [] }, decisions: [], observations: [], iteration: 0 },
+    tools: [], stable: 'Answer the user.', volatile: 'Give the result.', maxOutputTokens: port.defaultMaxOutputTokens,
+  };
+  const decisions: Decision[] = [];
+  await runPiSession(runtime, model, input, {
+    beforeModel: () => input,
+    onUsage: () => {},
+    onDecision: decision => { decisions.push(decision); },
+    onObservation: () => {},
+    executeTool: async () => { throw new Error('unexpected tool execution'); },
+  }, signal);
+  assert.deepEqual(requests.map(request => [request.reasoning_effort, request.max_tokens ?? request.max_completion_tokens]), [['high', 8192], ['low', 12_288]]);
+  assert.deepEqual(decisions, [{ kind: 'respond', text: 'Result.' }]);
 });
 for (const [label, step] of [
   ['invalid schema', call('mcp__official__op', { unexpected: true })],
@@ -596,7 +698,7 @@ check('integration', 'Pi sessions keep concurrent tasks, transcripts and reports
 check('integration', 'Real Pi subprocess compacts long history, keeps archived source originals and completes with metered summaries', async () => {
   let collected = 0, hooks = 0;
   const source = new CountingClient([{ ...op(), inputSchema: { type: 'object', properties: { index: { type: 'integer' } }, required: ['index'], additionalProperties: false } }], async () => {
-    const payload = fixture(); payload.raw = 'archived-source-' + ++collected + ':' + 'x'.repeat(12_000); return payload;
+    const payload = fixture(); payload.raw = 'archived-source-' + ++collected + ':' + 'x'.repeat(16_000); return payload;
   });
   const steps = full(); steps.splice(1, 1, ...[1, 2, 3].map(index => ({ calls: [{ name: 'mcp__official__op', args: { index } }], text: 'Assistant investigation reasoning ' + index + ': ' + 'a'.repeat(12_000) })));
   steps.unshift(call('session__read_source_guide', { source: 'official' }), call('session__read_skill_resource', { skill: 'fixture-skill', path: 'reference.md' }));

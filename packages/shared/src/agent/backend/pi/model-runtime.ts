@@ -1,4 +1,5 @@
 import { type ModelConfig } from "../../../config/models.ts";
+import { isStep5Endpoint, STEP5_MAX_OUTPUT_TOKENS } from './stepfun.ts';
 
 /** Explicit in-memory credentials; used in the worker and the standalone connectivity probe. */
 export async function createPiRuntime(provider: string, modelId: string, config: Pick<ModelConfig, 'apiKey' | 'baseUrl' | 'reasoningEffort'> | undefined, signal: AbortSignal, supplied?: import('@earendil-works/pi-coding-agent').ModelRuntime) {
@@ -11,7 +12,8 @@ export async function createPiRuntime(provider: string, modelId: string, config:
       name: provider, api: 'openai-completions', baseUrl: config.baseUrl,
       models: [{
         id: modelId, name: modelId, reasoning: false, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 4096,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000,
+        maxTokens: isStep5Endpoint(modelId, config.baseUrl) ? STEP5_MAX_OUTPUT_TOKENS : 4096,
         compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false },
         ...(config.reasoningEffort ? { samplingParams: { reasoning_effort: config.reasoningEffort } } : {}),
       }],

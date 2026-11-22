@@ -9,7 +9,7 @@ process.on('message', (frame: any) => {
     init = frame; mode = message.input.volatile;
     if (mode === 'exit-startup') return quit();
     if (mode === 'hang-startup') { setInterval(() => {}, 1000); return; }
-    send({ type: 'ready', pid: process.pid });
+    send({ type: 'ready', pid: process.pid, ...(message.toolAdmission && mode !== 'legacy-ready' ? { toolAdmission: true } : {}) });
     if (mode === 'disconnect') { process.disconnect!(); setInterval(() => {}, 1000); return; }
     if (mode === 'wrong-session') { send({ type: 'completed' }, { sessionId: 'another-session' }); return; }
     if (mode === 'wrong-sequence') { send({ type: 'completed' }, { sequence: 1 }); return; }

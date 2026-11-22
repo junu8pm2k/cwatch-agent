@@ -1,4 +1,4 @@
-import { id, hash, type AgentSessionHooks, type ModelInput } from "@cwatch/core/types";
+import { id, hash, type AgentSessionHooks, type ModelInput, type ToolAdmission } from "@cwatch/core/types";
 import { PostCompactResultSchema } from '@cwatch/core/types/compaction';
 import { SessionMemoryStateSchema } from '@cwatch/core/types/session-memory';
 import { type ModelConfig } from "../../../config/models.ts";
@@ -31,17 +31,19 @@ async function request(key: string, body: WorkerMessage): Promise<unknown> {
   try { await send(body); } catch (error) { pending.get(key)?.reject(error); pending.delete(key); }
   return promise;
 }
-const hook = (type: 'before_model' | 'decision' | 'usage' | 'observation' | 'transcript' | 'before_request' | 'post_compact' | 'session_memory' | 'next_user_message', data: Record<string, unknown> = {}) => {
+const hook = (type: 'before_model' | 'decision' | 'before_tool' | 'usage' | 'observation' | 'transcript' | 'before_request' | 'post_compact' | 'session_memory' | 'next_user_message', data: Record<string, unknown> = {}) => {
   const requestId = id();
   return request('hook:' + requestId, { type, requestId, ...data } as WorkerMessage);
 };
-async function run(config: ModelConfig, input: ModelInput) {
+async function run(config: ModelConfig, input: ModelInput, toolAdmission: boolean) {
   redactor = new Redactor([config.apiKey]);
   try {
-    await send({ type: 'ready', pid: process.pid });
+    await send({ type: 'ready', pid: process.pid, ...(toolAdmission ? { toolAdmission: true as const } : {}) });
     const hooks: AgentSessionHooks = {
       beforeModel: async () => await hook('before_model') as ModelInput,
       onDecision: async decision => { await hook('decision', { decision }); },
+      // A v1 host already running at update time expects the original handshake.
+      ...(toolAdmission ? { beforeTool: async (name, sdkToolCallId) => await hook('before_tool', { name, sdkToolCallId }) as ToolAdmission | undefined } : {}),
       onObservation: async (name, result, sdkToolCallId) => { await hook('observation', { name, result, ...(sdkToolCallId ? { sdkToolCallId } : {}) }); },
       onUsage: async (usage, purpose) => { await hook('usage', { usage, purpose }); },
       onTranscript: async entries => { await hook('transcript', { entries }); },
@@ -82,7 +84,7 @@ process.on('message', raw => {
     const frame = parseFrame(raw, sessionId, taskId, ++incoming), message = frame.body as HostMessage;
     if (!initialized) {
       if (message.type !== 'init' || message.input.state.task.taskId !== taskId) throw new Error('agent_protocol: invalid_init');
-      initialized = true; void run(message.config, message.input); return;
+      initialized = true; void run(message.config, message.input, message.toolAdmission === true); return;
     }
     if (message.type === 'abort') { stop(new Error(message.reason)); return; }
     let key: string, value: unknown, error: string | undefined;

@@ -13,10 +13,11 @@ export const PreRequestSchema = z.object({ type: z.literal('pre_tool_use_request
 export const ToolIdentitySchema = z.object(identity).strict();
 export type ToolIdentity = z.infer<typeof ToolIdentitySchema>;
 export const WorkerMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('ready'), pid: z.number().int().positive() }).strict(),
+  z.object({ type: z.literal('ready'), pid: z.number().int().positive(), toolAdmission: z.literal(true).optional() }).strict(),
   z.object({ type: z.literal('before_model'), requestId: text }).strict(),
   z.object({ type: z.literal('next_user_message'), requestId: text }).strict(),
   z.object({ type: z.literal('decision'), requestId: text, decision: DecisionSchema }).strict(),
+  z.object({ type: z.literal('before_tool'), requestId: text, name: text, sdkToolCallId: text }).strict(),
   z.object({ type: z.literal('observation'), requestId: text, name: text, sdkToolCallId: text.optional(), result: z.unknown().optional() }).strict(),
   z.object({ type: z.literal('usage'), requestId: text, usage: z.unknown().optional(), purpose: z.enum(['turn', 'summary', 'memory', 'rejected']).optional() }).strict(),
   z.object({ type: z.literal('transcript'), requestId: text, entries: z.array(z.record(z.string(), z.unknown())).min(1) }).strict(),
@@ -30,7 +31,7 @@ export const WorkerMessageSchema = z.discriminatedUnion('type', [
 ]);
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 export type HostMessage =
-  | { type: 'init'; config: ModelConfig; input: ModelInput }
+  | { type: 'init'; config: ModelConfig; input: ModelInput; toolAdmission?: true }
   | { type: 'hook_response'; requestId: string; ok: boolean; value?: unknown; error?: string }
   | { type: 'pre_tool_use_response'; response: PreToolUseResponse }
   | { type: 'tool_execute_response'; requestId: string; ok: boolean; value?: unknown; error?: string }

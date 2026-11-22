@@ -45,9 +45,9 @@ check('contract', 'examples/sources-web.json configures searchMcp.requestTimeout
 check('contract', 'Default and RunService tool budgets scale with depth tiers and reject unsafe overrides', async () => {
   const defaults = resolveLimits();
   assert.equal(defaults.maxSteps, DEFAULT_LIMITS.maxSteps);
-  assert.ok(defaults.maxSameToolCalls >= 12);
-  assert.ok(defaults.maxToolCalls >= 36);
-  assert.ok(defaults.maxSteps >= 32);
+  assert.equal(defaults.maxSameToolCalls, defaults.maxToolCalls);
+  assert.equal(defaults.maxToolCalls, 128);
+  assert.equal(defaults.maxConsecutiveToolFailures, 4);
 
   const data = store();
   const service = new RunService({
@@ -58,9 +58,10 @@ check('contract', 'Default and RunService tool budgets scale with depth tiers an
   try {
     // Reject unsafe bounds on the new step/tool limit fields before creating a run.
     assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxSameToolCalls: 0 } }));
-    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxSameToolCalls: 61 } }));
-    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxToolCalls: 201 } }));
-    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxSteps: 121 } }));
+    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxSameToolCalls: 481 } }));
+    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxToolCalls: 481 } }));
+    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxSteps: 181 } }));
+    assert.throws(() => service.start({ profile: 'agent', mode: 'replay', permission: 'explore', limits: { maxConsecutiveToolFailures: 21 } }));
 
     const runLimits = async (limits?: Parameters<RunService['start']>[0]['limits']) => {
       const started = service.start({ profile: 'agent', mode: 'replay', permission: 'explore', ...(limits ? { limits } : {}) });
@@ -72,24 +73,27 @@ check('contract', 'Default and RunService tool budgets scale with depth tiers an
     };
 
     const standard = await runLimits();
-    assert.equal(standard.maxSteps, 40);
-    assert.equal(standard.maxToolCalls, 48);
-    assert.equal(standard.maxSameToolCalls, 16);
+    assert.equal(standard.maxSteps, 72);
+    assert.equal(standard.maxToolCalls, 160);
+    assert.equal(standard.maxSameToolCalls, 160);
+    assert.equal(standard.timeoutMs, 480_000);
+    assert.equal(standard.maxTokens, 750_000);
 
-    const fast = await runLimits({ timeoutMs: 120_000, maxTokens: 150_000 });
-    assert.equal(fast.maxSteps, 24);
-    assert.equal(fast.maxToolCalls, 28);
-    assert.equal(fast.maxSameToolCalls, 12);
+    const fast = await runLimits({ timeoutMs: 180_000, maxTokens: 250_000 });
+    assert.equal(fast.maxSteps, 40);
+    assert.equal(fast.maxToolCalls, 80);
+    assert.equal(fast.maxSameToolCalls, 80);
 
-    const deep = await runLimits({ timeoutMs: 600_000, maxTokens: 1_000_000 });
-    assert.equal(deep.maxSteps, 80);
-    assert.equal(deep.maxToolCalls, 96);
-    assert.equal(deep.maxSameToolCalls, 30);
+    const deep = await runLimits({ timeoutMs: 900_000, maxTokens: 1_500_000 });
+    assert.equal(deep.maxSteps, 120);
+    assert.equal(deep.maxToolCalls, 300);
+    assert.equal(deep.maxSameToolCalls, 300);
 
-    const explicit = await runLimits({ timeoutMs: 300_000, maxTokens: 400_000, maxSteps: 50, maxToolCalls: 60, maxSameToolCalls: 22 });
+    const explicit = await runLimits({ timeoutMs: 300_000, maxTokens: 400_000, maxSteps: 50, maxToolCalls: 60, maxSameToolCalls: 22, maxConsecutiveToolFailures: 6 });
     assert.equal(explicit.maxSteps, 50);
     assert.equal(explicit.maxToolCalls, 60);
     assert.equal(explicit.maxSameToolCalls, 22);
+    assert.equal(explicit.maxConsecutiveToolFailures, 6);
 
     // Competitor investigation runs in RunService must not expose local workspace builtin tools (ls/find/grep/read), while generic agent runs keep them.
     const agentStarted = service.start({ profile: 'agent', mode: 'replay', permission: 'explore' });
@@ -329,7 +333,7 @@ check('integration', 'Pi session surfaces _hostBudgetNotice cleanly without poll
   }
 });
 
-check('contract', 'Hard budget_same_tool guard still fails closed if a provider emits an excess web_search call after deactivation', async () => {
+check('integration', 'Pi skips web_search above an explicit cap within a batch and after deactivation', async () => {
   const data = store(), registry = new ToolRegistry(), web = webTestSource();
   const t: CompetitorTask = { ...task(), allowedSources: ['web'] };
   await registry.register('web', 'builtin', web.client, live);
@@ -344,11 +348,15 @@ check('contract', 'Hard budget_same_tool guard still fails closed if a provider 
         calls: [
           { sdkToolCallId: 'x1', name: 'web_search', args: { query: 'Node.js 1', limit: 5 } },
           { sdkToolCallId: 'x2', name: 'web_search', args: { query: 'Node.js 2', limit: 5 } },
+          { sdkToolCallId: 'x3', name: 'web_search', args: { query: 'Node.js 3', limit: 5 } },
         ],
       },
     },
-    // Rogue provider ignores deactivated tool list and forces a 3rd web_search beyond maxSameToolCalls=2.
-    { decision: { kind: 'call_tool', name: 'web_search', args: { query: 'Node.js 3', limit: 5 } } },
+    { decision: { kind: 'call_tool', name: 'web_search', args: { query: 'Node.js 4', limit: 5 } } },
+    { decision: { kind: 'call_tool', name: 'workflow__analyze', args: {} } },
+    { decision: { kind: 'call_tool', name: 'workflow__review', args: {} } },
+    { decision: { kind: 'call_tool', name: 'workflow__draft', args: { narrative: 'Summarized the available search results.', claimIds: [] } } },
+    { decision: { kind: 'respond', text: 'Draft saved.' } },
   ]);
 
   try {
@@ -359,12 +367,15 @@ check('contract', 'Hard budget_same_tool guard still fails closed if a provider 
       maxToolCalls: 16,
       maxSameToolCalls: 2,
     });
-    assert.equal(result.status, 'failed');
-    assert.match(result.error!, /budget_same_tool: 3\/2 tool=web_search/);
+    assert.equal(result.status, 'partial', result.error);
+    assert.ok(result.report);
+    assert.deepEqual(provider.errors, []);
     assert.equal(web.searches(), 2);
+    assert.ok(provider.requests[2].tools.every((tool: any) => tool.function.name !== 'web_search'));
+    assert.match(JSON.stringify(provider.requests[3].messages), /tool_budget_skipped/);
     const events = data.lines<TraceEvent>('traces/' + result.runId + '.jsonl');
     assert.deepEqual(validateTrace(events), []);
-    assert.ok(events.some(e => e.type === 'budget_exceeded' && e.data.budget === 'same_tool' && e.data.tool === 'web_search'));
+    assert.equal(events.filter(e => e.type === 'budget_exceeded' && e.data.budget === 'same_tool' && e.data.tool === 'web_search').length, 2);
   } finally {
     await provider.close();
     await registry.close();

@@ -8,7 +8,9 @@ import { PiModel, ReplayModel } from "@cwatch/shared/agent/models";
 import { runInvestigation, replayState } from "@cwatch/server-core/runtime/investigation";
 import { validateTrace, type TraceEvent } from "@cwatch/shared/sessions/trace";
 
-check('integration', 'actual Pi SDK HTTP codec runs same scripted loop as replay (local provider fixture)', async () => {
+for (const legacyHost of [false, true]) check('integration', legacyHost
+  ? 'A current Pi worker uses the original IPC messages when the host omits tool admission'
+  : 'actual Pi SDK HTTP codec runs same scripted loop as replay (local provider fixture)', async () => {
   const steps = json('fixtures/model-script.json'); let cursor = 0; const requestedNames: string[][] = [], requestPaths: string[] = [], histories: any[][] = [];
   const server = createServer(async (req, res) => {
     try {
@@ -33,6 +35,10 @@ check('integration', 'actual Pi SDK HTTP codec runs same scripted loop as replay
   try {
     const data = store(), registry = new ToolRegistry(); await new SourceServerBuilder(process.cwd()).register(SourceConfigsSchema.parse(json('examples/sources.json')), 'replay', registry, new AbortController().signal);
     const model = PiModel.fromEnvironment({ MODEL_PROVIDER: 'fixture-local', MODEL_ID: 'fixture-model', API_KEY: 'fixture-key-never-real', BASE_URL: `http://127.0.0.1:${address.port}/v1/` });
+    if (legacyHost) {
+      const runSession = model.runSession.bind(model);
+      model.runSession = (input, hooks, signal) => runSession(input, { ...hooks, beforeTool: undefined }, signal);
+    }
     const actual = await runInvestigation(task(), model, registry, data, 'replay', { timeoutMs: 60_000 });
     assert.equal(actual.status, 'complete', actual.error); assert.equal(cursor, steps.length); assert.ok(requestedNames.every(names => names.includes('web_fetch') && !names.includes('bash')));
     assert.ok(requestPaths.every(path => path === '/v1/chat/completions'));

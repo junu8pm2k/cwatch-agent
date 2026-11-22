@@ -26,7 +26,7 @@
     "eval:publish": "node --env-file-if-exists=.env --use-env-proxy --experimental-transform-types evals/benchmark.ts publish",
     "probe:sources": "node --use-env-proxy --experimental-transform-types scripts/probe.ts",
     "probe:model": "node --use-env-proxy --experimental-transform-types scripts/probe-model.ts",
-    "web:live": "node --use-env-proxy --experimental-transform-types apps/cli/src/index.ts run --mode live --task examples/task-web.json --sources examples/sources-web.json --out artifacts/live-web --timeout 180000 --tool-timeout 45000",
+    "web:live": "node --use-env-proxy --experimental-transform-types apps/cli/src/index.ts run --mode live --task examples/task-web.json --sources examples/sources-web.json --out artifacts/live-web",
     "probe:web": "node --use-env-proxy --experimental-transform-types scripts/probe-web.ts",
     "test:pi-builtins": "node --experimental-transform-types scripts/eval-pi-builtins.ts",
     "test:web-tools": "node --experimental-transform-types scripts/eval-web-tools.ts",

@@ -101,13 +101,28 @@ export interface ToolBudgetSnapshot {
   maxSteps?: number;
   maxToolCalls: number;
   maxSameToolCalls: number;
+  maxConsecutiveToolFailures?: number;
   toolCalls: number;
   callsByTool: Record<string, number>;
+  failuresByTool?: Record<string, number>;
+  reservedForCompletion?: number;
+}
+export interface ToolBudgetSkip {
+  status: 'tool_budget_skipped';
+  tool: string;
+  budget: 'tools' | 'same_tool' | 'tool_failures' | 'completion_reserve';
+  limit: number;
+  message: string;
+}
+export interface ToolAdmission {
+  toolBudgets: ToolBudgetSnapshot;
+  skipped?: ToolBudgetSkip;
 }
 export interface ModelInput { state: AgentState; stable: string; volatile: string; tools: ToolBinding[]; sessionId?: string; conversation?: boolean; completionInstruction?: string; contextChars?: number; maxOutputTokens?: number; maxResponseChars?: number; sessionMemoryPolicy?: SessionMemoryPolicy; promptCache?: 'none' | 'short'; toolBudgets?: ToolBudgetSnapshot }
 export interface AgentSessionHooks {
   beforeModel(): ModelInput | Promise<ModelInput>;
   onDecision(decision: Decision): void | Promise<void>;
+  beforeTool?(name: string, sdkToolCallId?: string): ToolAdmission | undefined | Promise<ToolAdmission | undefined>;
   executeTool(name: string, args: Record<string, unknown>, signal: AbortSignal, binding?: ToolBinding, sdkToolCallId?: string, handshake?: ToolCallHandshake): Promise<unknown>;
   onObservation(name: string, result: unknown, sdkToolCallId?: string): void | Promise<void>;
   onUsage(usage: unknown, purpose?: 'turn' | 'summary' | 'memory' | 'rejected'): void | Promise<void>;
@@ -122,6 +137,7 @@ export interface AgentSessionHooks {
 export interface ModelPort {
   readonly traceModel?:{provider:string;id:string};
   readonly tokenUsageRequired?: boolean;
+  readonly defaultMaxOutputTokens?: number;
   decide(input: ModelInput, signal: AbortSignal): Promise<Decision>;
   runSession?(input: ModelInput, hooks: AgentSessionHooks, signal: AbortSignal): Promise<void>;
   usage?: unknown; close?(): Promise<void>;

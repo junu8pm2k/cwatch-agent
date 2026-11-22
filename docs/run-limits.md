@@ -6,16 +6,29 @@
 |---|---:|---|
 | --context-chars | 150000 | 活动上下文与请求的字符上限，包含工具 Schema；Pi 在接近上限时先摘要压缩，完整归档历史不计入活动窗口 |
 | --max-response-chars | 32000 | 每轮模型决策的序列化字符上限，含工具参数；Pi 流式内容也提前检查 |
-| --max-output-tokens | 4096 | 单次模型请求输出 Token 上限，受模型声明的上限约束 |
-| --max-tokens | 100000 | 整次调查累计 Token 预算，包含输入、输出、缓存，思考子项不重复累计 |
-| --max-same-tool-calls | 12 | 一个工具在整次调查中的最大调用尝试次数，按完整代理名计数，参数变化仍累计 |
-| --max-tool-calls | 36 | 整次调查工具调用尝试总数，包括工作流工具及失败/被拒绝的调用 |
-| --max-steps | 32 | 最大模型决策轮数 |
-| --timeout | 120000 | 调查总超时，毫秒 |
-| --model-timeout | 60000 | 每轮模型等待超时，毫秒；第一轮包含 Agent 子进程启动 |
-| --tool-timeout | 15000 | 单工具调用超时，毫秒，含权限审批等待 |
+| --max-output-tokens | 4096，Step 5 Preview 官方端点为 12288 | 单次模型请求输出 Token 上限，受模型声明的上限约束 |
+| --max-tokens | 400000 | 整次任务累计 Token 预算，包含输入、输出和缓存，思考子项不重复累计 |
+| --max-tool-calls | 128 | 整次任务累计工具调用额度。正常返回、失败和权限拒绝均计入，预算拦截导致的跳过不占用额度 |
+| --max-consecutive-tool-failures | 4 | 同一工具连续失败达到此值后，本次任务停用该工具。正常返回和空结果均重置失败计数 |
+| --max-same-tool-calls | 跟随总工具额度 | 显式设置时为单工具调用上限，按完整代理名计数，参数变化仍累计 |
+| --max-steps | 64 | 最大模型决策轮数 |
+| --timeout | 300000 | 任务总超时，毫秒 |
+| --model-timeout | 90000 | 单次模型等待超时，毫秒。第一轮包含 Agent 子进程启动 |
+| --tool-timeout | 45000 | 单工具调用超时，毫秒，含权限审批等待 |
 
-计数不区分相同/不同参数。workflow__save_plan 与 workflow__analyze 是不同工具，两个来源中的同名工具也按来源分别计数。宿主在稳定系统提示中声明本次 `steps / tools / sameTool` 上限（不破坏 Prompt Cache），Pi 会话在工具临近或触达单工具/总调用上限时仅在模型可见的工具结果文本尾部附带 `_hostBudgetNotice`（不污染宿主 `observations` 与 `RetrievalSchema`），并在单工具达到上限后从后续轮次的活跃工具清单中停用该工具（保留归档回查工具与分析/审阅/草稿工具），帮助模型平滑推进收尾；若模型或提供方仍强行发出超额调用，触及总次数或同一工具次数上限后超额那次调用仍不会进入执行器并直接记录 `budget_exceeded` 终止运行。Web 工作台 `RunService` 默认按档位配套工具预算（快速 24/28/12、标准 40/48/16、深度 80/96/30），也支持通过 `limits` 显式传入有界覆盖。原来的连续三次完全相同决策防死循环检查继续生效。
+成功调用只消耗全任务的资源额度，默认没有更低的单工具次数上限。失败计数按完整代理名独立记录，包含工具执行错误、超时、权限拒绝和返回的失败状态。批次按原顺序逐条检查预算，额度内的调用继续执行，超额调用返回 `tool_budget_skipped`，并保留工具回执与覆盖缺口。Pi 在后续模型请求中隐藏额度已用完的工具，临近上限时在模型可见的回执尾部附加 `_hostBudgetNotice`。完全相同的决策仍受防循环检查，连续失败的重试可以收到一次预算跳过回执。
+
+调查从总工具额度中为 `workflow__analyze`、`workflow__review` 和 `workflow__draft` 预留最多 6 次调用。采集用尽可用额度后，模型仍可根据已有材料生成报告并记录缺口。轮数、总 Token 与超时继续按硬上限执行。
+
+| Web 调研档位 | 工具总次数 | 模型轮数 | 总时间 | 总 Token |
+|---|---:|---:|---:|---:|
+| 快速速览 | 80 | 40 | 180 秒 | 25 万 |
+| 标准核验 | 160 | 72 | 480 秒 | 75 万 |
+| 深度穷举 | 300 | 120 | 900 秒 | 150 万 |
+
+Web 默认单工具超时为 60 秒。客户端发送时间和 Token，服务端按档位确定工具和轮数额度。API 可通过 `limits` 显式覆盖，包括 `maxConsecutiveToolFailures`。
+
+更新代码后，已启动的 Web 主进程和新启动的 Agent 子进程可继续使用旧版消息格式。重启 Web 服务后，新任务使用当前工作区的预算策略。
 
 字符数按 JavaScript UTF-16 长度计数，不冒充 Token 数。Pi 在字符或可用输入 Token 的 80% 判断需要压缩；Token 使用 UTF-8 字节估算与最近实际 usage 加新增消息估算取较大值，模型窗口需预留输出额度。旧会话经摘要和显式 compaction 边界退出活动上下文，完整脱敏转录继续保留；固定提示、工具、任务或最近完整工具轮次仍超限时明确失败。ReplayModel 的单步上下文仍超限即失败。草稿正文还受已有 12000 字符 Schema 限制。工具结果保留已有来源大小上限、快照及有限观察值，再进入上下文检查。详见 session-context.md。
 
@@ -35,6 +48,8 @@ Session Memory 默认在当前窗口压力达到 12000 Token 后初始化，此�
 
 明确的供应商长度拒绝可触发一次反应式压缩后重试；第二次连续拒绝熔断，单运行累计最多两次恢复。恢复请求消耗新的业务请求轮数，摘要与重试继续受剩余 Token、输出额度、模型/调查超时与取消控制，不能重置总预算。强制压缩保留最近一整轮完整 API round，跳过该次 memory 维护；摘要失败、无法缩小或没有历史时直接停止，不递归重试。失败回执 usage 若可用记为 rejected；未返回有效 usage 不代表已知零费用。SDK 通用重试保持关闭，该例外不适用于 401/403/429/5xx 或普通参数错误。
 
+主模型因输出 Token 上限截断且响应未包含工具调用时，宿主记录 `provider_rejected`（`output_token_limit`），将该次响应保留在转录中并从活动上下文移除。宿主使用已有工具结果重试当前请求一次，提示模型精简推理和下一步输出。Step 5 Preview 官方端点的首次请求最多使用 8192 Token，重试使用 `reasoning_effort=low` 和剩余允许的单次输出额度，默认最多 12288 Token。用户显式设置的 `--max-output-tokens` 始终为硬上限。重试消耗新的业务请求轮数，截断与重试的用量都计入总预算，并继续受超时和取消约束。重试再次截断时终止。包含工具调用的截断响应直接失败，整批调用都不会执行。
+
 Prompt Cache 不提供额外上下文额度，也不抵扣本项目累计 Token 预算：压力与预算仍包含 input/output/cacheRead/cacheWrite。业务默认请求 SDK short 缓存控制，RuntimeOptions.promptCache 可设 none，摘要/Memory/探针为 none；均不保证端点支持或命中，当前无长 TTL 或专用 CLI 参数。cache 观测中的正读占比只是归一化输入 Token 的组成，不是请求命中率或节省金额；SDK 归一化零值不能证明供应商明确报告 miss，缺失字段按未知保留。
 
 调查或模型超时会取消审批和工具，收回 Agent 子进程；单工具超时会取消该次调用并向模型返回失败观察值，可在剩余预算内继续。已开始但未确认完成的写操作仍记为 unknown，不自动重试。调查总超时从 runInvestigation 开始，CLI 的来源发现是之前的准备阶段，保留独立的每源 25000 毫秒超时；进程清理可能额外占用有限收尾时间。
@@ -45,7 +60,7 @@ npm start -- run --mode live --task examples/task.json --sources examples/source
 
 程序调用可在 RuntimeOptions 中传同名 camelCase 字段。所有值必须是安全整数；三种次数允许 0（立即阻止），其余必须大于 0。毫秒参数不得超过 Node 定时器范围，避免溢出后变成近乎立即超时。CLI 在创建输出目录前校验。
 
-run_started 记录生效 limits；usage_reported 记录总调用尝试、按工具计数、累计 Token、原始模型用量及耗时。任务级预算超限追加 budget_exceeded，并保留明确的 run_failed 原因。单工具超时也记 budget_exceeded，但允许按前述规则在剩余预算内继续。
+`run_started` 记录生效的额度和收尾预留，`usage_reported` 记录已计入额度的调用、跳过次数、每种工具用量、累计 Token 和耗时。工具耗尽或跳过时以 `budget_exceeded` 记录 `outcome`。轮数、Token 或任务超时触及硬上限时，记录明确的 `run_failed` 原因。
 
 实现：packages/shared/src/agent/core/budgets.ts、packages/server-core/src/runtime/investigation.ts、packages/shared/src/agent/backend/pi/session.ts、apps/cli/src/index.ts。测试：tests/budgets.test.ts、tests/pi-session.test.ts；原有超时与预算回归继续执行。
 

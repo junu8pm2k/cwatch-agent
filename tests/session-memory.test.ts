@@ -76,6 +76,22 @@ check('contract', 'Thinking-only memory exhaustion recovers once using fresh all
   assert.equal(h.memory.load()!.toolCallCount, 3);
 });
 
+check('contract', 'Malformed memory working state retries once with schema guidance and commits valid JSON', async () => {
+  const h = await harness(); const first = h.turn(1); h.turn(2);
+  h.setResponse((index: number) => index === 1
+    ? { content: [{ type: 'text', text: '{"userGoal":"Goal","completedWork[":"(none yet)"}' }], usage, stopReason: 'stop' }
+    : undefined);
+  await h.advance(100);
+  assert.equal(h.requests.length, 2); assert.equal(h.metered(), 2);
+  assert.match(h.requests[1].context.systemPrompt, /failed strict JSON schema validation/);
+  assert.equal(h.memory.load()!.revision, 1); assert.equal(h.memory.load()!.lastMessageId, first);
+  assert.equal(h.memory.load()!.pendingMessages, true);
+  const recovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery');
+  assert.deepEqual(recovery.map(entry => ({ action: (entry as any).data.action, reason: (entry as any).data.reason })), [
+    { action: 'retry', reason: 'invalid_working_state' },
+  ]);
+});
+
 check('contract', 'Repeated truncated memory stops at two metered attempts and retains the previous checkpoint', async () => {
   const h = await harness(); h.turn(1); await h.advance(100); const before = h.memory.load();
   h.turn(2); h.setResponse({ content: [{ type: 'thinking', thinking: 'still thinking' }], usage, stopReason: 'length' });
