@@ -15,6 +15,7 @@ import '../tests/transcript-lookup.test.ts';
 import '../tests/session-memory.test.ts';
 import '../tests/badcase-session-memory-multicall.test.ts';
 import '../tests/badcase-session-memory-output-limit.test.ts';
+import '../tests/badcase-budget-same-tool-web-search.test.ts';
 import '../tests/provider-rejections.test.ts';
 import '../tests/prompt-cache.test.ts';
 import '../tests/api-rounds.test.ts';

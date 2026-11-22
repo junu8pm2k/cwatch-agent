@@ -1,6 +1,6 @@
 /** Host-owned limits shared by CLI and programmatic callers. */
 export const DEFAULT_LIMITS = {
-  maxSteps: 24, maxToolCalls: 20, maxSameToolCalls: 8,
+  maxSteps: 32, maxToolCalls: 36, maxSameToolCalls: 12,
   contextChars: 150_000, maxResponseChars: 32_000,
   maxOutputTokens: 4096, maxTokens: 100_000,
   timeoutMs: 120_000, modelTimeoutMs: 60_000, toolTimeoutMs: 15_000,

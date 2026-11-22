@@ -110,12 +110,13 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         if (totalTokens >= limits.maxTokens) throw exceeded('tokens', limits.maxTokens, totalTokens);
         usageMissing = model.tokenUsageRequired === true;
         state.iteration = iteration++;
-        const context = contextPipeline.prepareTurn(state, registry, policy, limits.contextChars, Boolean(model.runSession));
+        const context = contextPipeline.prepareTurn(state, registry, policy, limits.contextChars, Boolean(model.runSession), limits);
         trace.emit('context_prepared', { iteration: state.iteration, permissionMode: policy.mode, contextHash: context.contextHash, skillHash: context.skillHash, prefixHash: context.prefixHash, toolsetHash: context.toolsetHash, promptCache: { requestedRetention: promptCache, controlOwner: 'sdk', providerSupport: 'not_asserted' }, tools: context.tools.map(tool => ({ proxyName: tool.proxy_name, sourceSlug: tool.source_slug, originalName: tool.original_name, channel: tool.channel, action: tool.action, bindingId: tool.id, ...(tool.dynamicAction ? { dynamicAction: true, availableActions: registry.availableActions(tool) } : {}) })) });
         clearTimeout(modelTimer);
         modelTimer = setTimeout(() => modelTimeout.abort(exceeded('model_timeout', limits.modelTimeoutMs, limits.modelTimeoutMs)), limits.modelTimeoutMs);
         trace.emit('model_requested', { iteration: state.iteration, contextChars: context.stable.length + context.volatile.length });
-        return { state: structuredClone(model.runSession ? { ...state, observations: [], decisions: [], userMessages: undefined } : state), sessionId: runId, ...(options.nextUserMessage ? { conversation: true } : {}), ...context, tools: context.tools, completionInstruction: extension.completionInstruction, contextChars: limits.contextChars, maxOutputTokens: Math.min(limits.maxOutputTokens, limits.maxTokens - totalTokens), maxResponseChars: limits.maxResponseChars, promptCache, ...(memory ? { sessionMemoryPolicy: memoryPolicy } : {}) };
+        const toolBudgets = { steps: state.iteration, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls, toolCalls, callsByTool: Object.fromEntries(callsByTool) };
+        return { state: structuredClone(model.runSession ? { ...state, observations: [], decisions: [], userMessages: undefined } : state), sessionId: runId, ...(options.nextUserMessage ? { conversation: true } : {}), ...context, tools: context.tools, completionInstruction: extension.completionInstruction, contextChars: limits.contextChars, maxOutputTokens: Math.min(limits.maxOutputTokens, limits.maxTokens - totalTokens), maxResponseChars: limits.maxResponseChars, promptCache, toolBudgets, ...(memory ? { sessionMemoryPolicy: memoryPolicy } : {}) };
       },
       onDecision: raw => {
         signal.throwIfAborted();
@@ -200,7 +201,8 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         const hookResults = options.onPostCompact ? await abortable(options.onPostCompact(redactor.clean(structuredClone(request)), signal), signal) : [];
         signal.throwIfAborted();
         const attachments = workingState.attachments({ task, runId, state, workflow: extension.checkpoint, store, registry, permissionMode: policy.mode,
-          visibleTools: policy.visibleTools(task, registry).filter(tool => contextPipeline.isDisclosed(tool)), userSkills: options.userSkills, transcript })
+          visibleTools: policy.visibleTools(task, registry).filter(tool => contextPipeline.isDisclosed(tool)), userSkills: options.userSkills, transcript,
+          budgets: { steps: iteration, maxSteps: limits.maxSteps, toolCalls, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls, callsByTool: Object.fromEntries(callsByTool) } })
           .map(attachment => ({ ...attachment, content: JSON.stringify(redactor.clean(JSON.parse(attachment.content))) }));
         const savedMemory = memory?.load();
         if (savedMemory) attachments.push({ name: 'Session memory', content: JSON.stringify({ path: memory!.key, ...savedMemory,

@@ -32,10 +32,34 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   let revisionLength: number | undefined;
   let revisingResponse = false;
   let currentStable = input.stable, prepareUserPrompt = false;
+  let currentToolBudgets = input.toolBudgets ? structuredClone(input.toolBudgets) : undefined;
   let pendingRejection = false;
+  const READBACK_TOOLS = new Set(['session__read_tool_result', 'session__read_transcript', 'session__read_session_memory', 'workflow__read_plan']);
+  const formatBudgetNotice = (toolName: string): string | undefined => {
+    const budget = currentToolBudgets;
+    if (!budget || budget.maxSameToolCalls <= 0) return undefined;
+    const used = budget.callsByTool[toolName] ?? 0;
+    const remSame = Math.max(0, budget.maxSameToolCalls - used);
+    const remTotal = Math.max(0, budget.maxToolCalls - budget.toolCalls);
+    const lowSame = remSame === 0 || (budget.maxSameToolCalls >= 4 && remSame <= Math.min(3, Math.floor(budget.maxSameToolCalls / 2)));
+    const lowTotal = budget.maxToolCalls >= 8 && remTotal <= 5;
+    if (!lowSame && !lowTotal) return undefined;
+    const guidance = remSame === 0
+      ? `Do NOT call ${toolName} again; it has reached its per-tool cap. Proceed with other tools or analysis/review/draft.`
+      : `Do not exceed ${remSame} call(s) of ${toolName} in your next batch, and reserve calls for remaining workflow steps.`;
+    return `Tool ${toolName}: ${used}/${budget.maxSameToolCalls} used (${remSame} remaining); total tools: ${budget.toolCalls}/${budget.maxToolCalls} (${remTotal} remaining). ${guidance}`;
+  };
+  const resolveBindings = (nextTools: ModelInput['tools'], revising: boolean) => {
+    const permitted = revising ? [] : nextTools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+    const budget = currentToolBudgets;
+    const active = !budget || budget.maxSameToolCalls <= 0
+      ? permitted
+      : permitted.filter(binding => READBACK_TOOLS.has(binding.proxy_name) || (budget.callsByTool[binding.proxy_name] ?? 0) < budget.maxSameToolCalls);
+    return { permitted, active };
+  };
   const circuit = new ReactiveCompactCircuit();
   let eventQueue: Promise<void> = Promise.resolve();
-  const customTools = wrapToolsWithHooks(buildProxyTools([...bindings.values()], { ...hooks, executeTool: async (...args) => { await eventQueue; if (fatal) throw fatal; return hooks.executeTool(...args); } }), {
+  const customTools = wrapToolsWithHooks(buildProxyTools([...bindings.values()], { ...hooks, executeTool: async (...args) => { await eventQueue; if (fatal) throw fatal; return hooks.executeTool(...args); } }, { formatBudgetNotice }), {
     signal, throwIfStopped: () => { if (fatal) throw fatal; },
   });
   const { session } = await createAgentSession({
@@ -96,6 +120,12 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
           }
         }
         await hooks.onDecision(decision);
+        if (currentToolBudgets && decision.kind !== 'respond') {
+          for (const call of decision.kind === 'call_tools' ? decision.calls : [decision]) {
+            currentToolBudgets.toolCalls += 1;
+            currentToolBudgets.callsByTool[call.name] = (currentToolBudgets.callsByTool[call.name] ?? 0) + 1;
+          }
+        }
         terminal = decision.kind === 'respond';
       }
       if (event.type === 'tool_execution_end') {
@@ -141,10 +171,11 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       const next = await hooks.beforeModel();
       currentStable = next.stable;
       outputTokens = next.maxOutputTokens ?? 4096;
+      if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
       // New/replaced bindings are not silently granted within an existing session.
-      const activeBindings = revisingResponse ? [] : next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+      const { permitted, active: activeBindings } = resolveBindings(next.tools, revisingResponse);
       session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
-      contextManager.setToolResultPolicy(resultPolicy(activeBindings));
+      contextManager.setToolResultPolicy(resultPolicy(permitted));
       const update = await originalPrepare?.(turn, sdkSignal);
       const refreshed = { ...(update?.context ?? turn.context), systemPrompt: systemPromptFor(next.stable) };
       const active = await contextManager.prepare(refreshed, runtime, model, outputTokens, signal);
@@ -196,9 +227,10 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
           const next = await hooks.beforeModel();
           currentStable = next.stable;
           outputTokens = next.maxOutputTokens ?? 4096;
-          const activeBindings = revisingResponse ? [] : next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+          if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
+          const { permitted, active: activeBindings } = resolveBindings(next.tools, revisingResponse);
           session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
-          contextManager.setToolResultPolicy(resultPolicy(activeBindings));
+          contextManager.setToolResultPolicy(resultPolicy(permitted));
           session.agent.state.systemPrompt = systemPromptFor(next.stable);
           const before = { systemPrompt: session.agent.state.systemPrompt, tools: session.agent.state.tools, messages: getMessagesAfterCompactBoundary(session.sessionManager) };
           const active = await contextManager.prepare(before, runtime, model, outputTokens, signal, true);
@@ -245,9 +277,10 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
       if (!message.trim() || message.length > 24000) throw new Error('invalid_user_message');
       const next = await hooks.beforeModel();
       currentStable = next.stable; outputTokens = next.maxOutputTokens ?? 4096;
-      const activeBindings = next.tools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);
+      if (next.toolBudgets) currentToolBudgets = structuredClone(next.toolBudgets);
+      const { permitted, active: activeBindings } = resolveBindings(next.tools, false);
       session.setActiveToolsByName(activeBindings.map(binding => binding.proxy_name));
-      contextManager.setToolResultPolicy(resultPolicy(activeBindings));
+      contextManager.setToolResultPolicy(resultPolicy(permitted));
       userPrompt = message; prepareUserPrompt = true; revisingResponse = false;
     }
   } finally {

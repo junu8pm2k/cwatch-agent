@@ -96,7 +96,15 @@ const toolBatch = z.array(ToolCallIntentSchema).min(2).max(64).superRefine((call
 export type Decision = { kind: 'call_tool'; name: string; args: Record<string, unknown> } | { kind: 'call_tools'; calls: ToolCallIntent[] } | { kind: 'respond'; text: string };
 export interface Observation { name: string; result: unknown }
 export interface AgentState { task: AgentTask; observations: Observation[]; decisions: Decision[]; iteration: number; userMessages?: string[] }
-export interface ModelInput { state: AgentState; stable: string; volatile: string; tools: ToolBinding[]; sessionId?: string; conversation?: boolean; completionInstruction?: string; contextChars?: number; maxOutputTokens?: number; maxResponseChars?: number; sessionMemoryPolicy?: SessionMemoryPolicy; promptCache?: 'none' | 'short' }
+export interface ToolBudgetSnapshot {
+  steps?: number;
+  maxSteps?: number;
+  maxToolCalls: number;
+  maxSameToolCalls: number;
+  toolCalls: number;
+  callsByTool: Record<string, number>;
+}
+export interface ModelInput { state: AgentState; stable: string; volatile: string; tools: ToolBinding[]; sessionId?: string; conversation?: boolean; completionInstruction?: string; contextChars?: number; maxOutputTokens?: number; maxResponseChars?: number; sessionMemoryPolicy?: SessionMemoryPolicy; promptCache?: 'none' | 'short'; toolBudgets?: ToolBudgetSnapshot }
 export interface AgentSessionHooks {
   beforeModel(): ModelInput | Promise<ModelInput>;
   onDecision(decision: Decision): void | Promise<void>;
