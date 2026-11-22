@@ -18,6 +18,13 @@ import { PiBuiltinSource } from '@cwatch/shared/tools/pi-builtins';
 import { ToolExecutor } from '@cwatch/shared/tools/executor';
 import { ApprovalManager } from '@cwatch/shared/agent/core/permission-manager';
 import { Trace } from '@cwatch/shared/sessions/trace';
+import { SessionManager, type ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { ToolResultGovernor, projectSessionEntries } from '@cwatch/shared/agent/backend/pi/tool-result-context';
+import { PiSessionMemory } from '@cwatch/shared/agent/backend/pi/session-memory';
+import { SessionMemoryPolicySchema } from '@cwatch/core/types/session-memory';
+import { SessionMemoryStore } from '@cwatch/shared/sessions/memory';
+import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
+import { Redactor } from '@cwatch/shared/sessions/trace';
 import { runInvestigation } from '@cwatch/server-core/runtime/investigation';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
 import { WorkingStateTracker } from '@cwatch/server-core/runtime/working-state';
@@ -467,4 +474,132 @@ check('contract', 'PiBuiltinSource resolves read-only retrievals/<hash>.txt from
   } finally {
     await runReg.close();
   }
+});
+
+check('contract', 'ToolResultGovernor strips large details without adding fake [...snipped...] to <=16KB content, and PiSessionMemory compacts readback pages with 3072 incremental step-5 budget', async () => {
+  const manager = SessionManager.inMemory(process.cwd(), { id: 'no-false-snip' });
+  manager.appendMessage({ role: 'user', content: 'Investigate GLM releases', timestamp: Date.now() });
+  manager.appendMessage({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id: 'fetch-1', name: 'web_fetch', arguments: { url: 'https://docs.bigmodel.cn/cn/update/new-releases' } }],
+    api: 'openai-completions', provider: 'stepfun', model: 'step-5-preview',
+    usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: 'toolUse', timestamp: Date.now(),
+  });
+  const cleanContent = JSON.stringify({
+    status: 'success_with_data',
+    signals: [],
+    provenance: 'live',
+    pages: [{ url: 'https://docs.bigmodel.cn/cn/update/new-releases', title: '模型与产品发布记录', text: 'GLM-5.3-Flash 原生多模态模型上线\n'.repeat(240), published_at: null, retrieved_at: '2026-11-22T08:08:49Z', truncated: false }],
+  });
+  assert.ok(cleanContent.length > 6_000 && cleanContent.length < 12_000);
+  manager.appendMessage({
+    role: 'toolResult',
+    toolCallId: 'fetch-1',
+    toolName: 'web_fetch',
+    content: [{ type: 'text', text: cleanContent }],
+    details: { status: 'success_with_data', raw: 'R'.repeat(16_000), pages: [{ text: 'P'.repeat(7_500) }] },
+    isError: false,
+    timestamp: Date.now(),
+  } as any);
+
+  const governor = new ToolResultGovernor(manager, 150_000, { canRead: true, microcompactTools: ['web_fetch'] });
+  const changed = governor.capResults();
+  assert.equal(changed, true);
+  const projected = projectSessionEntries(manager, manager.getEntries());
+  const toolMsg = projected.find(m => m.role === 'toolResult')!;
+  assert.equal('details' in toolMsg, false);
+  const projectedText = toolMsg.content.map(c => c.type === 'text' ? c.text : '').join('\n');
+  assert.equal(projectedText, cleanContent);
+  assert.equal(projectedText.includes('[...snipped...]'), false);
+  assert.equal(projectedText.includes('Archived tool result (snip)'), false);
+
+  // Verify PiSessionMemory compacts session__read_tool_result payloads and grants 3072 maxTokens on incremental step-5 updates.
+  const data = store(), sessionId = 'step5-incremental-mem', memManager = SessionManager.inMemory(process.cwd(), { id: sessionId });
+  const redactor = new Redactor([]);
+  const transcript = new SessionTranscript(data, sessionId, redactor);
+  const policy = SessionMemoryPolicySchema.parse({ initializeTokens: 100, growthTokens: 50, toolCalls: 1, maxInputChars: 48_000 });
+  const memStore = new SessionMemoryStore(data, transcript, 'step5-inc-task', policy, redactor);
+  let sent = 0, headerSent = false;
+  const flush = () => {
+    const entries = memManager.getEntries();
+    const pending = [...(!headerSent ? [memManager.getHeader()!] : []), ...entries.slice(sent)];
+    if (pending.length) { transcript.append(pending.map(e => ({ ...e }))); headerSent = true; sent = entries.length; }
+  };
+  const maxTokensSeen: number[] = [];
+  const inputsSeen: any[] = [];
+  const step5Model = {
+    id: 'step-5-preview', name: 'step-5-preview', api: 'openai-completions', provider: 'stepfun',
+    baseUrl: 'https://api.stepfun.com/v1', reasoning: true, input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 4096,
+  } as any;
+  const validMem = {
+    userGoal: 'Collect GLM releases',
+    completedWork: Array.from({ length: 8 }, (_, i) => `Work item ${i}`),
+    keyFiles: ['plans/p1.json'],
+    errorsAndFixes: [],
+    unfinishedTasks: ['Extract signals'],
+    nextSteps: ['Call workflow__extract_signal'],
+    references: Array.from({ length: 8 }, (_, i) => `https://docs.bigmodel.cn/ref-${i}`),
+    sourceGaps: ['discovery_only'],
+  };
+  const runtime = {
+    completeSimple: async (_m: unknown, context: any, options: { maxTokens?: number }) => {
+      maxTokensSeen.push(options.maxTokens ?? 0);
+      inputsSeen.push(JSON.parse(context.messages[0].content));
+      return {
+        role: 'assistant',
+        content: [{ type: 'text', text: JSON.stringify(validMem) }],
+        usage: { input: 200, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 300, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: 'stop',
+      };
+    },
+  } as unknown as ModelRuntime;
+  const updater = new PiSessionMemory(memManager, {
+    sessionMemory: req => memStore.handle(req),
+    beforeRequest: () => ({ maxOutputTokens: 4096 }),
+    onUsage: () => {},
+  }, policy, 150_000, 32_000, async (customType, entryData) => {
+    memManager.appendCustomEntry(customType, entryData);
+    flush();
+  });
+
+  memManager.appendMessage({ role: 'user', content: 'Task', timestamp: Date.now() });
+  memManager.appendMessage({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id: 'c1', name: 'workflow__save_plan', arguments: {} }],
+    api: 'openai-completions', provider: 'stepfun', model: 'step-5-preview',
+    usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: 'toolUse', timestamp: Date.now(),
+  });
+  memManager.appendMessage({ role: 'toolResult', toolCallId: 'c1', toolName: 'workflow__save_plan', content: [{ type: 'text', text: '{"submitted":true}' }], isError: false, timestamp: Date.now() });
+  flush();
+  await updater.prepare(500, runtime, step5Model, 4096, live);
+
+  // Round 2: session__read_tool_result with 4096-char content slice -> incremental revision (loaded !== null)
+  memManager.appendMessage({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id: 'c2', name: 'session__read_tool_result', arguments: { entryId: 'e1', toolCallId: 't1', offset: 0, limit: 4096 } }],
+    api: 'openai-completions', provider: 'stepfun', model: 'step-5-preview',
+    usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: 'toolUse', timestamp: Date.now(),
+  });
+  memManager.appendMessage({
+    role: 'toolResult',
+    toolCallId: 'c2',
+    toolName: 'session__read_tool_result',
+    content: [{ type: 'text', text: JSON.stringify({ entryId: 'e1', toolCallId: 't1', toolName: 'web_fetch', format: 'text', offset: 0, totalChars: 7565, content: 'PAGE_SLICE_'.repeat(380), nextOffset: 4096 }) }],
+    isError: false,
+    timestamp: Date.now(),
+  });
+  flush();
+  await updater.prepare(1200, runtime, step5Model, 4096, live);
+
+  // Revision 1 gets 2048; Revision 2 (with existing currentMemory) gets 3072 so incremental merge succeeds on Attempt 1.
+  assert.deepEqual(maxTokensSeen, [2048, 3072]);
+  // currentMemory arrays are pre-trimmed to <= 6 items and session__read_tool_result is compacted to a memoryDigest.
+  assert.ok(inputsSeen[1].currentMemory.references.length <= 6);
+  const readDigest = JSON.parse(inputsSeen[1].newMessages.find((m: any) => m.message.role === 'toolResult').message.content[0].text);
+  assert.equal(readDigest.memoryDigest, true);
+  assert.ok(readDigest.preview.length <= 240);
 });
