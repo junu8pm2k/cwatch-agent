@@ -8,14 +8,14 @@
 | --max-response-chars | 32000 | 每轮模型决策的序列化字符上限，含工具参数；Pi 流式内容也提前检查 |
 | --max-output-tokens | 4096 | 单次模型请求输出 Token 上限，受模型声明的上限约束 |
 | --max-tokens | 100000 | 整次调查累计 Token 预算，包含输入、输出、缓存，思考子项不重复累计 |
-| --max-same-tool-calls | 8 | 一个工具在整次调查中的最大调用尝试次数，按完整代理名计数，参数变化仍累计 |
-| --max-tool-calls | 20 | 整次调查工具调用尝试总数，包括工作流工具及失败/被拒绝的调用 |
-| --max-steps | 24 | 最大模型决策轮数 |
+| --max-same-tool-calls | 12 | 一个工具在整次调查中的最大调用尝试次数，按完整代理名计数，参数变化仍累计 |
+| --max-tool-calls | 36 | 整次调查工具调用尝试总数，包括工作流工具及失败/被拒绝的调用 |
+| --max-steps | 32 | 最大模型决策轮数 |
 | --timeout | 120000 | 调查总超时，毫秒 |
 | --model-timeout | 60000 | 每轮模型等待超时，毫秒；第一轮包含 Agent 子进程启动 |
 | --tool-timeout | 15000 | 单工具调用超时，毫秒，含权限审批等待 |
 
-计数不区分相同/不同参数。workflow__save_plan 与 workflow__analyze 是不同工具，两个来源中的同名工具也按来源分别计数。触及总次数或同一工具次数上限后，超额那次调用不会进入执行器。原来的连续三次完全相同决策防死循环检查继续生效。
+计数不区分相同/不同参数。workflow__save_plan 与 workflow__analyze 是不同工具，两个来源中的同名工具也按来源分别计数。宿主在稳定系统提示中声明本次 `steps / tools / sameTool` 上限（不破坏 Prompt Cache），Pi 会话在工具临近或触达单工具/总调用上限时仅在模型可见的工具结果文本尾部附带 `_hostBudgetNotice`（不污染宿主 `observations` 与 `RetrievalSchema`），并在单工具达到上限后从后续轮次的活跃工具清单中停用该工具（保留归档回查工具与分析/审阅/草稿工具），帮助模型平滑推进收尾；若模型或提供方仍强行发出超额调用，触及总次数或同一工具次数上限后超额那次调用仍不会进入执行器并直接记录 `budget_exceeded` 终止运行。Web 工作台 `RunService` 默认按档位配套工具预算（快速 24/28/12、标准 40/48/16、深度 80/96/30），也支持通过 `limits` 显式传入有界覆盖。原来的连续三次完全相同决策防死循环检查继续生效。
 
 字符数按 JavaScript UTF-16 长度计数，不冒充 Token 数。Pi 在字符或可用输入 Token 的 80% 判断需要压缩；Token 使用 UTF-8 字节估算与最近实际 usage 加新增消息估算取较大值，模型窗口需预留输出额度。旧会话经摘要和显式 compaction 边界退出活动上下文，完整脱敏转录继续保留；固定提示、工具、任务或最近完整工具轮次仍超限时明确失败。ReplayModel 的单步上下文仍超限即失败。草稿正文还受已有 12000 字符 Schema 限制。工具结果保留已有来源大小上限、快照及有限观察值，再进入上下文检查。详见 session-context.md。
 
@@ -51,4 +51,4 @@ run_started 记录生效 limits；usage_reported 记录总调用尝试、按工�
 
 浏览器内部 HTTP 请求另受请求次数、单资源/总字节预算约束，见 source-adapters.md。一次 browser_tool 调用仍计作一次 Agent 工具尝试，内部资源请求不会计作额外模型工具轮数。
 
-远程 Web MCP 来源可显式设置 searchMcp.requestTimeoutMs（1000–120000 毫秒，默认 30000），同时用于 HTTP 与 tools/call；连接与发现最多 min(30000, requestTimeoutMs)。父工具超时、运行超时与取消仍优先，不因为来源设置更大而延长父预算，不自动重试或更换抓取后端。三个竞品验收来源现设为 60000，为约 30 秒返回正文的原服务留出余量；父工具 45000 的独立复验见 p1-fetch-acceptance-2026-10-24.md。
+远程 Web MCP 来源可显式设置 searchMcp.requestTimeoutMs（1000–120000 毫秒，默认 30000），同时用于 HTTP 与 tools/call；连接与发现最多 min(30000, requestTimeoutMs)。父工具超时、运行超时与取消仍优先，不因为来源设置更大而延长父预算，不自动重试或更换抓取后端。`examples/sources-web.json` 与三个竞品验收来源现均设为 60000，为约 30 秒返回正文的原服务留出余量；父工具 45000 的独立复验见 p1-fetch-acceptance-2026-10-24.md。

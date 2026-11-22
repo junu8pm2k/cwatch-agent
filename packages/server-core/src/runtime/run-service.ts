@@ -38,13 +38,25 @@ const definitions = [
 ];
 const names: Record<string,string> = { official: '官方网站', browser: '浏览器读取', web: '联网搜索与读取' };
 const domainItem = z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
+function defaultWebToolBudgets(timeoutMs: number, maxTokens: number): { maxSteps: number; maxToolCalls: number; maxSameToolCalls: number } {
+  if (timeoutMs >= 500_000 || maxTokens >= 800_000) return { maxSteps: 80, maxToolCalls: 96, maxSameToolCalls: 30 };
+  if (timeoutMs <= 150_000 && maxTokens <= 200_000) return { maxSteps: 24, maxToolCalls: 28, maxSameToolCalls: 12 };
+  return { maxSteps: 40, maxToolCalls: 48, maxSameToolCalls: 16 };
+}
 const startSchema = z.object({
   profile: z.enum(['agent','standard','web','adapters']).default('agent'), mode: z.enum(['live','replay']).default('replay'),
   permission: z.enum(['explore','ask','allow-all']).default('explore'), task: AgentTaskSchema.optional(),
   skills: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).max(20).default([]),
   webDomains: z.array(domainItem).max(20).optional(),
   conversation: z.boolean().default(false),
-  limits: z.object({ timeoutMs: z.number().int().min(1000).max(600000).optional(), toolTimeoutMs: z.number().int().min(1000).max(120000).optional(), maxTokens: z.number().int().min(100).max(2000000).optional() }).strict().default({}),
+  limits: z.object({
+    timeoutMs: z.number().int().min(1000).max(600000).optional(),
+    toolTimeoutMs: z.number().int().min(1000).max(120000).optional(),
+    maxTokens: z.number().int().min(100).max(2000000).optional(),
+    maxSteps: z.number().int().min(1).max(120).optional(),
+    maxToolCalls: z.number().int().min(1).max(200).optional(),
+    maxSameToolCalls: z.number().int().min(1).max(60).optional(),
+  }).strict().default({}),
 }).strict();
 const active = (status: RunSnapshot['status']) => ['preparing','running','awaiting_approval','awaiting_user','cancelling'].includes(status);
 const messageSchema = z.object({ messageId: z.string().uuid(), text: z.string().trim().min(1).max(24000) }).strict();
@@ -157,8 +169,13 @@ export class RunService {
         clearTimeout(timeout); // Runtime owns active execution time; preparation must not time out an idle conversation.
         run.view.status='running';this.changed(run);
         const approvals=new ApprovalManager((request,approvalSignal)=>this.awaitApproval(run,request,approvalSignal),Math.min(60000,input.limits.toolTimeoutMs??45000));
+        const timeoutMs=input.limits.timeoutMs??300000,maxTokens=input.limits.maxTokens??400000;
+        const toolBudgets=defaultWebToolBudgets(timeoutMs,maxTokens);
         const result=await (isInvestigationTask(task)?runInvestigation:runAgent)(task,model,registry,run.data,input.mode,{
-          timeoutMs:input.limits.timeoutMs??300000,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens:input.limits.maxTokens??400000,
+          timeoutMs,toolTimeoutMs:input.limits.toolTimeoutMs??45000,maxTokens,
+          maxSteps:input.limits.maxSteps??toolBudgets.maxSteps,
+          maxToolCalls:input.limits.maxToolCalls??toolBudgets.maxToolCalls,
+          maxSameToolCalls:input.limits.maxSameToolCalls??toolBudgets.maxSameToolCalls,
           workspaceRoot:this.root,initialGaps,userSkills,secrets,onEvent:event=>this.onTrace(run,event),
           ...(input.conversation?{nextUserMessage:(answer:RunResult,turnSignal:AbortSignal)=>this.awaitUserMessage(run,answer,turnSignal)}:{}),
           onPlanSubmitted:async(plan,path)=>{run.data.append('plan-submissions.jsonl',{taskId:plan.taskId,path,submittedAt:now()});run.view.plan=run.redactor.clean(plan);this.changed(run);},

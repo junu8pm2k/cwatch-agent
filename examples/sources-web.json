@@ -6,7 +6,9 @@
     "allowedDomains": [
       "nodejs.org"
     ],
-    "searchMcp": {},
+    "searchMcp": {
+      "requestTimeoutMs": 60000
+    },
     "fixture": "fixtures/web-discovery.json"
   }
 ]

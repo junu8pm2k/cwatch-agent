@@ -3,8 +3,9 @@ import { type AgentSessionHooks, type ToolBinding } from "@cwatch/core/types";
 import type { PiBuiltinResult } from '../../../tools/pi-builtins.ts';
 
 export interface ToolHookContext { signal: AbortSignal; throwIfStopped(): void }
+export interface ProxyToolOptions { formatBudgetNotice?: (toolName: string) => string | undefined }
 /** Proxy bodies delegate to the host executor; raw SourceClient implementations stay private. */
-export function buildProxyTools(bindings: readonly ToolBinding[], hooks: AgentSessionHooks): ToolDefinition[] {
+export function buildProxyTools(bindings: readonly ToolBinding[], hooks: AgentSessionHooks, options?: ProxyToolOptions): ToolDefinition[] {
   return bindings.map(disclosed => {
     const binding = structuredClone(disclosed);
     const { $schema: _metaSchema, ...parameters } = binding.inputSchema;
@@ -17,10 +18,15 @@ export function buildProxyTools(bindings: readonly ToolBinding[], hooks: AgentSe
       execute: async (toolCallId, params, signal) => {
         if (!signal) throw new Error('tool_signal_required');
         const observation = await hooks.executeTool(binding.proxy_name, params as Record<string, unknown>, signal, binding, toolCallId);
+        const notice = options?.formatBudgetNotice?.(binding.proxy_name);
         if (binding.source_slug === 'pi' && binding.channel === 'builtin' && observation && typeof observation === 'object' && 'kind' in observation && observation.kind === 'pi_builtin_result') {
-          return { content: (observation as PiBuiltinResult).content, details: observation };
+          const content = (observation as PiBuiltinResult).content;
+          return { content: notice ? [...content, { type: 'text' as const, text: '[HOST BUDGET NOTICE] ' + notice }] : content, details: observation };
         }
-        return { content: [{ type: 'text', text: JSON.stringify(observation) }], details: observation };
+        const payload = notice && observation && typeof observation === 'object' && !Array.isArray(observation)
+          ? { ...(observation as Record<string, unknown>), _hostBudgetNotice: notice }
+          : observation;
+        return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: observation };
       },
     };
   });
