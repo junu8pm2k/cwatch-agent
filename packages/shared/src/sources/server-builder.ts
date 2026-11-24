@@ -125,10 +125,10 @@ export class SourceServerBuilder {
     if (config.kind === 'web') {
       if (!config.allowedDomains?.length) throw new Error('web_allowed_domains_required');
       const { PreferredWebSource, readWebOptions } = await import('./web.ts');
-      // An explicit API configuration is independent of the planner's model credentials.
+      // Explicit search tool configurations stay independent of the planner's model credentials.
       const options = config.webApi || config.searchMcp?.type === 'api' ? { slug: config.slug, allowedDomains: config.allowedDomains } as import('./web.ts').WebOptions : readWebOptions(config.slug, config.allowedDomains);
       if (config.webApi && mode === 'live') options.webApi = readWebApi(config.webApi, process.env);
-      if (config.searchMcp && mode === 'live') options.searchMcp = readSearchMcp(config.searchMcp, process.env);
+      else if (mode === 'live') options.searchMcp = readSearchMcp(config.searchMcp ?? {}, process.env);
       options.urls = config.urls;
       client = new PreferredWebSource(options);
     }

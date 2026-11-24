@@ -50,10 +50,10 @@ check('integration', 'native fetch returns exact-URL page data with audit events
   const url = 'https://nodejs.org/article'; const h = await harness({ ...base, native }, { fetcher: async () => Response.json(nativeResponse('web_fetch', { url })) });
   const result = await h.executor.execute('web_fetch', { url }, live) as RetrievalResult; assert.equal(result.pages?.[0].url, url); assert.equal(result.backend, 'native.anthropic'); assert.deepEqual(validateTrace(h.finish()), []);
 });
-check('contract', 'unsupported native without configured MCP returns unavailable with no direct webpage request', async () => {
+check('contract', 'unsupported native without configured search tool returns explicit unsupported with no direct webpage request', async () => {
   let requests = 0; const h = await harness({ ...base, native }, { fetcher: async url => { requests++; assert.ok(String(url).includes('native.example')); return new Response('web_search not supported', { status: 400 }); } });
   const result = await h.executor.execute('web_search', { query: 'Node.js', limit: 2 }, live) as RetrievalResult;
-  assert.equal(result.status, 'unknown'); assert.match(result.error!, /web_backend_unavailable/); assert.equal(requests, 1); assert.deepEqual(validateTrace(h.finish()), []);
+  assert.equal(result.status, 'unknown'); assert.match(result.error!, /unsupported/); assert.equal(result.backend, 'native.anthropic'); assert.equal(requests, 1); assert.deepEqual(validateTrace(h.finish()), []);
 });
 for (const [http, status] of [[401, 'auth_failed'], [429, 'rate_limited']] as const) check('contract', 'native HTTP ' + http + ' does not silently fall back', async () => {
   let requests = 0; const h = await harness({ ...base, native }, { fetcher: async () => { requests++; return new Response('failure', { status: http }); } });
@@ -73,9 +73,9 @@ check('contract', 'web denied source and out-of-scope URL/query have zero HTTP e
   await assert.rejects(h.executor.execute('web_search', { query: 'unrelated company', limit: 1 }, live));
   h.registry.setActive('web', false); await assert.rejects(h.executor.execute('web_search', { query: 'Node.js', limit: 1 }, live)); assert.equal(requests, 0); assert.ok(h.data.executions().every(e => e.execute_count === 0));
 });
-check('contract', 'source revocation between native rejection and MCP prevents MCP request', async () => {
+check('contract', 'source revocation between auto MCP handshake mismatch and REST fallback prevents REST request', async () => {
   let requests = 0; let h: Awaited<ReturnType<typeof harness>>;
-  h = await harness({ ...base, native, searchMcp }, { fetcher: async () => { requests++; h.registry.setActive('web', false); return new Response('web_search unsupported', { status: 400 }); } });
+  h = await harness({ ...base, searchMcp: { url: 'https://custom-search.example/search', token: 'mcp-fixture-key' } }, { fetcher: async () => { requests++; h.registry.setActive('web', false); return new Response('not jsonrpc', { status: 400 }); } });
   await assert.rejects(h.executor.execute('web_search', { query: 'Node.js', limit: 1 }, live), /backend_policy_block/); assert.equal(requests, 1);
 });
 check('contract', 'web cancellation stops fallback and late provider events', async () => {
@@ -161,18 +161,13 @@ check('contract', 'generic MCP URL and token are independent from the model and 
   assert.throws(() => readSearchMcp({ url: 'http://unsafe.example/mcp' }, env), /HTTPS/);
   assert.throws(() => readSearchMcp({ url: 'https://unsafe.example/mcp?api_key=private' }, env), /embedded_credentials/);
 });
-check('integration', 'native remains ahead of configured MCP with zero MCP requests', async () => {
+check('integration', 'configured search tool takes priority over native with zero native requests', async () => {
   let calls = 0;
-  const h = await harness({ ...base, native, searchMcp }, { fetcher: async url => { calls++; assert.ok(String(url).includes('native.example')); return Response.json(nativeResponse()); } });
-  const result = await h.executor.execute('web_search', { query: 'Node.js', limit: 2 }, live) as RetrievalResult;
-  assert.equal(result.backend, 'native.anthropic'); assert.equal(calls, 1); assert.deepEqual(validateTrace(h.finish()), []);
-});
-check('integration', 'native unsupported goes to configured MCP with both tiers audited', async () => {
-  let calls = 0; const protocol = mcpProtocol({ onCall: (name, input) => { calls++; assert.equal(name, 'web_search'); assert.deepEqual(input, { query: 'Node.js', n: 2, use_common_search: true }); } });
-  const h = await harness({ ...base, native, searchMcp }, { fetcher: async (url, init) => String(url).includes('native.example') ? new Response('web_search unsupported', { status: 400 }) : protocol(url, init) });
+  const protocol = mcpProtocol({ onCall: (name, input) => { calls++; assert.equal(name, 'web_search'); assert.deepEqual(input, { query: 'Node.js', n: 2, use_common_search: true }); } });
+  const h = await harness({ ...base, native, searchMcp }, { fetcher: async (url, init) => { assert.ok(!String(url).includes('native.example')); return protocol(url, init); } });
   const result = await h.executor.execute('web_search', { query: 'Node.js', limit: 2 }, live) as RetrievalResult;
   assert.equal(result.backend, 'mcp.remote'); assert.equal(calls, 1); assert.equal(result.searchResults![0].published_at, null);
-  const events = h.finish(); assert.deepEqual(validateTrace(events, ['mcp-fixture-key']), []); assert.equal(events.filter(e => e.type === 'backend_started').length, 4);
+  const events = h.finish(); assert.deepEqual(validateTrace(events, ['mcp-fixture-key']), []); assert.equal(events.filter(e => e.type === 'backend_started').length, 3);
   assert.ok(events.some(e => e.type === 'provider_tool_event' && e.data.protocol === 'mcp'));
 });
 check('integration', 'MCP fetch maps exact URL content and saves raw snapshot', async () => {
@@ -231,14 +226,15 @@ check('integration', 'MCP request timeout is visible with no local HTTP fallback
   const result = await h.executor.execute('web_fetch', { url: 'https://nodejs.org/article' }, live) as RetrievalResult;
   assert.equal(result.status, 'unknown'); assert.match(result.error!, /request_timeout/); assert.equal(result.pages, undefined); assert.equal(directCalls, 0); assert.deepEqual(validateTrace(h.finish()), []);
 });
-check('integration', 'both native and MCP unsupported stop after two tiers', async () => {
-  const protocol = mcpProtocol({ tools: [] }); let directCalls = 0;
+check('integration', 'configured MCP unsupported stops without falling back to native or local HTTP', async () => {
+  const protocol = mcpProtocol({ tools: [] }); let nativeCalls = 0, directCalls = 0;
   const h = await harness({ ...base, native, searchMcp }, { fetcher: async (url, init) => {
-    if (String(url).includes('native.example')) return new Response('web_search unsupported', { status: 400 });
-    if (String(url) === MCP_URL) return protocol(url, init); directCalls++; throw new Error('must not execute local fallback');
+    if (String(url).includes('native.example')) { nativeCalls++; throw new Error('must not fall back to native'); }
+    if (String(url) === MCP_URL) return protocol(url, init);
+    directCalls++; throw new Error('must not execute local fallback');
   } });
   const result = await h.executor.execute('web_search', { query: 'Node.js', limit: 1 }, live) as RetrievalResult;
-  assert.equal(result.status, 'unknown'); assert.match(result.error!, /operation_not_discovered/); assert.equal(directCalls, 0);
+  assert.equal(result.status, 'unknown'); assert.match(result.error!, /operation_not_discovered/); assert.equal(nativeCalls, 0); assert.equal(directCalls, 0);
   const events = h.finish(); assert.deepEqual(validateTrace(events), []);
-  assert.deepEqual(events.filter(e => e.type === 'backend_started').map(e => e.data.backend), ['native.anthropic.web_search', 'mcp.remote.connect', 'mcp.remote.list_tools']);
+  assert.deepEqual(events.filter(e => e.type === 'backend_started').map(e => e.data.backend), ['mcp.remote.connect', 'mcp.remote.list_tools']);
 });

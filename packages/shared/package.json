@@ -65,6 +65,8 @@
     "./sources/web-errors": "./src/sources/web-errors.ts",
     "./sources/web-mcp-results": "./src/sources/web-mcp-results.ts",
     "./sources/web-mcp": "./src/sources/web-mcp.ts",
+    "./sources/web-native": "./src/sources/web-native.ts",
+    "./sources/web-rest-presets": "./src/sources/web-rest-presets.ts",
     "./sources/web": "./src/sources/web.ts",
     "./tools/pi-builtins": "./src/tools/pi-builtins.ts",
     "./tools/executor": "./src/tools/executor.ts",
