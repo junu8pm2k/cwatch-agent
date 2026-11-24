@@ -1,6 +1,7 @@
 import '../tests/web.test.ts';
 import '../tests/web-mcp.test.ts';
 import '../tests/web-api.test.ts';
+import '../tests/web-compat.test.ts';
 import { cases } from '../tests/harness.ts';
 
 let passed = 0;

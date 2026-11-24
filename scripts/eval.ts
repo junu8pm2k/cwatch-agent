@@ -35,6 +35,7 @@ import '../tests/extensions.test.ts';
 import '../tests/web.test.ts';
 import '../tests/web-mcp.test.ts';
 import '../tests/web-api.test.ts';
+import '../tests/web-compat.test.ts';
 import '../tests/conversation.test.ts';
 import '../tests/investigation-enhancements.test.ts';
 import { cases } from '../tests/harness.ts';

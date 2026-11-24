@@ -16,25 +16,40 @@ async function responseText(response: Response, signal: AbortSignal): Promise<st
 
 /** Called only inside the executor-authorized HTTP stage. */
 async function requestApi(operation: 'search' | 'fetch', config: ResolvedApiEndpoint, args: Record<string, unknown>, signal: AbortSignal, fetcher: typeof fetch) {
-  const url = apiEndpoint(config.endpoint), headers = new Headers(config.headers);
-  const params: Record<string, unknown> = { ...config.fixedParams, ...config.envParams };
-  if (operation === 'search') { const q = config.queryParam ?? 'query', n = config.limitParam ?? 'limit'; params[q] = args.query; params[n] = args.limit; }
-  else { const key = config.urlParam ?? 'url'; params[key] = config.urlAsArray ? [args.url] : args.url; }
-  if (config.auth && config.token) {
-    const { location } = config.auth, name = config.auth.name ?? (location === 'header' ? 'Authorization' : 'api_key');
-    const prefix = config.auth.scheme === 'bearer' || config.auth.scheme === undefined && location === 'header' ? 'Bearer ' : '';
-    if (location === 'header') headers.set(name, prefix + config.token);
-    else {
-      if (Object.hasOwn(params, name)) throw new WebFailure('parse_failed', 'api_auth_parameter_conflicts_with_input');
-      if (location === 'query') url.searchParams.set(name, prefix + config.token); else params[name] = prefix + config.token;
+  const send = async (method: 'GET' | 'POST') => {
+    const url = apiEndpoint(config.endpoint), headers = new Headers(config.headers);
+    const params: Record<string, unknown> = { ...config.fixedParams, ...config.envParams };
+    if (operation === 'search') {
+      const q = config.queryParam ?? 'query';
+      params[q] = args.query;
+      if (config.limitParam !== '') params[config.limitParam ?? 'limit'] = args.limit;
+    } else {
+      const key = config.urlParam ?? 'url';
+      params[key] = config.urlAsArray ? [args.url] : args.url;
     }
+    if (config.auth && config.token) {
+      const { location } = config.auth, name = config.auth.name ?? (location === 'header' ? 'Authorization' : 'api_key');
+      const prefix = config.auth.scheme === 'bearer' || config.auth.scheme === undefined && location === 'header' ? 'Bearer ' : '';
+      if (location === 'header') headers.set(name, prefix + config.token);
+      else {
+        if (Object.hasOwn(params, name)) throw new WebFailure('parse_failed', 'api_auth_parameter_conflicts_with_input');
+        if (location === 'query') url.searchParams.set(name, prefix + config.token); else params[name] = prefix + config.token;
+      }
+    }
+    let body: string | undefined;
+    if (method === 'GET') for (const [key, value] of Object.entries(params)) url.searchParams.set(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
+    else { headers.set('content-type', 'application/json'); body = JSON.stringify(params); }
+    let response: Response;
+    try { response = await abortable(fetcher(url, { method, headers, ...(body ? { body } : {}), redirect: 'error', signal }), signal); }
+    catch { signal.throwIfAborted(); throw new WebFailure('unavailable', 'api_transport_unavailable'); }
+    return response;
+  };
+  let response = await send(config.method);
+  if (response.status === 405 && config.method === 'POST' && config.allowGetFallback && config.auth?.location !== 'body') {
+    await response.body?.cancel().catch(() => {});
+    signal.throwIfAborted();
+    response = await send('GET');
   }
-  let body: string | undefined;
-  if (config.method === 'GET') for (const [key, value] of Object.entries(params)) url.searchParams.set(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
-  else { headers.set('content-type', 'application/json'); body = JSON.stringify(params); }
-  let response: Response;
-  try { response = await abortable(fetcher(url, { method: config.method, headers, ...(body ? { body } : {}), redirect: 'error', signal }), signal); }
-  catch { signal.throwIfAborted(); throw new WebFailure('unavailable', 'api_transport_unavailable'); }
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
     throw new WebFailure(response.status === 401 || response.status === 403 ? 'auth_failed' : response.status === 429 ? 'rate_limited' : response.status >= 300 && response.status < 400 ? 'parse_failed' : 'unavailable', 'api_HTTP_' + response.status);
@@ -43,6 +58,8 @@ async function requestApi(operation: 'search' | 'fetch', config: ResolvedApiEndp
   try { raw = await responseText(response, signal); }
   catch (error) { signal.throwIfAborted(); if (error instanceof WebFailure) throw error; throw new WebFailure('unavailable', 'api_response_read_failed'); }
   if (config.response.format === 'text') return { raw, mapped: undefined };
+  const contentType = response.headers.get('content-type') ?? '';
+  if (config.allowGetFallback && /text\/(?:plain|markdown)/i.test(contentType)) return { raw, mapped: undefined };
   let data: any; try { data = JSON.parse(raw); } catch { throw new WebFailure('parse_failed', 'api_invalid_json_response'); }
   if (data?.error || data?.errors || data?.success === false) throw new WebFailure('unknown', 'api_response_reports_error');
   const mapping = config.response;
@@ -77,7 +94,8 @@ export class WebApiAdapter {
     const redactor = new Redactor(secrets);
     const metadata = { provider: 'api', backend: 'web.api', protocol: 'http', transport: 'direct', operation, endpoint: redactor.clean(endpoint.endpoint), httpMethod: endpoint.method };
     return context.stage('web.api.' + operation, async () => {
-      const timeout = new AbortController(), handle = setTimeout(() => timeout.abort(new DOMException('API timeout', 'TimeoutError')), 25_000);
+      const timeoutMs = this.options.requestTimeoutMs ?? 25_000;
+      const timeout = new AbortController(), handle = setTimeout(() => timeout.abort(new DOMException('API timeout', 'TimeoutError')), timeoutMs);
       const combined = AbortSignal.any([signal, timeout.signal]);
       try {
         context.event('provider_tool_event', { ...metadata, phase: 'request', input: redactor.clean(input.data) });

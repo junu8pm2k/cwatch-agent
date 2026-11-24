@@ -47,7 +47,7 @@ Pi AgentSession / ReplayModel
 
 端点是固定 HTTPS 地址或环境变量引用。配置使用 GET 查询参数或 POST JSON（默认 POST），鉴权支持 header、query、body。默认 header 使用 Bearer；可以指定原始 X-Api-Key 等头。密钥只从指定环境变量读取，不借用模型 API_KEY。`fixedParams` / `paramsFromEnv` 支持服务必需的固定参数。
 
-显式配置 `webApi` 后直接使用 API，模型配置不会改变后端；API 报错或缺少操作时保留错误，不自动换服务。未配置 `webApi` 时保持原有受控原生工具 → 配置的远程 MCP 路径。旧 `searchMcp: { "type": "api", ... }` 仍可读取，但执行同一条本地 API 路径，Trace 身份改为 `web.api`。旧模块 `web-api-mcp` 仅保留弃用兼容导出，不再实现 MCP 包装。
+显式配置 `webApi` 后直接使用 API，模型配置不会改变后端；API 报错或缺少操作时保留错误，不自动换服务。未配置 `webApi` 时，只要配置了外部搜索工具 URL + Key（`SEARCH_MCP_URL` / `SEARCH_MCP_TOKEN` 或 `API_SEARCH_URL` / `API_SEARCH_KEY`），会优先走外部搜索工具并自动兼容 MCP（Streamable HTTP / SSE）与主流 REST API（Tavily、Exa、Brave、Serper、SerpAPI、Bocha、Firecrawl、Jina、Google Custom Search、Perplexity、Metaso 及通用 JSON/GET REST）；仅在未配置任何外部搜索工具时才走受控内置 AI 工具（Anthropic / OpenAI / Gemini）。旧 `searchMcp: { "type": "api", ... }` 仍可读取，执行同一条本地 API 路径，Trace 身份为 `web.api`。旧模块 `web-api-mcp` 仅保留弃用兼容导出，不再实现 MCP 包装。
 
 ## Search 怎么实现
 

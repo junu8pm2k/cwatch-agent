@@ -14,15 +14,18 @@
   → ActionPolicy / 必要时审批 / 执行前复查
   → PreferredWebSource
       → 显式 webApi / 旧 searchMcp.type=api：本地 API Adapter 直接执行
-      → 未配置 API 时，已配置受控内置 Adapter：先尝试内置
-      → 未接入该提供方、被宿主关闭或明确 unsupported：尝试配置的搜索 MCP
-      → MCP 未配置、明确 unsupported 或暂不可用：返回明确错误
+      → 配置了搜索工具 URL + Key（SEARCH_MCP_URL / API_SEARCH_URL）：优先执行外部搜索工具
+          → 命中主流 REST API 预设或 protocol=rest：直接走本地 WebApiAdapter
+          → MCP 端点或未知 URL（protocol=auto）：走 RemoteSearchMcp（Streamable HTTP → SSE），仅在握手前明确非 MCP 时自动切换为通用 REST API
+      → 未配置任何外部搜索工具 URL 时，已配置受控内置 Adapter（Anthropic / OpenAI / Gemini）：走隔离内置子请求
+      → 均未配置或后端不可用：返回明确错误
       → 每个后端请求再次检查有效权限、来源和绑定
   → 统一返回状态、发现结果/页面、后端身份、快照引用
+  → ToolExecutor 落盘完整快照 + PiContextManager/ToolResultGovernor 执行 Snip 裁剪与分页查阅入口
   → Observation → 模型下一轮
 ```
 
-鉴权失败、限流、策略拒绝、来源撤销、取消、数据不可核验都不会被“回退”掩盖。内置只返回最终文字而没有工具事件时返回 parse_failed，不能伪装为采集成功。没有自动重试副作用。
+鉴权失败、限流、策略拒绝、来源撤销、取消、数据不可核验以及已配置外部搜索工具的报错都不会被“回退”到内置能力或本地抓取掩盖。内置只返回最终文字而没有工具事件时返回 parse_failed，不能伪装为采集成功。没有自动重试副作用。
 
 ## 同一权限和 Trace
 
@@ -32,16 +35,16 @@ Trace 保存：所选后端、优先/回退原因、实际查询或 URL（厂商
 
 ## 内置能力与限制
 
-已实现 **Anthropic 原生 Messages API** 的受控 web_search/web_fetch Adapter：每次独立子请求只提供一个工具，`max_uses=1`，传入允许域名，fetch 仅给一个已批准 URL，禁用其他工具与完整 Agent 历史。读取原始 `server_tool_use` 与对应结果，检查数量、ID、实际参数与许可输入，保存事件和 usage。无事件、额外调用、输入不一致、结果越域或 pause_turn 均拒收，不把解释文本当证据。
+仅在**未配置外部搜索工具 URL** 时启用受控内置 Adapter，现已支持 **Anthropic Messages API**（`web_search_20250305` / `web_fetch_20250910`）、**OpenAI Responses API**（`web_search`，`web_fetch` 明确报 `unsupported`）与 **Google Gemini API**（`google_search` / `url_context`，使用 `x-goog-api-key` 请求头）。所有内置请求均为隔离单次子请求，禁用其他工具与完整 Agent 历史，严格核验厂商工具事件/grounding 元数据与许可域名，不把无事件的自由文本当证据；返回的标准 `RetrievalResult` 同样完整经过 `ToolExecutor` 快照落盘、snippet/正文长度裁剪及 `ToolResultGovernor` 的 Snip / Microcompact 上下文治理链路。
 
 宿主可以在这个**独立请求之前**授权搜索/抓取范围，但无法在厂商服务器内部动作开始前再插入本地 Hook。厂商内部查询只能按其公开事件事后核对；不承诺操作系统级或远端服务内部的逐动作拦截。内置和 MCP 的远端内部子动作都无法由宿主逐个插入前置 Hook，只能控制公开的请求级范围。发现违约只能拒绝结果、留审计，不能声称远端请求已回滚。
 
-`WEB_NATIVE_PROVIDER=auto` 仅自动识别原生 Anthropic 配置（MODEL_PROVIDER=anthropic 且 BASE_URL 为空）。当前 StepFun Chat Completions 接口尚无已接入并验证的受控内置 Adapter，因此进入通用搜索 MCP 配置；MCP 与模型厂商独立。官方 Realtime 文档的 web_search 也不能直接证明当前 Chat Completions 接口支持相同协议。
+`WEB_NATIVE_PROVIDER=auto` 自动识别官方 Anthropic、OpenAI 与 Gemini 配置（无自定义第三方代理 `BASE_URL`）。当前 StepFun Chat Completions 接口尚无已接入并验证的受控内置 Adapter，因此仍需配置搜索工具 URL/Key；外部搜索工具与模型厂商独立。
 
 可选内置配置可在本机 .env 添加：
 
 ```dotenv
-WEB_NATIVE_PROVIDER=anthropic
+WEB_NATIVE_PROVIDER=anthropic # 也支持 openai / gemini / google / auto / off
 WEB_NATIVE_API_KEY=
 WEB_NATIVE_MODEL=
 WEB_NATIVE_BASE_URL=https://api.anthropic.com/v1

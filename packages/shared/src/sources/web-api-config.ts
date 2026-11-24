@@ -20,8 +20,8 @@ export const ApiMcpConfigSchema = z.object({ type: z.literal('api'), ...operatio
 export type WebApiConfig = z.input<typeof WebApiConfigSchema>;
 export type ApiMcpConfig = z.input<typeof ApiMcpConfigSchema>;
 export type ApiEndpoint = z.output<typeof ApiEndpointSchema>;
-export type ResolvedApiEndpoint = ApiEndpoint & { endpoint: string; token?: string; envParams: Record<string, string> };
-export interface WebApiOptions { type: 'api'; search?: ResolvedApiEndpoint; fetch?: ResolvedApiEndpoint; secrets: string[] }
+export type ResolvedApiEndpoint = ApiEndpoint & { endpoint: string; token?: string; envParams: Record<string, string>; allowGetFallback?: boolean };
+export interface WebApiOptions { type: 'api'; search?: ResolvedApiEndpoint; fetch?: ResolvedApiEndpoint; secrets: string[]; requestTimeoutMs?: number }
 export type ApiMcpOptions = WebApiOptions;
 export function apiEndpoint(value: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('invalid_search_API_endpoint'); }

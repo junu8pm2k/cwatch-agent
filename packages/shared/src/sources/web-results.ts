@@ -9,7 +9,12 @@ const emptyText = (text: string): boolean => /^(?:no (?:search )?results?(?: fou
 function unwrap(value: any): any {
   for (let i = 0; i < 3 && value && typeof value === 'object' && !Array.isArray(value); i++) {
     if (value.error || value.error_code || value.success === false) throw new WebFailure('unknown', 'web_result_error');
-    if (value.results !== undefined || value.hits !== undefined || value.items !== undefined || value.searchResults !== undefined || value.web?.results !== undefined) break;
+    if (
+      value.results !== undefined || value.hits !== undefined || value.items !== undefined ||
+      value.searchResults !== undefined || value.web?.results !== undefined ||
+      value.organic !== undefined || value.organic_results !== undefined ||
+      value.webPages?.value !== undefined || value.webpages !== undefined
+    ) break;
     if (value.data !== undefined) value = value.data;
     else if (value.result !== undefined) value = value.result;
     else break;
@@ -32,7 +37,11 @@ export function normalizeWebResult(name: string, args: Record<string, unknown>, 
   if (name === 'web_search') {
     let candidates: any[];
     if (data !== undefined) {
-      const items = Array.isArray(data) ? data : data?.results ?? data?.hits ?? data?.items ?? data?.searchResults ?? (Array.isArray(data?.web) ? data.web : data?.web?.results);
+      const items = Array.isArray(data)
+        ? data
+        : data?.results ?? data?.hits ?? data?.items ?? data?.searchResults ??
+          (Array.isArray(data?.web) ? data.web : data?.web?.results) ??
+          data?.organic ?? data?.organic_results ?? data?.webPages?.value ?? data?.webpages;
       if (!Array.isArray(items)) fail('missing_search_results'); candidates = items;
     } else {
       candidates = blocks.flatMap(b => b.type === 'resource_link' ? [{ url: b.uri, title: b.name ?? b.uri, snippet: '' }] : b.type === 'resource' && b.resource?.uri ? [{ url: b.resource.uri, title: b.resource.uri, snippet: b.resource.text ?? '' }] : []);
@@ -41,10 +50,10 @@ export function normalizeWebResult(name: string, args: Record<string, unknown>, 
     }
     let filteredOutsideScope = 0;
     const accepted = candidates.flatMap(item => {
-      const url = string(item?.url, item?.link, item?.uri), title = string(item?.title, item?.name) ?? url;
+      const url = string(item?.url, item?.link, item?.uri, item?.href), title = string(item?.title, item?.name, item?.headline) ?? url;
       if (!url || !title) return fail('invalid_search_hit');
       try { checkUrl(url); } catch { filteredOutsideScope++; return []; }
-      return [{ url, title, snippet: (string(item.snippet, item.description, item.text, item.content, item.summary) ?? '').slice(0, 2000), published_at: null, retrieved_at: now() }];
+      return [{ url, title, snippet: (string(item.snippet, item.description, item.text, item.content, item.summary, item.markdown) ?? '').slice(0, 2000), published_at: null, retrieved_at: now() }];
     });
     const hits = [...new Map(accepted.map(item => [item.url, item])).values()].slice(0, Number(args.limit));
     return { result: RetrievalSchema.parse({ status: hits.length ? 'success_with_data' : 'success_empty', signals: [], raw, provenance: 'live', backend, searchResults: hits }), returned: candidates.length, filteredOutsideScope };

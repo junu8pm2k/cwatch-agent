@@ -28,7 +28,9 @@ export class McpSchemaValidator implements jsonSchemaValidator {
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
 const RemoteMcpConfigSchema = z.object({
   type: z.literal('remote').optional(),
+  protocol: z.enum(['auto', 'mcp', 'rest']).optional(),
   url: z.string().url().optional(), urlEnv: envName.optional(), tokenEnv: envName.optional(),
+  fetchUrl: z.string().url().optional(), fetchUrlEnv: envName.optional(), fetchTokenEnv: envName.optional(),
   transport: z.enum(['auto', 'streamable-http', 'sse']).optional(),
   requestTimeoutMs: z.number().int().min(1000).max(120_000).optional(),
   authHeader: z.string().regex(/^[A-Za-z0-9-]+$/).optional(), authScheme: z.enum(['bearer', 'raw']).optional(),
@@ -37,7 +39,22 @@ const RemoteMcpConfigSchema = z.object({
 export const SearchMcpConfigSchema = z.union([RemoteMcpConfigSchema, ApiMcpConfigSchema]);
 export type SearchMcpConfig = z.infer<typeof SearchMcpConfigSchema>;
 type RemoteMcpConfig = z.input<typeof RemoteMcpConfigSchema>;
-export interface RemoteMcpOptions { type?: 'remote'; url: string; token?: string; transport?: 'auto' | 'streamable-http' | 'sse'; requestTimeoutMs?: number; authHeader?: string; authScheme?: 'bearer' | 'raw'; tools?: RemoteMcpConfig['tools'] }
+export interface RemoteMcpOptions {
+  type?: 'remote';
+  protocol?: 'auto' | 'mcp' | 'rest';
+  url: string;
+  token?: string;
+  fetchUrl?: string;
+  fetchToken?: string;
+  fetchOnly?: boolean;
+  transport?: 'auto' | 'streamable-http' | 'sse';
+  requestTimeoutMs?: number;
+  authHeader?: string;
+  authScheme?: 'bearer' | 'raw';
+  explicitAuth?: boolean;
+  googleCx?: string;
+  tools?: RemoteMcpConfig['tools'];
+}
 export type SearchMcpOptions = RemoteMcpOptions | ApiMcpOptions;
 export function mcpEndpoint(value: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new Error('invalid_SEARCH_MCP_URL'); }
@@ -51,16 +68,60 @@ export function readSearchMcp(config: SearchMcpConfig, env: NodeJS.ProcessEnv): 
 export function readSearchMcp(config: SearchMcpConfig | ApiMcpConfig, env: NodeJS.ProcessEnv): SearchMcpOptions | undefined {
   const parsed = SearchMcpConfigSchema.parse(config);
   if (parsed.type === 'api') return readApiMcp(parsed, env);
-  const value = parsed.url ?? env[parsed.urlEnv ?? 'SEARCH_MCP_URL']?.trim();
+
+  const explicitTarget = Boolean(parsed.url || parsed.urlEnv);
+  let value = parsed.url ?? env[parsed.urlEnv ?? 'SEARCH_MCP_URL']?.trim();
+  let token = env[parsed.tokenEnv ?? 'SEARCH_MCP_TOKEN']?.trim() || undefined;
+  let fetchValue = parsed.fetchUrl ?? (parsed.fetchUrlEnv ? env[parsed.fetchUrlEnv]?.trim() : undefined);
+  let fetchToken = parsed.fetchTokenEnv ? (env[parsed.fetchTokenEnv]?.trim() || undefined) : undefined;
+  let fetchOnly = false;
+
+  if (!value && !explicitTarget) {
+    const apiSearchUrl = env.API_SEARCH_URL?.trim();
+    const apiFetchUrl = env.API_FETCH_URL?.trim();
+    if (apiSearchUrl) {
+      value = apiSearchUrl;
+      token = env[parsed.tokenEnv ?? 'API_SEARCH_KEY']?.trim() || undefined;
+      if (!fetchValue && apiFetchUrl) {
+        fetchValue = apiFetchUrl;
+        fetchToken = env[parsed.fetchTokenEnv ?? 'API_FETCH_KEY']?.trim() || undefined;
+      }
+    } else if (apiFetchUrl) {
+      value = apiFetchUrl;
+      token = env[parsed.fetchTokenEnv ?? 'API_FETCH_KEY']?.trim() || undefined;
+      fetchValue = apiFetchUrl;
+      fetchToken = token;
+      fetchOnly = true;
+    }
+  } else if (!fetchValue && !explicitTarget && env.API_FETCH_URL?.trim()) {
+    fetchValue = env.API_FETCH_URL.trim();
+    fetchToken = env[parsed.fetchTokenEnv ?? 'API_FETCH_KEY']?.trim() || undefined;
+  }
+
   if (!value) return undefined;
-  return { url: mcpEndpoint(value).toString(), token: env[parsed.tokenEnv ?? 'SEARCH_MCP_TOKEN']?.trim() || undefined, transport: parsed.transport ?? 'auto', authHeader: parsed.authHeader ?? 'Authorization', authScheme: parsed.authScheme ?? 'bearer', tools: parsed.tools, ...(parsed.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: parsed.requestTimeoutMs }) };
+  const explicitAuth = parsed.authHeader !== undefined || parsed.authScheme !== undefined;
+  const googleCx = env.GOOGLE_SEARCH_ENGINE_ID?.trim() || undefined;
+  return {
+    protocol: parsed.protocol ?? 'auto',
+    url: mcpEndpoint(value).toString(),
+    token,
+    ...(fetchValue ? { fetchUrl: mcpEndpoint(fetchValue).toString(), ...(fetchToken ? { fetchToken } : {}) } : {}),
+    ...(fetchOnly ? { fetchOnly: true } : {}),
+    transport: parsed.transport ?? 'auto',
+    authHeader: parsed.authHeader ?? 'Authorization',
+    authScheme: parsed.authScheme ?? 'bearer',
+    ...(explicitAuth ? { explicitAuth: true } : {}),
+    ...(googleCx ? { googleCx } : {}),
+    tools: parsed.tools,
+    ...(parsed.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: parsed.requestTimeoutMs }),
+  };
 }
 
 interface RemoteTool { name: string; inputSchema: Record<string, any>; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }
 const aliases = {
-  query: ['query', 'q', 'search_query', 'searchQuery', 'search_term', 'searchTerm', 'searchPhrase'],
-  limit: ['limit', 'n', 'count', 'max_results', 'maxResults', 'num_results', 'numResults', 'number_of_results'],
-  url: ['url', 'uri', 'target_url', 'web_url', 'webUrl', 'urls'],
+  query: ['query', 'q', 'search_query', 'searchQuery', 'search_term', 'searchTerm', 'searchPhrase', 'keyword', 'keywords', 'text'],
+  limit: ['limit', 'n', 'count', 'max_results', 'maxResults', 'num_results', 'numResults', 'number_of_results', 'top_k', 'topK', 'size', 'page_size', 'pageSize', 'k'],
+  url: ['url', 'uri', 'target_url', 'web_url', 'webUrl', 'urls', 'link', 'webpage_url', 'page_url'],
 };
 function field(tool: RemoteTool, keys: string[]): string | undefined { return keys.find(k => Object.hasOwn(tool.inputSchema.properties ?? {}, k)); }
 export function selectMcpTool(tools: RemoteTool[], operation: string, args: Record<string, unknown>, explicit?: string): { name: string; input: Record<string, unknown>; schemaHash: string } {
@@ -70,7 +131,9 @@ export function selectMcpTool(tools: RemoteTool[], operation: string, args: Reco
     if (explicit) return tool.name === explicit;
     const name = tool.name.replace(/[.\-]/g, '_').toLowerCase();
     if (/(?:^|_)(?:delete|remove|create|update|write|send|publish|execute|admin|crawl|map)(?:_|$)/.test(name)) return false;
-    return field(tool, primary) !== undefined && (search ? /(?:^|_)(?:search|websearch)(?:_|$)/.test(name) : /(?:^|_)(?:fetch|scrape|extract|read_url|read_page|read_webpage|get_page|get_webpage|retrieve_url|visit_page)(?:_|$)/.test(name));
+    return field(tool, primary) !== undefined && (search
+      ? /(?:^|_)(?:search|websearch)(?:_|$)/.test(name)
+      : /(?:^|_)(?:fetch|scrape|extract|read_url|read_page|read_webpage|get_page|get_webpage|get_content|get_contents|retrieve_url|visit_page|fetch_url|fetch_page|web_fetch|webpage|reader)(?:_|$)/.test(name));
   });
   if (!candidates.length) throw new WebFailure('unsupported', 'search_mcp_operation_not_discovered:' + operation);
   if (candidates.length !== 1) throw new WebFailure('parse_failed', 'search_mcp_ambiguous_tools: configure tools.' + (search ? 'search' : 'fetch'));
@@ -100,6 +163,7 @@ export class RemoteSearchMcp {
     if (this.options.token) headers.set(this.options.authHeader ?? 'Authorization', (this.options.authScheme === 'raw' ? '' : 'Bearer ') + this.options.token);
     let connectionMode = this.options.transport === 'sse' ? 'sse' : 'streamable-http';
     let activeClient: Client | undefined, lastHttpFailure: WebFailure | undefined;
+    let handshakeCompleted = false;
     const network = async (target: string | URL | Request, init?: RequestInit): Promise<Response> => {
       signal.throwIfAborted();
       const url = new URL(target instanceof Request ? target.url : String(target));
@@ -125,6 +189,7 @@ export class RemoteSearchMcp {
       const options = { requestInit: { headers, redirect: 'error' as const }, fetch: network };
       const transport = mode === 'sse' ? new SSEClientTransport(endpoint, { ...options, eventSourceInit: { fetch: network } }) : new StreamableHTTPClientTransport(endpoint, { ...options, reconnectionOptions: { maxRetries: 0, initialReconnectionDelay: 1000, maxReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1 } });
       await context.stage('mcp.remote.connect', () => client.connect(transport, { signal, timeout: controlTimeoutMs }));
+      handshakeCompleted = true;
       return client;
     };
     try {
@@ -132,6 +197,7 @@ export class RemoteSearchMcp {
       try { client = await connect(connectionMode as 'streamable-http' | 'sse'); }
       catch (error) {
         signal.throwIfAborted();
+        if (error instanceof Error && error.message === 'backend_policy_block') throw error;
         if (this.options.transport && this.options.transport !== 'auto' || lastHttpFailure || ![404, 405].includes(Number((error as { code?: number }).code))) throw error;
         await activeClient?.close().catch(() => {});
         context.event('web_route', { route: 'mcp', serverId, transport: 'sse', reason: 'streamable_http_not_supported' });
@@ -163,9 +229,10 @@ export class RemoteSearchMcp {
       if (error instanceof WebFailure) throw error;
       if (lastHttpFailure) throw lastHttpFailure;
       const code = (error as { code?: number }).code;
-      if (code === -32601 || code === 404 || code === 405) throw new WebFailure('unsupported', 'search_mcp_method_not_supported');
+      const mismatch = !handshakeCompleted ? { protocolMismatch: true } : undefined;
+      if (code === -32601 || code === 404 || code === 405) throw new WebFailure('unsupported', 'search_mcp_method_not_supported', mismatch);
       if (code === -32001) throw new WebFailure('unavailable', 'search_mcp_request_timeout');
-      throw new WebFailure('parse_failed', 'search_mcp_protocol_error');
+      throw new WebFailure('parse_failed', 'search_mcp_protocol_error', mismatch);
     } finally { await activeClient?.close().catch(() => {}); }
   }
 }
