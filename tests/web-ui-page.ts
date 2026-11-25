@@ -3,15 +3,27 @@ import type { Page } from 'playwright-core';
 export class WorkbenchPage {
   constructor(readonly page: Page, readonly origin: string) {}
 
-  async selectProfile(profile: 'agent' | 'web' = 'web'): Promise<void> {
-    const label = profile === 'web' ? '产品调查' : '通用 Agent';
-    await this.page.locator('fieldset.mode-pills label').filter({ hasText: label }).click();
+  async showTaskSetup(): Promise<void> {
+    const edit = this.page.getByRole('button', { name: '修改需求', exact: true });
+    if (await edit.isVisible()) {
+      await edit.click();
+    }
+    await this.page.getByRole('textbox', { name: '输入你的调查需求', exact: true }).waitFor();
   }
 
-  async open(profile: 'agent' | 'web' = 'web'): Promise<void> {
+  async showTaskDetails(): Promise<void> {
+    await this.page.getByRole('button', { name: '发起调查', exact: true }).click();
+  }
+
+  async selectProfile(_profile: 'web' = 'web'): Promise<void> {
+    await this.showTaskSetup();
+    await this.showTaskDetails();
+  }
+
+  async open(_profile: 'web' = 'web'): Promise<void> {
     await this.page.goto(this.origin);
     await this.page.getByText('本地服务已连接', { exact: true }).waitFor();
-    await this.selectProfile(profile);
+    await this.selectProfile('web');
   }
 
   async openSettings(): Promise<void> {
@@ -28,9 +40,9 @@ export class WorkbenchPage {
   }
 
   async setMode(mode: 'live' | 'replay'): Promise<void> {
-    await this.openSettings();
-    const label = mode === 'live' ? '真实运行' : '离线演示';
-    await this.page.locator('#settings-popover .segmented label').filter({ hasText: label }).click();
+    await this.showTaskSetup();
+    await this.page.getByRole('combobox', { name: '运行方式', exact: true }).selectOption(mode);
+    await this.showTaskDetails();
   }
 
   async setPermission(permission: 'explore' | 'ask' | 'allow-all'): Promise<void> {
@@ -49,16 +61,22 @@ export class WorkbenchPage {
   }
 
   async start(): Promise<void> {
-    await this.page.getByRole('button', { name: /开始调查|开始任务/ }).click();
+    if (await this.page.getByRole('button', { name: '发起调查', exact: true }).isVisible()) await this.showTaskDetails();
+    await this.page.getByRole('button', { name: '开始调查', exact: true }).click();
   }
 
   async completed(): Promise<void> {
     await this.page.getByText('已完成 / 离线演示', { exact: true }).waitFor({ timeout: 20000 });
   }
 
+  async openSavedRun(runId: string): Promise<void> {
+    await this.page.getByRole('button', { name: '我的调研', exact: true }).click();
+    await this.page.locator(`[data-research-run="${runId}"]`).click();
+  }
+
   async report(): Promise<void> {
-    await this.page.getByRole('tab', { name: /^(调查报告|任务结果)$/ }).click();
-    await this.page.getByRole('link', { name: /下载 Markdown (报告|结果)/ }).waitFor();
+    await this.page.getByRole('tab', { name: '调查报告', exact: true }).click();
+    await this.page.locator('#export-run').waitFor({ state: 'visible' });
   }
 
   reportClaims() {
@@ -67,15 +85,6 @@ export class WorkbenchPage {
 
   reportCitations() {
     return this.reportClaims().getByRole('link');
-  }
-
-  async awaitingInput(): Promise<void> {
-    await this.page.getByText('等待追问 / 真实会话', { exact: true }).waitFor({ timeout: 30000 });
-  }
-
-  async followUp(text: string): Promise<void> {
-    await this.page.getByLabel('继续追问', { exact: true }).fill(text);
-    await this.page.getByRole('button', { name: '发送追问', exact: true }).click();
   }
 
   async cancel(): Promise<void> {

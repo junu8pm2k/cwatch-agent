@@ -47,17 +47,6 @@ export const permissionNames: Record<string, string> = {
   'allow-all': '允许已配置操作',
 };
 
-export const profileDisplayNames: Record<string, string> = {
-  agent: '通用 Agent',
-  web: '产品调查',
-  standard: '产品调查',
-  adapters: '产品调查',
-};
-
-export function profileDisplayName(id: string, fallback?: string): string {
-  return profileDisplayNames[id] ?? fallback ?? id;
-}
-
 export function isActiveStatus(status: RunStatus): boolean {
   return ['preparing', 'running', 'awaiting_approval', 'awaiting_user', 'cancelling'].includes(status);
 }
@@ -91,10 +80,6 @@ export function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
-export function formatShortDate(value: string): string {
-  return new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-}
-
 export function formatDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -116,7 +101,7 @@ export interface ClientState {
   loadingExtensions: boolean;
   runs: RunSnapshot[];
   current?: RunSnapshot;
-  view: 'workbench' | 'connections';
+  view: 'workbench' | 'connections' | 'research';
   tab: MainTab;
   traceDrawerOpen: boolean;
   settingsOpen: boolean;
@@ -124,7 +109,6 @@ export interface ClientState {
   highlightedClaimId?: string;
   selectedPipelineStage?: number;
   theme: 'light' | 'dark';
-  historyQuery: string;
   stream?: EventSource;
   submitting: boolean;
   sending: boolean;
@@ -165,7 +149,6 @@ export const state: ClientState = {
   settingsOpen: false,
   domainFilterOpen: false,
   theme: readInitialTheme(),
-  historyQuery: '',
   submitting: false,
   sending: false,
   deletingRunIds: new Set(),
@@ -184,12 +167,11 @@ export const state: ClientState = {
 };
 
 export function currentProfile(): RunProfile {
-  const value = document.querySelector<HTMLInputElement>('input[name="profile"]:checked')?.value ?? 'agent';
-  return state.bootstrap!.profiles.find(p => p.id === value) ?? state.bootstrap!.profiles[0];
+  return state.bootstrap!.profiles.find(p => p.id === 'web') ?? state.bootstrap!.profiles[0];
 }
 
 export function currentMode(): 'live' | 'replay' {
-  return (document.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? 'replay') as 'live' | 'replay';
+  return $<HTMLSelectElement>('task-runtime').value === 'live' ? 'live' : 'replay';
 }
 
 export function announce(text: string): void {
@@ -198,7 +180,7 @@ export function announce(text: string): void {
 
 export function alertError(error: unknown): void {
   const text = error instanceof Error ? error.message : String(error);
-  const el = $('alert');
+  const el = state.view === 'workbench' && !$('task-editor').hidden ? $('task-editor-error') : $('alert');
   el.textContent = text;
   el.hidden = false;
   announce(text);
@@ -206,4 +188,5 @@ export function alertError(error: unknown): void {
 
 export function clearError(): void {
   $('alert').hidden = true;
+  $('task-editor-error').hidden = true;
 }

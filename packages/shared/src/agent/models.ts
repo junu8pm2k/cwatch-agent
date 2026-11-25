@@ -44,8 +44,10 @@ export class PiModel implements ModelPort {
   usage?: unknown;
   private runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime;
   constructor(readonly provider: string, readonly modelId: string, private onUsage?: (value: unknown) => void, runtime?: import('@earendil-works/pi-coding-agent').ModelRuntime, private config?: Omit<ModelConfig, 'provider' | 'modelId'>) { this.runtime = runtime; }
-  static fromEnvironment(env: NodeJS.ProcessEnv = process.env, options?: Pick<ModelConfig, 'reasoningEffort' | 'providerMaxRetries'>): PiModel {
-    const config = { ...readModelConfig(env), ...options };
+  static fromEnvironment(env: NodeJS.ProcessEnv = process.env, options?: Partial<Pick<ModelConfig, 'modelId' | 'reasoningEffort' | 'providerMaxRetries'>>): PiModel {
+    return PiModel.fromConfig({ ...readModelConfig(env), ...options });
+  }
+  static fromConfig(config: ModelConfig): PiModel {
     if (config.reasoningEffort && !config.baseUrl) throw new Error('model_config: explicit reasoning effort requires an OpenAI-compatible BASE_URL');
     return new PiModel(config.provider, config.modelId, undefined, undefined, config);
   }

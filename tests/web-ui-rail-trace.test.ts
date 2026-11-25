@@ -379,6 +379,7 @@ registerCase('integration', 'Evidence Rail renders enriched fields, toggles snap
   const h = await createHarness('rail-enriched', {}, true);
   try {
     await h.page.goto(h.app.origin);
+    await h.ui.openSavedRun(h.seeded!.runId);
     await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
     await h.page.locator('#evidence-rail .evidence-card').first().waitFor({ state: 'visible' });
 
@@ -474,6 +475,7 @@ registerCase('integration', 'Trace drawer renders semantic summary cards, collap
   const h = await createHarness('trace-semantic', {}, true);
   try {
     await h.page.goto(h.app.origin);
+    await h.ui.openSavedRun(h.seeded!.runId);
     await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
     await h.ui.openTrace();
     await h.page.locator('.trace-tree .trace-row').first().waitFor({ state: 'visible' });
@@ -594,6 +596,7 @@ registerCase('integration', 'Evidence Rail and Trace Drawer maintain theme parit
   const h = await createHarness('theme-mobile', {}, true);
   try {
     await h.page.goto(h.app.origin);
+    await h.ui.openSavedRun(h.seeded!.runId);
     await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
     await h.page.locator('#evidence-rail .evidence-card').first().waitFor({ state: 'visible' });
 

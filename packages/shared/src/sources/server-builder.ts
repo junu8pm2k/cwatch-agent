@@ -6,7 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { RetrievalSchema, SignalSchema, now, abortable, hash, type AgentTask, type RetrievalResult, type SourceClient, type ToolDefinition, type ToolExecutionContext, type SourceGuidePort } from "@cwatch/core/types";
 import { ToolRegistry } from "../tools/registry.ts";
-import { readSearchMcp, SearchMcpConfigSchema } from './web-mcp.ts';
+import { readSearchMcp, SearchMcpConfigSchema, type RemoteMcpOptions } from './web-mcp.ts';
 import { WebApiConfigSchema, readWebApi } from './web-api-config.ts';
 import { ApiMcpSource, PlatformApiAdapter, PlatformApiConfigSchema, ApiRequestSchema, apiSecrets } from "./api-tools.ts";
 import { McpConnectionPool } from "../mcp/client-pool.ts";
@@ -118,7 +118,7 @@ export class McpSource implements SourceClient {
   async close(): Promise<void> { await this.client.close().catch(() => {}); await this.transport?.close().catch(() => {}); this.connected = false; }
 }
 export class SourceServerBuilder {
-  constructor(readonly root: string, readonly mcpPool = new McpConnectionPool()) {}
+  constructor(readonly root: string, readonly mcpPool = new McpConnectionPool(), private readonly searchOverride?: RemoteMcpOptions) {}
   async build(config: SourceConfig, mode: 'live' | 'replay', signal: AbortSignal): Promise<{ client: SourceClient; channel: 'builtin' | 'mcp' }> {
     config = sourceSchema.parse(config);
     let client: SourceClient; const channel = ['mcp','api'].includes(config.kind) ? 'mcp' : 'builtin';
@@ -126,8 +126,10 @@ export class SourceServerBuilder {
       if (!config.allowedDomains?.length) throw new Error('web_allowed_domains_required');
       const { PreferredWebSource, readWebOptions } = await import('./web.ts');
       // Explicit search tool configurations stay independent of the planner's model credentials.
-      const options = config.webApi || config.searchMcp?.type === 'api' ? { slug: config.slug, allowedDomains: config.allowedDomains } as import('./web.ts').WebOptions : readWebOptions(config.slug, config.allowedDomains);
-      if (config.webApi && mode === 'live') options.webApi = readWebApi(config.webApi, process.env);
+      const override = mode === 'live' ? this.searchOverride : undefined;
+      const options = override || config.webApi || config.searchMcp?.type === 'api' ? { slug: config.slug, allowedDomains: config.allowedDomains } as import('./web.ts').WebOptions : readWebOptions(config.slug, config.allowedDomains);
+      if (override) options.searchMcp = override;
+      else if (config.webApi && mode === 'live') options.webApi = readWebApi(config.webApi, process.env);
       else if (mode === 'live') options.searchMcp = readSearchMcp(config.searchMcp ?? {}, process.env);
       options.urls = config.urls;
       client = new PreferredWebSource(options);

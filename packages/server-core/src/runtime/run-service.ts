@@ -1,8 +1,9 @@
-import { mkdirSync, readdirSync, readFileSync, openSync, closeSync, unlinkSync, existsSync, rmSync, lstatSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, existsSync, rmSync, lstatSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { id, now, parseTask, parseAgentTask, AgentTaskSchema, isInvestigationTask, hash, type AgentTask, type CompetitorTask, type ModelPort, type Decision, type Plan } from '@cwatch/core/types';
 import type { RunSnapshot, RunProfile, RunActivity, RunStartInput, RunMessageInput, PendingRunApproval, WorkbenchExtensions, SkillDetail, McpTestResult } from '@cwatch/core/types/runs';
+import { reasoningEfforts } from '@cwatch/core/types/runs';
 import { ActionPolicy, ApprovalManager, type ApprovalRequest } from '@cwatch/shared/agent/core/permission-manager';
 import { SourceServerBuilder, readSourceConfigs, type SourceConfig } from '@cwatch/shared/sources/server-builder';
 import { allowedUrl } from '@cwatch/shared/sources/web';
@@ -19,7 +20,11 @@ import { reportedTokens } from '@cwatch/shared/agent/core/budgets';
 import { apiSecrets } from '@cwatch/shared/sources/api-tools';
 import { runInvestigation, type RunResult } from './investigation.ts';
 import { runAgent } from './agent.ts';
+import { WorkbenchConnections, providerId } from './connections.ts';
+import { acquireHostLock, HostLockError, type HostLock } from './host-lock.ts';
 import type { Claim, Comparison, EventRecord, Evidence, FactVersion, Review } from '@cwatch/shared/intelligence/evidence';
+
+export { HostLockError };
 
 function safeHostname(url: string): string | undefined {
   try { return new URL(url).hostname.toLowerCase(); } catch { return undefined; }
@@ -48,6 +53,7 @@ const startSchema = z.object({
   permission: z.enum(['explore','ask','allow-all']).default('explore'), task: AgentTaskSchema.optional(),
   skills: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).max(20).default([]),
   webDomains: z.array(domainItem).max(20).optional(),
+  model: z.object({ id: z.string().trim().min(1).max(256), provider: providerId.optional(), reasoningEffort: z.enum(reasoningEfforts).optional() }).strict().optional(),
   conversation: z.boolean().default(false),
   limits: z.object({
     timeoutMs: z.number().int().min(1000).max(1_200_000).optional(),
@@ -71,13 +77,15 @@ export interface RunServiceOptions {
 }
 export class RunService {
   readonly root:string; readonly outputRoot:string;
+  readonly connections: WorkbenchConnections;
   private readonly runs=new Map<string,Managed>();
-  private readonly lock:number;
+  private readonly hostLock: HostLock;
   private closed=false;
   constructor(readonly options:RunServiceOptions) {
     this.root=resolve(options.root);this.outputRoot=resolve(options.outputRoot??resolve(this.root,'.runtime','web'));
+    this.connections=new WorkbenchConnections(this.root);
     mkdirSync(this.outputRoot,{recursive:true});
-    this.lock=openSync(resolve(this.outputRoot,'.host.lock'),'wx');
+    this.hostLock=acquireHostLock(this.outputRoot);
     try {
       for(const entry of readdirSync(this.outputRoot,{withFileTypes:true}).filter(e=>e.isDirectory()&&/^[a-f0-9-]{36}$/.test(e.name))) {
         const data=new FileStore(resolve(this.outputRoot,entry.name)),saved=data.read<{view:RunSnapshot;reportPath?:string}>('summary.json',null!);
@@ -88,9 +96,14 @@ export class RunService {
         const run:Managed={view,data,reportPath:saved.reportPath,controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor()};
         this.runs.set(view.id,run);this.persist(run);
       }
-    } catch(error){closeSync(this.lock);unlinkSync(resolve(this.outputRoot,'.host.lock'));throw error;}
+    } catch(error){this.hostLock.release();throw error;}
   }
-  private redactor():Redactor {return new Redactor(Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''));}
+  setHostOrigin(origin: string): void {
+    this.hostLock.setOrigin(origin);
+  }
+  private redactor(additional: string[] = []): Redactor {
+    return new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''), ...this.connections.secrets(), ...additional]);
+  }
   private profileSourceConfigs(profile: (typeof definitions)[number]): SourceConfig[] {
     const bySlug = new Map<string, SourceConfig>();
     for (const file of profile.sources) {
@@ -130,6 +143,8 @@ export class RunService {
     const task=parseAgentTask(input.task??(profile.id==='agent'?genericTask():JSON.parse(readFileSync(resolve(this.root,profile.task),'utf8'))));
     if((profile.id==='agent')===isInvestigationTask(task))throw Error('task_template_mismatch');
     if(input.conversation&&isInvestigationTask(task))throw Error('conversation_requires_generic_agent');
+    if(input.model&&input.mode!=='live')throw Error('离线演示使用预设脚本。');
+    const selectedModel=input.model?this.connections.resolveModel(input.model):undefined;
     const overrideDomains=input.mode==='live'
       ? [...new Set((input.webDomains?.length?input.webDomains:isInvestigationTask(task)?task.competitor.domains.map(d=>d.trim().toLowerCase()).filter(Boolean):[]))]
       : [];
@@ -150,22 +165,27 @@ export class RunService {
     if(input.mode==='replay'&&custom.length)throw Error('custom_mcp_requires_live_mode');
     for(const slug of task.allowedSources)if(!configs.some(c=>c.slug===slug)&&!custom.some(c=>c.slug===slug))throw Error('source_not_configured:'+slug);
     const userSkills=new SkillStore(this.root).select(input.skills);
-    const model=this.options.modelFactory?.(input.mode,task,configs)??(input.mode==='live'?PiModel.fromEnvironment():this.replayModel(task,configs));
+    const model=this.options.modelFactory?.(input.mode,task,configs)??(input.mode==='live'
+      ?PiModel.fromConfig(selectedModel??this.connections.resolveModel())
+      :this.replayModel(task,configs));
+    const searchOverride=input.mode==='live'?this.connections.searchOptions():undefined;
+    const customSecrets=custom.flatMap(config=>mcpSecrets(config,process.env));
     const runId=id(),createdAt=now(),run:Managed={
       view:{id:runId,task,profile:input.profile,mode:input.mode,permission:input.permission,status:'preparing',createdAt,updatedAt:createdAt,activities:[],approvals:[],gaps:[],claims:[],toolCalls:0,modelTurns:0,totalTokens:0,reportReady:false,stage:0},
-      data:new FileStore(resolve(this.outputRoot,runId)),controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor(),
+      data:new FileStore(resolve(this.outputRoot,runId)),controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor(customSecrets),
     };
+    if(input.model)run.view.model=input.model;
     if(input.conversation&&!isInvestigationTask(task)){
       run.view.conversation=true;run.view.messages=[{id:id(),role:'user',content:run.redactor.clean(task.instruction),createdAt}];run.acceptedMessages=new Map();
     }
     this.runs.set(runId,run);this.activity(run,'system',input.mode==='replay'?'离线演示已启动，所有业务数据均为合成快照。':'调查已启动，正在准备来源。');
     run.job=(async()=>{
-      const registry=new ToolRegistry(),builder=new SourceServerBuilder(this.root);
+      const registry=new ToolRegistry(),builder=new SourceServerBuilder(this.root,undefined,searchOverride);
       const timeout=setTimeout(()=>run.controller.abort(new DOMException('run preparation timeout','TimeoutError')),input.limits.timeoutMs??180000);
       try {
         const signal=run.controller.signal,initialGaps=await builder.register(configs,input.mode,registry,AbortSignal.any([signal,AbortSignal.timeout(25000)]));
-        const secrets=[...custom.flatMap(c=>mcpSecrets(c,process.env)),...configs.flatMap(c=>c.active&&c.api?apiSecrets(c.api):[]),...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??'')];
-        for(const config of custom){const client=builder.mcpPool.acquire('custom:'+hash(config),()=>new UserMcpSource(config,this.root));try{await registry.register(config.slug,'mcp',client,signal);}catch(error){await client.close();initialGaps.push('source_unavailable:'+config.slug+':'+String(error));}}
+        const secrets=[...customSecrets,...this.connections.secrets(),...configs.flatMap(c=>c.active&&c.api?apiSecrets(c.api):[]),...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??'')];
+        for(const config of custom){const mcpToken=this.connections.mcpToken(config.slug);const client=builder.mcpPool.acquire('custom:'+hash({config,tokenHash:mcpToken?hash(mcpToken):''}),()=>new UserMcpSource(config,this.root,process.env,fetch,mcpToken));try{await registry.register(config.slug,'mcp',client,signal);}catch(error){await client.close();initialGaps.push('source_unavailable:'+config.slug+':'+String(error));}}
         await this.options.configureRegistry?.(registry,signal);signal.throwIfAborted();
         clearTimeout(timeout); // Runtime owns active execution time; preparation must not time out an idle conversation.
         run.view.status='running';this.changed(run);
@@ -368,13 +388,14 @@ export class RunService {
       }
     }
     const mcpServers=new UserMcpStore(this.root).list().map(server=>{
-      const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(server,process.env)]);
+      const mcpToken=this.connections.mcpToken(server.slug);
+      const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(server,process.env),...(mcpToken?[mcpToken]:[])]);
       return serverRedactor.clean({
         slug:server.slug,enabled:server.enabled,transport:server.transport,
         ...(server.url?{endpoint:server.url}:server.command?{endpoint:server.command}:{}),
         defaultAction:server.defaultAction,resultFormat:server.resultFormat,
         toolSemanticsCount:Object.keys(server.toolSemantics).length,
-        hasAuth:Boolean(server.tokenEnv||Object.keys(server.env).length>0),
+        hasAuth:Boolean(mcpToken||server.tokenEnv||Object.keys(server.env).length>0),
       });
     });
     const builtinSkills:WorkbenchExtensions['builtinSkills']=[];
@@ -394,7 +415,39 @@ export class RunService {
       name:item.name,description:item.description,enabled:item.enabled,
       originKind:item.origin.kind,installedAt:item.installedAt,fileCount:item.files.length,
     }));
-    return redactor.clean({builtinSources:[...sourceMap.values()],mcpServers,builtinSkills,userSkills});
+    return redactor.clean({builtinSources:[...sourceMap.values()],mcpServers,builtinSkills,userSkills,search:this.connections.searchSummary()});
+  }
+  addMcp(raw: unknown): void {
+    const input=z.object({
+      slug:z.string().trim().regex(/^[a-zA-Z0-9_-]{1,40}$/), url:z.string().trim().max(2048).url(),
+      transport:z.enum(['auto','streamable-http','sse']).default('auto'),
+      token:z.string().trim().min(1).max(4096).optional(), defaultAction:z.enum(['modify','collect']).default('modify'),
+    }).strict().parse(raw);
+    if(definitions.some(profile=>this.profileSourceConfigs(profile).some(source=>source.slug===input.slug)))throw Error('该名称与内置来源重复。');
+    const { token, ...config } = input;
+    const store=new UserMcpStore(this.root);
+    store.add(config);
+    if(token){
+      try{this.connections.setMcpToken(input.slug,token);}
+      catch(error){try{store.change(input.slug,'remove');}catch{/* ignore rollback failure */}throw error;}
+    }
+  }
+  removeMcp(slug:string):WorkbenchExtensions {
+    if(!/^[a-zA-Z0-9_-]{1,40}$/.test(slug))throw Error('mcp_not_found');
+    new UserMcpStore(this.root).change(slug,'remove');
+    this.connections.deleteMcpToken(slug);
+    return this.extensions();
+  }
+  addSkill(raw: unknown): void {
+    const { content }=z.object({content:z.string().min(1).max(60000)}).strict().parse(raw);
+    const { name }=parseSkill(content);
+    if(existsSync(join(this.root,'skills',name,'SKILL.md')))throw Error('该 Skill 名称已用于内置技能。');
+    new SkillStore(this.root).installDocument(content);
+  }
+  removeSkill(name:string):WorkbenchExtensions {
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))throw Error('skill_not_found');
+    new SkillStore(this.root).change(name,'remove');
+    return this.extensions();
   }
   skillDetail(name:string):SkillDetail {
     if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))throw Error('skill_not_found');
@@ -425,8 +478,9 @@ export class RunService {
     if(!/^[a-zA-Z0-9_-]{1,40}$/.test(slug))throw Error('mcp_not_found');
     const config=new UserMcpStore(this.root).list().find(item=>item.slug===slug);
     if(!config)throw Error('mcp_not_found');
-    const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(config,process.env)]);
-    const started=Date.now(),source=new UserMcpSource(config,this.root);
+    const mcpToken=this.connections.mcpToken(slug);
+    const serverRedactor=new Redactor([...Object.entries(process.env).filter(([key])=>/KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([,value])=>value??''),...mcpSecrets(config,process.env),...(mcpToken?[mcpToken]:[])]);
+    const started=Date.now(),source=new UserMcpSource(config,this.root,process.env,fetch,mcpToken);
     const timeout=AbortSignal.timeout(15_000),combined=signal?AbortSignal.any([signal,timeout]):timeout;
     try{
       const tools=await source.listTools(combined);
@@ -442,6 +496,6 @@ export class RunService {
   async close():Promise<void>{
     if(this.closed)return;this.closed=true;
     for(const run of this.runs.values())if(active(run.view.status))this.cancel(run.view.id);
-    try{await Promise.allSettled([...this.runs.values()].map(r=>r.job));}finally{closeSync(this.lock);unlinkSync(resolve(this.outputRoot,'.host.lock'));}
+    try{await Promise.allSettled([...this.runs.values()].map(r=>r.job));}finally{this.hostLock.release();}
   }
 }

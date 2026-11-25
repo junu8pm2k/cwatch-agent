@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, mkdirSync, copyFileSync, writeFileSync, utimesSync } from 'node:fs';
 import { UserMcpStore } from '@cwatch/shared/mcp/storage';
 import { SkillStore } from '@cwatch/shared/skills/storage';
 import { resolve } from 'node:path';
-import { RunService } from '@cwatch/server-core/runtime/run-service';
+import { RunService, HostLockError } from '@cwatch/server-core/runtime/run-service';
 import { ReplayModel } from '@cwatch/shared/agent/models';
 import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { FileStore } from '@cwatch/shared/sessions/storage';
@@ -67,6 +68,57 @@ check('contract','RunService enforces an exclusive output lease and marks interr
   const persisted=new FileStore(resolve(data.root,run.id)),summary=persisted.read<{view:RunSnapshot;reportPath?:string}>('summary.json',null!);summary.view.status='running';persisted.write('summary.json',summary);
   let modelCalls=0;const restored=new RunService({root:process.cwd(),outputRoot:data.root,modelFactory:()=>{modelCalls++;throw Error('must_not_restart');}});
   try{assert.equal(restored.get(run.id).status,'unknown');assert.equal(restored.get(run.id).approvals.length,0);assert.equal(modelCalls,0);}finally{await restored.close();}
+});
+check('contract','RunService recovers stale dead-PID and legacy empty host locks while rejecting live-PID leases',async()=>{
+  const data=store(),lockPath=resolve(data.root,'.host.lock');
+  const dead=spawnSync(process.execPath,['-e','process.exit(0)']);
+  assert.ok(dead.pid && dead.pid>0);
+
+  // 1. Stale dead-PID lock is automatically cleaned and replaced
+  writeFileSync(lockPath,JSON.stringify({pid:dead.pid,token:'stale-token',startedAt:new Date().toISOString()}));
+  const recovered=new RunService({root:process.cwd(),outputRoot:data.root});
+  try{
+    recovered.setHostOrigin('http://127.0.0.1:4310');
+    const meta=JSON.parse(readFileSync(lockPath,'utf8')) as {pid:number;origin?:string};
+    assert.equal(meta.pid,process.pid);
+    assert.equal(meta.origin,'http://127.0.0.1:4310');
+    assert.throws(()=>new RunService({root:process.cwd(),outputRoot:data.root}),error=>{
+      assert.ok(error instanceof HostLockError);
+      assert.equal(error.code,'EEXIST');
+      assert.equal(error.pid,process.pid);
+      assert.equal(error.origin,'http://127.0.0.1:4310');
+      return true;
+    });
+  }finally{await recovered.close();}
+  assert.equal(existsSync(lockPath),false);
+
+  // 2. Fresh empty lock respects grace window, whereas legacy old empty lock recovers automatically
+  writeFileSync(lockPath,'');
+  assert.throws(()=>new RunService({root:process.cwd(),outputRoot:data.root}),/EEXIST/);
+  const past=new Date(Date.now()-10_000);
+  utimesSync(lockPath,past,past);
+  const legacyRecovered=new RunService({root:process.cwd(),outputRoot:data.root});
+  await legacyRecovered.close();
+  assert.equal(existsSync(lockPath),false);
+
+  // 3. Another live child process holding the lock is never stolen, and once dead it recovers
+  const child=spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'});
+  assert.ok(child.pid && child.pid>0);
+  try{
+    writeFileSync(lockPath,JSON.stringify({pid:child.pid,token:'live-child',startedAt:new Date().toISOString(),origin:'http://127.0.0.1:4310'}));
+    assert.throws(()=>new RunService({root:process.cwd(),outputRoot:data.root}),error=>{
+      assert.ok(error instanceof HostLockError);
+      assert.equal(error.pid,child.pid);
+      assert.equal(error.origin,'http://127.0.0.1:4310');
+      return true;
+    });
+  }finally{
+    child.kill('SIGTERM');
+    await new Promise<void>(resolveExit=>child.once('exit',()=>resolveExit()));
+  }
+  const afterChildExit=new RunService({root:process.cwd(),outputRoot:data.root});
+  await afterChildExit.close();
+  assert.equal(existsSync(lockPath),false);
 });
 check('contract','A UI Trace observer receives a copy only after durable append and cannot corrupt the audit',()=>{
   const data=store();let observed=0;const trace=new Trace(data,'web-task',id(),undefined,event=>{observed++;assert.equal(data.lines(trace.key).length,observed);event.sequence=999;throw Error('broken_ui');});

@@ -11,6 +11,7 @@ export const TaskSchema = z.object({
   product: z.string().min(1), signalTypes: z.array(z.enum(['release', 'price', 'content', 'campaign'])).min(1),
   window: z.object({ start: timestamp, end: timestamp, basis: z.enum(['published_at', 'occurred_at', 'effective_at']), timezone: z.string().min(1) }).strict(),
   allowedSources: z.array(z.string()).min(1), outputScope: z.literal('draft'),
+  researchBrief: z.object({ focus: z.string().trim().min(1).max(2000).optional(), deliverable: z.string().trim().min(1).max(2000).optional() }).strict().optional(),
 }).strict().superRefine((t, ctx) => {
   if (Date.parse(t.window.start) >= Date.parse(t.window.end)) ctx.addIssue({ code: 'custom', message: 'window must be [start,end), start < end' });
   try { new Intl.DateTimeFormat('en', { timeZone: t.window.timezone }); } catch { ctx.addIssue({ code: 'custom', message: 'unknown IANA timezone' }); }

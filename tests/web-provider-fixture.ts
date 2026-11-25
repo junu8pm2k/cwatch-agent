@@ -5,14 +5,16 @@ import type { CompetitorTask, Decision } from '@cwatch/core/types';
 /** Real Chat Completions/SSE protocol fixture. It performs no external model request. */
 export async function startWorkbenchProvider(){
   let cursor=0,steps:Decision[]=[];const errors:string[]=[];
+  const modelRequests:Array<{model:string;reasoningEffort?:string}>=[];let initialTask:CompetitorTask|undefined;
   const server=createServer(async(req,res)=>{
     try{
       const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
       const request=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      modelRequests.push({model:request.model,reasoningEffort:request.reasoning_effort});
       if(cursor===0){
         const text=request.messages.filter((m:{role:string})=>m.role==='user').map((m:{content:unknown})=>typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.map((item:{text?:string})=>item.text??'').join('\n'):'').join('\n');
         const match=/TASK CONSTRAINTS: (\{[^\n]+\})/.exec(text);if(!match)throw Error('missing_task_in_model_context');
-        const task=JSON.parse(match[1]) as CompetitorTask;
+        const task=JSON.parse(match[1]) as CompetitorTask;initialTask=task;
         steps=[
           {kind:'call_tool',name:'workflow__save_plan',args:{taskId:task.taskId,objective:'Protocol fixture investigation',sources:task.allowedSources,queries:['Node.js releases'],evidenceRequirements:['URL','publication time','fixture provenance'],window:{start:task.window.start,end:task.window.end}}},
           {kind:'call_tool',name:'web_fetch',args:{url:'https://nodejs.org/en/blog/release/v24.0.0'}},
@@ -34,5 +36,5 @@ export async function startWorkbenchProvider(){
     }catch(error){errors.push(String(error));if(!res.headersSent)res.writeHead(500);res.end('fixture provider failed');}
   });
   server.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();if(!address||typeof address==='string')throw Error('invalid_provider_address');
-  return{url:'http://127.0.0.1:'+address.port+'/v1',errors,turns:()=>cursor,close:async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
+  return{url:'http://127.0.0.1:'+address.port+'/v1',errors,modelRequests,initialTask:()=>initialTask,turns:()=>cursor,close:async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }

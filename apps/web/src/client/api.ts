@@ -40,10 +40,21 @@ export async function fetchReportApi(runId: string): Promise<string> {
 }
 
 export const fetchExtensionsApi = (): Promise<WorkbenchExtensions> => api<WorkbenchExtensions>('/api/extensions');
+export type ConnectionKind = 'providers' | 'search' | 'mcp' | 'skills';
+export const saveConnectionApi = (kind: ConnectionKind, data: Record<string, unknown>): Promise<WorkbenchExtensions> =>
+  api<WorkbenchExtensions>('/api/extensions/' + kind, data);
+export const deleteProviderApi = (provider: string): Promise<WorkbenchExtensions> =>
+  api<WorkbenchExtensions>(`/api/extensions/providers/${encodeURIComponent(provider)}/delete`, {});
+export const deleteSearchApi = (): Promise<WorkbenchExtensions> =>
+  api<WorkbenchExtensions>('/api/extensions/search/delete', {});
 export const fetchSkillDetailApi = (name: string): Promise<SkillDetail> => api<SkillDetail>(`/api/extensions/skills/${encodeURIComponent(name)}`);
 export const toggleSkillApi = (name: string, enabled: boolean): Promise<WorkbenchExtensions> =>
   api<WorkbenchExtensions>(`/api/extensions/skills/${encodeURIComponent(name)}/toggle`, { enabled });
+export const deleteSkillApi = (name: string): Promise<WorkbenchExtensions> =>
+  api<WorkbenchExtensions>(`/api/extensions/skills/${encodeURIComponent(name)}/delete`, {});
 export const toggleMcpApi = (slug: string, enabled: boolean): Promise<WorkbenchExtensions> =>
   api<WorkbenchExtensions>(`/api/extensions/mcp/${encodeURIComponent(slug)}/toggle`, { enabled });
+export const deleteMcpApi = (slug: string): Promise<WorkbenchExtensions> =>
+  api<WorkbenchExtensions>(`/api/extensions/mcp/${encodeURIComponent(slug)}/delete`, {});
 export const testMcpApi = (slug: string): Promise<McpTestResult> =>
   api<McpTestResult>(`/api/extensions/mcp/${encodeURIComponent(slug)}/test`, {});
