@@ -11,16 +11,17 @@ npm run web
 
 ## 可以操作什么
 
-- 通用任务与产品调查（两模式）：顶部以胶囊切换「通用 Agent」与「产品调查」，无需填写复杂模板即可上手；真实模式下默认开启「联网搜索」，不填限定域名即允许搜索与读取全网公开 HTTPS 网页（仍严格拦截 `localhost`、内网/单标签域名、IP 字面量、非 HTTPS、嵌入凭据与 GitHub API 路径），填写根域名（如 `bigmodel.cn`）时自动放行其子域名（如 `open.bigmodel.cn`）。后端 `POST /api/runs` 仍向后兼容 `standard`、`adapters` 等历史 profile。
-- 离线演示与设置弹层：次要项（离线演示/真实运行切换、工具权限、自定义 MCP 开关、Skill 与时限/Token 上限）收口到输入卡左下角「设置」弹层，保持首页清爽；未配置 `.env` 时自动使用本地合成快照演示。
+- Web 工作台已统一收拢为单一**调查模式**（底层 `runAgent` 与 CLI 多轮对话保持兼容）。在首页横幅下的输入框写下调查需求（或直接点示例卡片），选择运行方式、模型与思考强度后点击发送进入「确认调查」页面，补充公司、产品、时间范围、关注类型与交付要求即可启动调查。域名留空时搜索公开 HTTPS 网页，填写根域名时包含其子域名。
+- 模型列表默认包含 `.env` 的 `MODEL_ID` 与 `WEB_MODEL_IDS`，也支持直接在「来源与连接」添加其他 OpenAI 兼容模型供应商（无需重启服务）。离线演示使用预设调查任务与合成快照。
+- 在第二步的「运行设置」里调整联网搜索、限定域名、关注类型、调研深度、工具权限、扩展来源 (MCP)、Skill 和时限或 Token 上限。「我的调研」统一汇总全部调查与报告，支持搜索、按运行方式筛选、打开报告与删除历史。
 - 三态专注工作台：
-  1. **输入首页**：居中浮雕卡片 + 3 个一键示例场景，零冗余面板。
-  2. **运行聚焦态**：启动后隐藏重复表单，顶部仅保留状态、标题与单行指标；Ask 模式的修改/发送/发布审批请求以醒目「待处理审批」卡片直接置顶呈现，无需切页签即可批准或拒绝。
-  3. **结果阅读与轨迹**：正文区仅保留「任务结果/调查报告」与「执行轨迹」两页签。通用 Agent 保持单栏柔和阅读与多轮追问流，工具过程合并为语义化单行步骤卡（计划/搜索/读取/本地/分析/审阅/草稿/MCP）；产品调查配备右侧「引用证据 & 信息缺口」伴随栏，点击主张可与右侧证据卡片双向联动高亮。
-- 侧滑 Trace 抽屉：点击顶栏「Trace」按钮（或工具胶囊快捷链接）从右侧滑出结构化 Trace 抽屉，查看 `run → model → tool → backend` 调用树、相对耗时瀑布条与节点输入输出，按 `Esc` 即可关闭。
-- 取消、一键重试与记录管理：停止模型/待审批调用/工具执行并回收资源；当运行处于失败、已取消、中断或部分完成状态时，顶栏、结果空态与错误提示条均提供「尝试重试」按钮，可按原任务与配置一键重新发起运行（也可点「复用配置」返回首页修改后启动）。页面关闭不自动批准，也不自动取消任务；重新打开可恢复查看。侧边栏仅在并发槽位占满（2/2）时提示并发上限，有历史记录时自动出现筛选框并支持安全删除已结束任务。
-- 报告与阅读：完整支持 XSS 安全的 Markdown 渲染（代码块与一键复制、表格、列表、引用块与安全链接），覆盖多轮对话与任务结果/调查报告；支持复制单条回复、完整报告或下载 Markdown 草稿。
-- 来源与技能：独立的「来源与连接」视图展示模型状态、内建来源、自定义 MCP 与内置/用户 Skill，支持查看 Skill Markdown 详情、启停已安装 Skill / 自定义 MCP，以及只读 `listTools` 在线连通性测试（不执行 `tools/call`，密钥始终留在环境变量中）。
+  1. **调查首页**：输入调研需求或点击示例卡片预填表单。
+  2. **运行聚焦态**：启动后隐藏重复表单，顶部保留状态、标题、单行指标及「导出草稿」入口；Ask 模式的修改/发送/发布审批请求以醒目「待处理审批」卡片直接置顶呈现，无需切页签即可批准或拒绝。
+  3. **调查报告与轨迹**：正文区保留「调查报告」与「执行轨迹」两页签，右侧配备「引用证据 & 信息缺口」伴随栏，点击主张可与右侧证据卡片双向联动高亮。
+- 侧滑 Trace 抽屉：点击顶栏「运行详情」按钮从右侧滑出结构化 Trace 抽屉，查看 `run → model → tool → backend` 调用树、相对耗时瀑布条与节点输入输出，按 `Esc` 即可关闭。
+- 取消、一键重试与记录管理：停止模型、待审批调用或工具执行时会回收资源。失败、已取消、中断或部分完成的调查可重试，也可以复用配置后再修改。「我的调研」可随时回看或删除已结束的调查。
+- 报告阅读与多格式导出：完整支持 XSS 安全的 Markdown 渲染（代码块与一键复制、表格、列表、引用块与安全链接）；点击「导出草稿」弹出多格式导出窗口，支持导出 **完整 Markdown（`.md`）**、**独立排版网页（`.html`）**、**Word 文档（`.doc`）**、**证据与主张明细表（`.csv`，UTF-8 BOM + 公式注入防护）** 与 **结构化数据包（`.json`）**，并支持一键复制完整 Markdown 与打印/导出 PDF。所有导出均经服务端脱敏。
+- 来源与技能：独立的「来源与连接」视图支持通过模型卡片右下角「＋」添加与移除 OpenAI 兼容模型供应商、配置与恢复搜索工具（自动兼容搜索 API 与远程搜索 MCP）、在网页中直接添加/启停/删除自定义 MCP 与 Skill，并以居中弹窗查看 Skill Markdown 说明，同时支持只读 `listTools` 在线连通性测试（不执行 `tools/call`，网页录入的密钥统一隔离在忽略 Git 的 `.cwatch/connections.json` 中并全程脱敏，不写入 `.cwatch/mcp.json` 或 Trace）。
 - 视觉与主题：采用柔和莫兰迪纸感浅色主题（默认）与深林灰深色主题，自动记忆偏好，移动端（390px）保持零横向溢出。
 
 默认产品来源不再包含示例新闻 MCP。调查模板中普通搜索/网页内容继续保持 discovery 身份；通用任务可引用工具材料，但调用成功不等于事实核验通过。
@@ -50,8 +51,8 @@ Trace 的观察回调在脱敏、Schema 校验和 append 成功后收到副本�
 
 | 方法 | 路径 | 含义 |
 |---|---|---|
-| GET | /api/bootstrap | 模型配置状态、来源方案、技能、运行历史与当前页面 CSRF token |
-| POST | /api/runs | 启动任务；profile/mode/permission/task/skills/limits/conversation 经 Schema 校验 |
+| GET | /api/bootstrap | 可选模型 ID、思考强度配置、来源方案、技能、运行历史与当前页面 CSRF token |
+| POST | /api/runs | 启动任务，可为真实运行传入本机已配置的 `model.id` 和可选的 `model.reasoningEffort` |
 | GET | /api/runs | 获取运行列表 |
 | GET | /api/runs/:id | 获取一次运行快照 |
 | GET | /api/runs/:id/events | SSE 推送快照，重连后从当前状态恢复显示 |
@@ -60,13 +61,22 @@ Trace 的观察回调在脱敏、Schema 校验和 append 成功后收到副本�
 | POST | /api/runs/:id/messages | 等待追问时提交 `{messageId: UUID, text: string}`，相同 ID/正文重传不重复执行 |
 | POST | /api/runs/:id/end | 等待追问时正常结束会话并释放 worker |
 | POST | /api/runs/:id/approvals/:requestId | 提交 allowed 与原 argsHash |
-| GET | /api/runs/:id/report | 下载当前运行的 Markdown 报告 |
+| GET | /api/runs/:id/report | 下载当前运行的原始 Markdown 报告 |
+| GET | /api/runs/:id/export?format=md\|html\|doc\|csv\|json | 按指定格式导出脱敏后的调查草稿（完整 Markdown、独立排版 HTML、Word 文档、证据明细 CSV 或结构化 JSON） |
 | GET | /api/runs/:id/trace | 获取当前运行的结构化 Trace（`cwatch.structured-trace.v1`） |
-| GET | /api/extensions | 获取脱敏后的内建来源、自定义 MCP 元数据与内置/用户 Skill 清单 |
-| GET | /api/extensions/skills/:name | 读取指定 Skill 的说明正文与参考文件列表 |
-| POST | /api/extensions/skills/:name/toggle | 启用或停用已安装的用户 Skill |
+| GET | /api/extensions | 获取脱敏后的搜索配置、内建来源、自定义 MCP 元数据与内置/用户 Skill 清单 |
+| POST | /api/extensions/providers | 添加网页模型供应商（OpenAI 兼容接口） |
+| POST | /api/extensions/providers/:provider/delete | 移除网页添加的模型供应商 |
+| POST | /api/extensions/search | 配置工作台搜索工具（HTTPS 搜索 API 或搜索 MCP） |
+| POST | /api/extensions/search/delete | 清除工作台搜索覆盖，恢复环境变量默认配置 |
+| POST | /api/extensions/mcp | 在网页中添加远程自定义 MCP 服务（Token 隔离存放在 `.cwatch/connections.json`） |
 | POST | /api/extensions/mcp/:slug/toggle | 启用或停用自定义 MCP 服务 |
 | POST | /api/extensions/mcp/:slug/test | 执行只读 `listTools` 发现以测试自定义 MCP 连通性（不执行调用、脱敏输出） |
+| POST | /api/extensions/mcp/:slug/delete | 删除自定义 MCP 服务及其隔离存储的 Token |
+| POST | /api/extensions/skills | 在网页中添加 Skill（上传或粘贴 `SKILL.md`） |
+| GET | /api/extensions/skills/:name | 读取指定 Skill 的说明正文与参考文件列表 |
+| POST | /api/extensions/skills/:name/toggle | 启用或停用已安装的用户 Skill |
+| POST | /api/extensions/skills/:name/delete | 删除已安装的用户 Skill |
 
 POST 必须携带同源 Origin、bootstrap 返回的 X-Cwatch-Token 和 application/json。Host 必须匹配实际监听地址；跨站请求被拒绝，不启用跨域访问。请求体上限 64 KB，SSE 连接最多 16 个，慢客户端达到缓冲上限时断开。静态资源只有明确允许的 HTML/CSS/JS，不开放工作区文件读取；CSP 禁止内联脚本和页面嵌入，来源正文以文本渲染。
 
@@ -78,7 +88,7 @@ POST 必须携带同源 Origin、bootstrap 返回的 X-Cwatch-Token 和 applicat
 
 运行数据位于忽略 Git 的 .runtime/web/<id>/，包括 summary.json、activity.jsonl 和原有 reports、traces、executions、evidence 等。summary 是 UI 状态，Trace 是调用审计，两者职责不同。Ctrl+C 会取消未完成调查并关闭服务。
 
-服务对 .runtime/web/.host.lock 加独占锁。若进程被强制结束，确认旧服务已退出后，手工删除这一个锁文件再启动。启动后将持久化的在途记录标为 unknown，不重放工具；当前 Pi 对话仍使用内存会话。历史显示恢复不等于模型会话续接。
+服务对 .runtime/web/.host.lock 加独占锁并记录进程 PID 与监听地址。若上次进程被强制结束导致锁文件残留，下次启动会自动检测旧 PID 已退出并清理失效锁；若旧服务仍在运行，则会提示正在运行的 PID 与地址。启动后将持久化的在途记录标为 unknown，不重放工具；当前 Pi 对话仍使用内存会话。历史显示恢复不等于模型会话续接。
 
 ## 验证
 

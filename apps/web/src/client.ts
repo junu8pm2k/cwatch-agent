@@ -1,5 +1,5 @@
 import type { AgentTask } from '@cwatch/core/types';
-import type { RunSnapshot, RunStartInput } from '@cwatch/core/types/runs';
+import type { RunModelChoice, RunSnapshot, RunStartInput } from '@cwatch/core/types/runs';
 import { mergeActivities } from './client/activity-merger.ts';
 import {
   cancelRunApi,
@@ -19,14 +19,25 @@ import {
 } from './client/conversation.ts';
 import { renderEvidenceRail } from './client/evidence-rail.ts';
 import {
+  closeConnectionEditor,
+  closeSkillModal,
+  handleDeleteMcp,
+  handleDeleteProvider,
+  handleDeleteSearch,
+  handleDeleteSkill,
   handleTestMcp,
   handleToggleMcp,
   handleToggleSkill,
   inspectSkill,
+  isConnectionEditorOpen,
+  isSkillModalOpen,
   loadExtensions,
+  openConnectionEditor,
   renderExtensions,
+  saveConnection,
 } from './client/extensions.ts';
 import { renderMarkdown } from './client/markdown.ts';
+import { renderResearch } from './client/research.ts';
 import {
   renderLiveProgressCard,
   renderMetricsRibbon,
@@ -36,7 +47,7 @@ import {
   renderReviewGateCard,
   renderVersionDiffCard,
 } from './client/report-view.ts';
-import { renderSidebar } from './client/sidebar.ts';
+import { renderCapacity } from './client/sidebar.ts';
 import {
   $,
   alertError,
@@ -49,7 +60,6 @@ import {
   isActiveRun,
   isInvestigation,
   permissionNames,
-  profileDisplayName,
   safeUrl,
   state,
   statusNames,
@@ -68,14 +78,7 @@ function applyTheme(instant = false): void {
     void document.documentElement.offsetHeight;
     document.documentElement.classList.remove('theme-switching');
   }
-  const toggle = $('theme-toggle');
-  if (toggle) {
-    const dark = state.theme === 'dark';
-    toggle.setAttribute('aria-pressed', String(dark));
-    toggle.setAttribute('aria-label', dark ? '切换到浅色模式' : '切换到深色模式');
-    const label = toggle.querySelector('.theme-label');
-    if (label) label.textContent = dark ? '浅色模式' : '深色模式';
-  }
+  $('theme-toggle').setAttribute('aria-pressed', String(state.theme === 'dark'));
 }
 
 function setSettingsOpen(open: boolean): void {
@@ -83,6 +86,138 @@ function setSettingsOpen(open: boolean): void {
   $('settings-popover').hidden = !open;
   $('settings-toggle').setAttribute('aria-expanded', String(open));
   $('settings-toggle').classList.toggle('is-active', open);
+  if (open) $('settings-popover').focus();
+}
+
+function selectedTaskModel(): RunModelChoice | undefined {
+  const option = $<HTMLSelectElement>('task-model').selectedOptions[0];
+  const id = option?.dataset.modelId;
+  if (!id || currentMode() === 'replay') return undefined;
+  const effort = $<HTMLSelectElement>('task-reasoning');
+  const reasoningEffort = effort.disabled ? '' : effort.value as RunModelChoice['reasoningEffort'];
+  const provider = option.dataset.provider;
+  return { id, ...(provider ? { provider } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) };
+}
+
+function renderTaskModels(choice?: RunModelChoice): void {
+  const model = state.bootstrap!.model;
+  const select = $<HTMLSelectElement>('task-model');
+  const groups = [...(model.id ? [{ provider: model.provider, modelIds: model.availableIds, supportsReasoningEffort: model.supportsReasoningEffort, legacy: true }] : []),
+    ...model.providers.map(provider => ({ ...provider, legacy: false }))];
+  select.replaceChildren(...groups.map(group => {
+    const options = document.createElement('optgroup');
+    options.label = group.provider;
+    for (const id of group.modelIds) {
+      const option = new Option(id, group.legacy ? id : JSON.stringify([group.provider, id]));
+      option.dataset.modelId = id;
+      option.dataset.reasoning = String(group.supportsReasoningEffort);
+      if (!group.legacy) option.dataset.provider = group.provider;
+      options.append(option);
+    }
+    return options;
+  }));
+  if (!select.options.length) select.add(new Option('未配置模型', ''));
+  const chosen = choice && [...select.options].find(option => option.dataset.modelId === choice.id && option.dataset.provider === choice.provider);
+  if (chosen) chosen.selected = true;
+  $<HTMLSelectElement>('task-reasoning').value = chosen?.dataset.reasoning === 'true' ? choice?.reasoningEffort ?? '' : '';
+  const defaultProvider = model.providers[0];
+  $('model-status').textContent = model.id ? `${model.provider} · ${model.id}` : defaultProvider
+    ? `${defaultProvider.provider} · ${defaultProvider.modelIds[0]}` : '离线演示模式 · 未配置模型';
+}
+
+function setTaskEditorOpen(open: boolean): void {
+  $('task-editor').hidden = !open;
+  $('compose-view').dataset.editing = String(open);
+  if (!open) setSettingsOpen(false);
+}
+
+function openTaskEditor(): void {
+  if (!state.bootstrap || state.submitting) return;
+  const replay = currentMode() === 'replay';
+  const model = selectedTaskModel();
+  const reasoning = $<HTMLSelectElement>('task-reasoning').selectedOptions[0]?.textContent;
+  $('task-selected-profile').textContent = '调查模式';
+  $('task-selection-summary').textContent = replay ? '离线演示' : model
+    ? ['真实运行', model.id, `思考强度 ${reasoning}`].join(' · ')
+    : '真实运行 · 未配置模型';
+  $('task-details-title').textContent = replay ? '示例调查设置' : '调研范围';
+  $('task-details-question').textContent = replay ? '确认预设调查内容后开始演示。' : '确认调研对象、时间范围与交付要求后即可开始调查。';
+  setTaskEditorOpen(true);
+  window.scrollTo(0, 0);
+  $('task-details-title').focus();
+}
+
+function closeTaskEditor(): void {
+  if (currentMode() === 'live') {
+    $<HTMLTextAreaElement>('task-prompt').value = $<HTMLTextAreaElement>('research-focus').value;
+  }
+  setTaskEditorOpen(false);
+  clearError();
+  $('task-prompt').focus();
+}
+
+let lastExportTrigger: HTMLElement | null = null;
+
+function isExportModalOpen(): boolean {
+  return !$('export-modal').hidden;
+}
+
+function closeExportModal(restoreFocus = false): void {
+  const modal = $('export-modal');
+  if (modal.hidden) return;
+  modal.hidden = true;
+  $('export-modal-backdrop').hidden = true;
+  $('export-modal-body').replaceChildren();
+  if (restoreFocus) {
+    (lastExportTrigger?.isConnected ? lastExportTrigger : $('export-run')).focus();
+  }
+  lastExportTrigger = null;
+}
+
+function openExportModal(trigger?: HTMLElement | null): void {
+  const run = state.current;
+  if (!run?.reportReady) return;
+  closeConnectionEditor(false);
+  closeSkillModal(false);
+  lastExportTrigger = trigger ?? null;
+
+  const uniqueEvidence = new Set<string>();
+  for (const claim of run.claims) {
+    for (const ev of claim.evidence) {
+      uniqueEvidence.add(ev.snapshotHash ? `${ev.url}|${ev.snapshotHash}` : `${ev.source}|${ev.url}|${ev.title}`);
+    }
+  }
+  $('export-modal-sub').textContent = `${taskTitle(run.task)} · ${run.claims.length} 项主张 · ${uniqueEvidence.size} 份证据 · ${run.gaps.length} 项缺口`;
+
+  const id = encodeURIComponent(run.id);
+  const formats: Array<{ format: string; badge: string; title: string; desc: string }> = [
+    { format: 'md', badge: 'MD', title: '完整 Markdown 草稿', desc: '含调研概要、完整报告正文、核验主张引用与信息缺口，适合 Notion / Obsidian / Git' },
+    { format: 'html', badge: 'HTML', title: '独立排版网页', desc: '单文件自包含样式、4 维指标卡与可点击证据链接，发给同事双击即可打开' },
+    { format: 'doc', badge: 'DOC', title: 'Word 文档', desc: '兼容 Word / WPS / 飞书文档导入，带表格与完整引用清单，方便汇报与二次编辑' },
+    { format: 'csv', badge: 'CSV', title: '证据与主张明细表', desc: 'UTF-8 编码兼容 Excel，列出全部主张、来源域名、URL、发布时间与 SHA-256 核验状态' },
+    { format: 'json', badge: 'JSON', title: '结构化数据包', desc: '完整机器可读 JSON（含任务、指标、审阅门禁、版本演进、主张与正文），便于归档' },
+  ];
+
+  $('export-modal-body').innerHTML = `
+    <ul class="export-option-list" aria-label="草稿导出格式">
+      ${formats.map(item => `
+        <li class="export-option-item">
+          <span class="export-ext-badge mono">${item.badge}</span>
+          <div class="export-option-main">
+            <strong>${item.title}</strong>
+            <p>${item.desc}</p>
+          </div>
+          <a class="button secondary sm" data-export-format="${item.format}" href="/api/runs/${id}/export?format=${item.format}" download>下载 .${item.format}</a>
+        </li>`).join('')}
+    </ul>
+    <div class="export-quick-actions">
+      <button type="button" class="button ghost sm" id="export-copy-report" data-copy-report>复制完整 Markdown</button>
+      <button type="button" class="button ghost sm" data-print-report>打印 / 导出 PDF</button>
+    </div>`;
+
+  $('export-modal-backdrop').hidden = false;
+  $('export-modal').hidden = false;
+  $('export-modal').focus();
 }
 
 function setTraceDrawer(open: boolean): void {
@@ -103,9 +238,10 @@ function syncHeaderControls(): void {
   const hasRun = Boolean(state.current);
   const inWorkbench = state.view === 'workbench';
   $('toggle-trace-drawer').hidden = !hasRun || !inWorkbench;
-  $('new-run').hidden = !hasRun && inWorkbench;
+  $('new-run').hidden = state.view === 'research' || (!hasRun && inWorkbench);
   if (!hasRun || !inWorkbench) {
     if (state.traceDrawerOpen) setTraceDrawer(false);
+    if (isExportModalOpen()) closeExportModal();
   }
 }
 
@@ -113,12 +249,6 @@ function setConnection(text: string, online = true): void {
   const el = $('connection');
   el.innerHTML = `<span class="dot"></span>${escapeHtml(text)}`;
   el.classList.toggle('offline', !online);
-}
-
-function setProfileRadio(id: string): void {
-  const target = id === 'web' || id === 'standard' || id === 'adapters' ? 'web' : 'agent';
-  const radio = document.querySelector<HTMLInputElement>(`input[name="profile"][value="${target}"]`);
-  if (radio) radio.checked = true;
 }
 
 function parseDomains(raw: string): string[] {
@@ -214,88 +344,52 @@ function applyDepthPreset(key: DepthPresetKey): void {
 
 function syncWebToggleAndBadges(): void {
   const replay = currentMode() === 'replay';
-  const domain = isInvestigation(currentProfile().task);
   const webCheckbox = $<HTMLInputElement>('toggle-web-search');
   const webLabel = $('web-toggle-label');
   const webSourceActive = Boolean(currentProfile().sources.find(s => s.slug === 'web')?.active);
 
   webCheckbox.disabled = replay || !webSourceActive;
-  webLabel.classList.toggle('is-on', webCheckbox.checked && !webCheckbox.disabled);
+  const webEnabled = webCheckbox.checked && !webCheckbox.disabled;
+  webLabel.classList.toggle('is-on', webEnabled);
   webLabel.classList.toggle('is-disabled', webCheckbox.disabled);
 
-  const showDomainToggle = !domain && !replay && webCheckbox.checked;
-  const domainToggle = $('toggle-domain-filter');
-  domainToggle.hidden = !showDomainToggle;
-  if (!showDomainToggle) state.domainFilterOpen = false;
-  $('agent-web-domains-wrap').hidden = !showDomainToggle || !state.domainFilterOpen;
-  domainToggle.setAttribute('aria-expanded', String(state.domainFilterOpen));
-  domainToggle.classList.toggle('is-active', state.domainFilterOpen);
-
-  const agentDomains = parseDomains($<HTMLInputElement>('agent-web-domains').value);
   const invDomains = parseDomains($<HTMLInputElement>('domains').value);
-  const countEl = $('domain-filter-count');
-  countEl.hidden = agentDomains.length === 0;
-  countEl.textContent = String(agentDomains.length);
+  const configured = Boolean(state.bootstrap?.model.configured);
+  const domainCount = invDomains.length;
+  const startNote = $('start-note');
+  const summary = replay
+    ? '演示使用预设调查任务，可直接运行。'
+    : !configured
+      ? '在「来源与连接」添加模型供应商，或配置本机 .env 后即可真实运行。'
+      : webEnabled
+        ? domainCount ? `联网搜索已开启，范围限定为 ${domainCount} 个域名。` : '联网搜索已开启，范围为公开网页。'
+        : '联网搜索已关闭（请启用联网搜索或扩展 MCP 来源）。';
 
-  // Composer top-right calm mode summary pill
-  const modeBadge = $('composer-mode-badge');
-  if (replay) {
-    modeBadge.textContent = '离线演示';
-    modeBadge.dataset.tone = 'muted';
-  } else if (domain) {
-    modeBadge.textContent = invDomains.length ? `真实调查 · 限定 ${invDomains.length} 域名` : '真实调查 · 全网公开';
-    modeBadge.dataset.tone = 'live';
-  } else if (webCheckbox.checked) {
-    modeBadge.textContent = agentDomains.length ? `真实会话 · 限定 ${agentDomains.length} 域名` : '真实会话 · 全网公开';
-    modeBadge.dataset.tone = 'live';
-  } else {
-    modeBadge.textContent = '真实会话 · 仅本地';
-    modeBadge.dataset.tone = 'neutral';
-  }
+  if (startNote.textContent !== summary) startNote.textContent = summary;
 
-  // Settings badge highlights non-default permission or replay-when-configured
   const perm = $<HTMLSelectElement>('permission').value;
   const settingsBadge = $('settings-badge');
-  const note = perm === 'ask' ? '审批' : perm === 'allow-all' ? '全权' : (replay && state.bootstrap?.model.configured ? '演示' : '');
+  const note = perm === 'ask' ? '需审批' : perm === 'allow-all' ? '免审批' : '';
   settingsBadge.hidden = !note;
   settingsBadge.textContent = note;
 }
 
 function populateProfileForm(task = currentProfile().task, preserveWebChoice = false): void {
-  const domain = isInvestigation(task);
   const replay = currentMode() === 'replay';
-  $('agent-fields').hidden = domain;
-  $('investigation-fields').hidden = !domain;
-
-  for (const id of ['competitor-name', 'product', 'start-date', 'end-date']) {
-    $<HTMLInputElement>(id).required = domain;
-  }
-  $<HTMLInputElement>('domains').required = false;
-  $<HTMLTextAreaElement>('instruction').required = !domain;
-
-  if (state.view === 'workbench') {
-    $('page-title').textContent = domain ? '产品调查' : '通用 Agent';
-  }
-
-  $('intro-title').textContent = domain ? '结构化调查产品动态' : '今天想调查或完成什么？';
-  $('intro-description').textContent = domain
-    ? '指定对象、产品与时间窗，联网采集公开信息并生成带可核验引用的调查草稿。'
-    : '直接提问、联网检索公开资料或读取本地文件，每一步都在本机可审计执行。';
-
-  $('start-run').innerHTML = `${domain ? '开始调查' : '开始任务'} <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5"/></svg>`;
-  $('cancel-run').textContent = domain ? '停止调查' : '停止任务';
-  $('tab-report').textContent = domain ? '调查报告' : '任务结果';
-
-  if (domain) {
-    $<HTMLInputElement>('competitor-name').value = task.competitor.name;
-    $<HTMLInputElement>('competitor-id').value = task.competitor.id;
-    $<HTMLInputElement>('product').value = task.product;
-    const displayDomains = task.competitor.domains.filter(d => d !== '*');
-    $<HTMLInputElement>('domains').value = replay || state.current ? displayDomains.join(', ') : '';
-    $<HTMLInputElement>('start-date').value = task.window.start.slice(0, 10);
-    $<HTMLInputElement>('end-date').value = task.window.end.slice(0, 10);
-  } else {
-    $<HTMLTextAreaElement>('instruction').value = state.current || replay ? task.instruction : state.instructionDraft;
+  const invTask = isInvestigation(task) ? task : currentProfile().task;
+  if (isInvestigation(invTask)) {
+    $<HTMLInputElement>('competitor-name').value = invTask.competitor.name;
+    $<HTMLInputElement>('competitor-id').value = invTask.competitor.id;
+    $<HTMLInputElement>('product').value = invTask.product;
+    const displayDomains = invTask.competitor.domains.filter(d => d !== '*');
+    $<HTMLInputElement>('domains').value = replay || invTask !== currentProfile().task ? displayDomains.join(', ') : '';
+    $<HTMLInputElement>('start-date').value = invTask.window.start.slice(0, 10);
+    $<HTMLInputElement>('end-date').value = invTask.window.end.slice(0, 10);
+    $<HTMLTextAreaElement>('research-focus').value = invTask.researchBrief?.focus ?? '';
+    $<HTMLTextAreaElement>('task-deliverable').value = invTask.researchBrief?.deliverable ?? '';
+    for (const input of document.querySelectorAll<HTMLInputElement>('input[name=signal-type]')) {
+      input.checked = invTask === currentProfile().task || invTask.signalTypes.some(type => type === input.value);
+    }
   }
 
   // Primary web search checkbox
@@ -303,10 +397,9 @@ function populateProfileForm(task = currentProfile().task, preserveWebChoice = f
   const webBox = $<HTMLInputElement>('toggle-web-search');
   if (!preserveWebChoice) {
     if (replay) {
-      webBox.checked = Boolean(webSource?.active && task.allowedSources.includes('web'));
+      webBox.checked = Boolean(webSource?.active && invTask.allowedSources.includes('web'));
     } else {
-      // Live mode defaults web search ON for both Generic Agent & Competitor Investigation!
-      webBox.checked = Boolean(webSource?.active && (state.current ? task.allowedSources.includes('web') : true));
+      webBox.checked = Boolean(webSource?.active && (invTask.allowedSources.includes('web') || !state.current));
     }
   }
 
@@ -315,7 +408,7 @@ function populateProfileForm(task = currentProfile().task, preserveWebChoice = f
   $('custom-source-section').hidden = extraSources.length === 0;
   $('custom-source-options').innerHTML = extraSources.map(source => `
     <label class="option-chip">
-      <input type="checkbox" name="source" value="${escapeHtml(source.slug)}" ${source.active && task.allowedSources.includes(source.slug) ? 'checked ' : ''}${!source.active ? 'disabled ' : ''}>
+      <input type="checkbox" name="source" value="${escapeHtml(source.slug)}" ${source.active && invTask.allowedSources.includes(source.slug) ? 'checked ' : ''}${!source.active ? 'disabled ' : ''}>
       <span>${escapeHtml(source.name)}</span>
     </label>`).join('');
 
@@ -323,11 +416,11 @@ function populateProfileForm(task = currentProfile().task, preserveWebChoice = f
 }
 
 function modeChanged(resetInstruction = false): void {
-  const replay = currentMode() === 'replay';
+  const mode = currentMode();
+  const replay = mode === 'replay';
   const configured = state.bootstrap?.model.configured;
   const profile = currentProfile();
   const task = profile.task;
-  const domain = isInvestigation(task);
 
   for (const id of ['competitor-name', 'product', 'domains', 'start-date', 'end-date']) {
     $<HTMLInputElement>(id).readOnly = replay;
@@ -335,22 +428,13 @@ function modeChanged(resetInstruction = false): void {
   for (const input of document.querySelectorAll<HTMLInputElement>('#custom-source-options input[name=source]')) {
     input.disabled = replay || !profile.sources.find(source => source.slug === input.value)?.active;
   }
-  $<HTMLTextAreaElement>('instruction').readOnly = replay;
 
   if (resetInstruction && !state.current) {
-    if (!domain) {
-      $<HTMLTextAreaElement>('instruction').value = replay ? task.instruction : state.instructionDraft;
-    } else {
-      const displayDomains = task.competitor.domains.filter(d => d !== '*');
-      $<HTMLInputElement>('domains').value = replay ? displayDomains.join(', ') : '';
-    }
     const webSource = profile.sources.find(s => s.slug === 'web');
     const webBox = $<HTMLInputElement>('toggle-web-search');
     if (replay) {
       webBox.checked = Boolean(webSource?.active && task.allowedSources.includes('web'));
-    } else if (webSource?.active && !webBox.checked && domain) {
-      webBox.checked = true;
-    } else if (!replay && !domain && webSource?.active && webBox.disabled) {
+    } else if (webSource?.active && !webBox.checked) {
       webBox.checked = true;
     }
   }
@@ -359,23 +443,36 @@ function modeChanged(resetInstruction = false): void {
   syncWindowPresetState();
   syncDepthPresetState();
 
-  if (!replay && !configured) {
-    $('mode-note').textContent = '请先在本机 .env 配置模型凭据并重启服务。';
-  } else if (domain) {
-    $('mode-note').textContent = replay
-      ? '使用本地合成快照演示完整 5 阶段调查与引用核验。'
-      : '默认可搜索全网公开 HTTPS 网页；填写限定域名后自动包含子域名。';
-  } else {
-    $('mode-note').textContent = replay
-      ? '离线脚本样例；切换「真实运行」即可自由提问并多轮追问。'
-      : '真实多轮会话：支持自由联网检索与本地文件读取。';
+  const examples = $('task-suggestions');
+  examples.hidden = !state.bootstrap;
+  for (const example of examples.querySelectorAll<HTMLButtonElement>('[data-template]')) {
+    const exampleMode = example.dataset.exampleMode;
+    example.hidden = Boolean(exampleMode && exampleMode !== (configured ? 'live' : 'replay'));
   }
 
-  $('start-note').textContent = replay
-    ? '当前为离线演示模式 · 点击卡片左下角「设置」可切换真实运行与权限。'
-    : '已连接本地模型 · 默认支持全网公开 HTTPS 搜索，每次工具调用均经主进程门禁审计。';
-
-  $<HTMLButtonElement>('start-run').disabled = state.submitting || (!replay && !configured);
+  const supportsReasoning = $<HTMLSelectElement>('task-model').selectedOptions[0]?.dataset.reasoning === 'true';
+  const blocked = !replay && !configured;
+  const homePrompt = $<HTMLTextAreaElement>('task-prompt');
+  homePrompt.readOnly = replay;
+  homePrompt.required = false;
+  homePrompt.maxLength = 2000;
+  homePrompt.placeholder = replay
+    ? '离线演示使用预设调查任务，点击右侧按钮继续。'
+    : '输入你想调查的公司、产品或核查重点（也可留空直接进入表单填写）…';
+  $<HTMLSelectElement>('task-model').disabled = replay || blocked;
+  $<HTMLSelectElement>('task-reasoning').disabled = replay || blocked || !supportsReasoning;
+  if (!supportsReasoning) $<HTMLSelectElement>('task-reasoning').value = '';
+  $('mode-note').hidden = !blocked && !replay && supportsReasoning;
+  $('mode-note').textContent = replay
+    ? '离线演示使用预设调查任务和合成快照。'
+    : blocked
+      ? '请先在「来源与连接」添加模型供应商，或在 .env 配置模型凭据。'
+      : supportsReasoning
+        ? '可用模型来自本机与工作台配置，思考强度由所选模型服务支持。'
+        : '当前模型连接使用模型默认思考强度。';
+  for (const question of document.querySelectorAll<HTMLElement>('[data-live-question]')) question.hidden = replay;
+  $<HTMLButtonElement>('start-run').disabled = state.submitting || blocked;
+  $<HTMLButtonElement>('task-back').disabled = state.submitting;
 }
 
 function permissionChanged(): void {
@@ -390,23 +487,41 @@ function permissionChanged(): void {
   syncDepthPresetState();
 }
 
-function showView(view: 'workbench' | 'connections'): void {
+function showView(view: typeof state.view): void {
   state.view = view;
   const showingConnections = view === 'connections';
+  const showingResearch = view === 'research';
   $('connections-panel').hidden = !showingConnections;
-  document.querySelector<HTMLElement>('.workbench')!.hidden = showingConnections;
+  if (!showingConnections) {
+    closeConnectionEditor();
+    closeSkillModal();
+  }
+  $('research-view').hidden = !showingResearch;
+  document.querySelector<HTMLElement>('.workbench')!.hidden = view !== 'workbench';
   $('nav-sources').classList.toggle('selected', showingConnections);
-  $('nav-workbench').classList.toggle('selected', !showingConnections);
+  $('nav-workbench').classList.toggle('selected', view === 'workbench');
+  $('nav-research').classList.toggle('selected', showingResearch);
   $('nav-sources').setAttribute('aria-expanded', String(showingConnections));
   $('mobile-sources').setAttribute('aria-expanded', String(showingConnections));
-  if (showingConnections) {
+  $('mobile-research').setAttribute('aria-expanded', String(showingResearch));
+  if (view === 'workbench') $('mobile-workbench').setAttribute('aria-current', 'page');
+  else $('mobile-workbench').removeAttribute('aria-current');
+  if (showingResearch) $('nav-research').setAttribute('aria-current', 'page');
+  else $('nav-research').removeAttribute('aria-current');
+  if (view !== 'workbench') {
     setSettingsOpen(false);
+    closeExportModal();
+  }
+  if (showingConnections) {
     $('page-title').textContent = '工作区扩展';
     void loadExtensions();
     renderExtensions();
+  } else if (showingResearch) {
+    $('page-title').textContent = '我的调研';
+    renderResearch();
   } else {
-    const activeTask = state.current?.task ?? currentProfile().task;
-    $('page-title').textContent = isInvestigation(activeTask) ? '产品调查' : '通用 Agent';
+    const run = state.current;
+    $('page-title').textContent = run ? '产品调查' : '新建调查';
   }
   syncHeaderControls();
 }
@@ -446,6 +561,7 @@ function updateRunMetrics(): void {
     return;
   }
   const parts = [
+    run.model?.id,
     `${run.toolCalls} 次工具`,
     `${run.modelTurns} 轮模型`,
     run.totalTokens ? `${run.totalTokens.toLocaleString()} tokens` : null,
@@ -499,8 +615,9 @@ function renderReport(): void {
         ${tocHtml}
         <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取…</p>' : renderMarkdown(doc)}</div>
         <div class="report-actions">
+          <button type="button" class="button primary sm" data-open-export>导出草稿</button>
           <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="agent-result.md">下载 Markdown 结果</a>
-          <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+          <button type="button" class="button secondary sm" id="copy-report" data-copy-report>复制完整报告</button>
           <button type="button" class="button secondary sm" id="print-report" data-print-report>打印 / 导出 PDF</button>
         </div>
       </div>`;
@@ -547,8 +664,9 @@ function renderReport(): void {
       </div>
       ${claimsHtml}
       <div class="report-actions">
+        <button type="button" class="button primary sm" data-open-export>导出草稿</button>
         <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="competitor-report.md">下载 Markdown 报告</a>
-        <button type="button" class="button secondary sm" id="copy-report">复制完整报告</button>
+        <button type="button" class="button secondary sm" id="copy-report" data-copy-report>复制完整报告</button>
         <button type="button" class="button secondary sm" id="print-report" data-print-report>打印 / 导出 PDF</button>
       </div>
       <details class="report-full" open>
@@ -606,6 +724,7 @@ function renderRun(): void {
   label.className = 'run-label tone-' + statusTone(run.status);
 
   $('tab-report').textContent = investigation ? '调查报告' : '任务结果';
+  $('export-run').hidden = !run.reportReady;
   $('cancel-run').textContent = investigation ? '停止调查' : '停止任务';
   $('cancel-run').hidden = !isActiveRun(run);
   $<HTMLButtonElement>('cancel-run').disabled = run.status === 'cancelling';
@@ -635,6 +754,7 @@ function renderRun(): void {
 function updateRun(run: RunSnapshot): void {
   const previousStatus = state.current?.status;
   const index = state.runs.findIndex(item => item.id === run.id);
+  const previous = state.runs[index];
   if (index >= 0 && (state.runs[index].revision ?? 0) > (run.revision ?? 0)) return;
   if (index < 0) state.runs.unshift(run);
   else state.runs[index] = run;
@@ -655,25 +775,27 @@ function updateRun(run: RunSnapshot): void {
     }
     renderRun();
   }
-  renderSidebar();
+  renderCapacity();
   if (state.view === 'connections') renderExtensions();
+  if (state.view === 'research' && (run.reportReady !== previous?.reportReady || run.status !== previous?.status)) renderResearch();
 }
 
-function selectRun(run: RunSnapshot): void {
+function selectRun(run: RunSnapshot, fromResearch = false): void {
   state.stream?.close();
   state.current = run;
+  $('back-to-research').hidden = !fromResearch;
   state.highlightedClaimId = undefined;
   state.selectedPipelineStage = undefined;
   state.selectedTraceStepId = undefined;
   state.traceFilter = 'all';
-  setSettingsOpen(false);
+  closeExportModal();
+  setTaskEditorOpen(false);
   localStorage.setItem('cwatch-selected-run', run.id);
   showView('workbench');
 
-  setProfileRadio(run.profile);
-  const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${run.mode}]`);
-  if (radio) radio.checked = true;
+  $<HTMLSelectElement>('task-runtime').value = run.mode;
   $<HTMLSelectElement>('permission').value = run.permission;
+  renderTaskModels(run.model);
 
   populateProfileForm(run.task);
   permissionChanged();
@@ -681,7 +803,7 @@ function selectRun(run: RunSnapshot): void {
   // Default to Editorial Report/Conversation unless an investigation is actively running without a report yet
   const defaultTab: MainTab = isInvestigation(run.task) && isActiveRun(run) && !run.reportReady ? 'process' : 'report';
   showTab(defaultTab);
-  renderSidebar();
+  renderCapacity();
   renderRun();
 
   const stream = new EventSource(`/api/runs/${run.id}/events`);
@@ -696,38 +818,41 @@ function selectRun(run: RunSnapshot): void {
   };
 }
 
-function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: string; task: AgentTask }): void {
+function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: string; task: AgentTask; model?: RunModelChoice }): void {
+  if (!state.bootstrap || state.submitting) return;
   state.stream?.close();
   state.current = undefined;
   state.highlightedClaimId = undefined;
   state.selectedPipelineStage = undefined;
   state.domainFilterOpen = false;
+  closeExportModal();
   setTraceDrawer(false);
-  setSettingsOpen(false);
-  state.instructionDraft = seed && !isInvestigation(seed.task) ? seed.task.instruction : '';
+  setTaskEditorOpen(false);
+  state.instructionDraft = '';
   localStorage.removeItem('cwatch-selected-run');
   clearError();
   showView('workbench');
 
-  setProfileRadio(seed ? (isInvestigation(seed.task) ? 'web' : 'agent') : 'agent');
   const defaultMode = seed?.mode ?? (state.bootstrap?.model.configured ? 'live' : 'replay');
-  const radio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${defaultMode}]`);
-  if (radio) radio.checked = true;
+  $<HTMLSelectElement>('task-runtime').value = defaultMode;
+  $<HTMLTextAreaElement>('task-prompt').value = seed && isInvestigation(seed.task) ? seed.task.researchBrief?.focus ?? '' : '';
   $<HTMLSelectElement>('permission').value = seed?.permission ?? 'explore';
+  renderTaskModels(seed?.model);
 
-  populateProfileForm(seed?.task);
+  populateProfileForm(seed && isInvestigation(seed.task) ? seed.task : undefined);
   permissionChanged();
   showTab('report');
-  renderSidebar();
+  renderCapacity();
   renderRun();
-  announce('可以新建任务。');
+  window.scrollTo(0, 0);
+  announce('可以新建调查。');
 }
 
 async function handleDeleteRun(runId: string): Promise<void> {
   if (state.deletingRunIds.has(runId)) return;
   state.deletingRunIds.add(runId);
   clearError();
-  renderSidebar();
+  renderResearch();
   try {
     await deleteRunApi(runId);
     state.runs = state.runs.filter(r => r.id !== runId);
@@ -735,24 +860,29 @@ async function handleDeleteRun(runId: string): Promise<void> {
     state.traceCache.delete(runId);
     state.drafts.delete(runId);
     if (state.current?.id === runId) {
+      const wasBrowsingResearch = state.view === 'research';
       const next = state.runs[0];
       if (next) selectRun(next);
       else newRun();
-    } else {
-      renderSidebar();
+      if (wasBrowsingResearch) showView('research');
     }
     announce('任务记录已删除。');
   } catch (error) {
     alertError(error);
   } finally {
     state.deletingRunIds.delete(runId);
-    renderSidebar();
+    renderCapacity();
+    if (state.view === 'research') renderResearch();
   }
 }
 
 async function refreshBootstrapQuietly(): Promise<void> {
+  const model = selectedTaskModel();
+  const wasConfigured = state.bootstrap?.model.configured;
   const bootstrap = await fetchBootstrap();
   state.bootstrap = bootstrap;
+  if (!wasConfigured && bootstrap.model.configured && !state.current) $<HTMLSelectElement>('task-runtime').value = 'live';
+  renderTaskModels(model);
   renderSkillCheckboxes();
   populateProfileForm(state.current?.task, true);
 }
@@ -776,20 +906,15 @@ async function retryCurrentRun(): Promise<void> {
   renderRun();
   try {
     const task = structuredClone(sourceRun.task);
-    let webDomains: string[] | undefined;
     if (sourceRun.mode === 'live') {
       task.taskId = (isInvestigation(task) ? 'web-' : 'task-') + Date.now();
-      if (!isInvestigation(task) && task.allowedSources.includes('web')) {
-        const parsed = parseDomains($<HTMLInputElement>('agent-web-domains').value);
-        if (parsed.length) webDomains = parsed;
-      }
     }
     const input: RunStartInput = {
       profile: sourceRun.profile,
       mode: sourceRun.mode,
       permission: sourceRun.permission,
+      ...(sourceRun.model ? { model: sourceRun.model } : {}),
       ...(!isInvestigation(task) && sourceRun.mode !== 'replay' ? { conversation: true } : {}),
-      ...(webDomains?.length ? { webDomains } : {}),
       task,
       skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(inputEl => inputEl.value),
       limits: buildRunLimits(
@@ -801,7 +926,7 @@ async function retryCurrentRun(): Promise<void> {
     state.runs.unshift(nextRun);
     selectRun(nextRun);
     $('run-title').focus();
-    announce('已重新启动任务。');
+    announce('已重新启动调查。');
   } catch (error) {
     alertError(error);
   } finally {
@@ -813,7 +938,7 @@ async function retryCurrentRun(): Promise<void> {
 // Form submission
 $('run-form').addEventListener('submit', event => {
   event.preventDefault();
-  if (state.submitting) return;
+  if (state.submitting || $('task-editor').hidden) return;
   clearError();
   setSettingsOpen(false);
   void (async () => {
@@ -823,7 +948,8 @@ $('run-form').addEventListener('submit', event => {
       const profile = currentProfile();
       const replay = currentMode() === 'replay';
       const task = structuredClone(profile.task);
-      let webDomains: string[] | undefined;
+      const deliverable = replay ? '' : $<HTMLTextAreaElement>('task-deliverable').value.trim();
+      const model = selectedTaskModel();
 
       if (!replay && isInvestigation(task)) {
         const defaultTask = isInvestigation(profile.task) ? profile.task : undefined;
@@ -849,19 +975,10 @@ $('run-form').addEventListener('submit', event => {
           timezone: 'Asia/Shanghai',
         };
         task.allowedSources = [...document.querySelectorAll<HTMLInputElement>('input[name=source]:checked')].map(input => input.value);
-      }
-
-      if (!isInvestigation(task)) {
-        task.instruction = $<HTMLTextAreaElement>('instruction').value.trim();
-        if (!replay) {
-          task.taskId = 'task-' + Date.now();
-          task.allowedSources = [...document.querySelectorAll<HTMLInputElement>('input[name=source]:checked')].map(input => input.value);
-          if (task.allowedSources.includes('web')) {
-            const parsed = parseDomains($<HTMLInputElement>('agent-web-domains').value);
-            // Blank means open public HTTPS (backend defaults to ['*'])
-            if (parsed.length) webDomains = parsed;
-          }
-        }
+        task.signalTypes = [...document.querySelectorAll<HTMLInputElement>('input[name=signal-type]:checked')].map(input => input.value as typeof task.signalTypes[number]);
+        if (!task.signalTypes.length) throw Error('请至少选择一种关注类型。');
+        const focus = $<HTMLTextAreaElement>('research-focus').value.trim();
+        if (focus || deliverable) task.researchBrief = { ...(focus ? { focus } : {}), ...(deliverable ? { deliverable } : {}) };
       }
 
       if (isInvestigation(task) && Date.parse(task.window.start) >= Date.parse(task.window.end)) {
@@ -875,8 +992,7 @@ $('run-form').addEventListener('submit', event => {
         profile: profile.id,
         mode: currentMode(),
         permission: $<HTMLSelectElement>('permission').value as RunStartInput['permission'],
-        ...(!isInvestigation(task) && !replay ? { conversation: true } : {}),
-        ...(webDomains?.length ? { webDomains } : {}),
+        ...(model ? { model } : {}),
         task,
         skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(input => input.value),
         limits: buildRunLimits(
@@ -889,7 +1005,7 @@ $('run-form').addEventListener('submit', event => {
       state.runs.unshift(run);
       selectRun(run);
       $('run-title').focus();
-      announce(isInvestigation(task) ? '调查已启动。' : '任务已启动。');
+      announce('调查已启动。');
     } catch (error) {
       alertError(error);
     } finally {
@@ -944,78 +1060,72 @@ $('end-conversation').addEventListener('click', () => {
   });
 });
 
-// Compose mode, toggles & settings popover
-$('new-run').addEventListener('click', () => newRun());
-$('sidebar-new-run').addEventListener('click', () => newRun());
-
-for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="profile"]')) {
-  radio.addEventListener('change', () => {
-    populateProfileForm();
-    if (!state.current) renderRun();
-  });
+// Homepage investigation composer
+for (const id of ['new-run', 'sidebar-new-run']) {
+  $(id).addEventListener('click', () => { newRun(); $('task-prompt').focus(); });
 }
+$('task-setup').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!state.bootstrap || state.submitting || state.current) return;
+  const input = $<HTMLTextAreaElement>('task-prompt');
+  const prompt = input.value.trim();
+  if (prompt.length > input.maxLength && currentMode() === 'live') {
+    alertError(`调研重点最多支持 ${input.maxLength} 个字符。`);
+    input.focus();
+    return;
+  }
+  clearError();
+  if (currentMode() === 'live') {
+    $<HTMLTextAreaElement>('research-focus').value = prompt;
+  }
+  openTaskEditor();
+});
+$('task-prompt').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $<HTMLFormElement>('task-setup').requestSubmit();
+});
+$('task-back').addEventListener('click', closeTaskEditor);
 
 $('toggle-web-search').addEventListener('change', syncWebToggleAndBadges);
-$('agent-web-domains').addEventListener('input', syncWebToggleAndBadges);
 $('domains').addEventListener('input', syncWebToggleAndBadges);
 
-$('toggle-domain-filter').addEventListener('click', () => {
-  state.domainFilterOpen = !state.domainFilterOpen;
-  syncWebToggleAndBadges();
-  syncWindowPresetState();
-  syncDepthPresetState();
-  if (state.domainFilterOpen) $<HTMLInputElement>('agent-web-domains').focus();
-});
-
 $('settings-toggle').addEventListener('click', () => setSettingsOpen(!state.settingsOpen));
-$('composer-mode-badge').addEventListener('click', () => setSettingsOpen(!state.settingsOpen));
 
 $('task-suggestions').addEventListener('click', event => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
-  if (!button || state.current || !state.bootstrap?.profiles.some(profile => profile.id === button.dataset.template)) return;
-  setProfileRadio(button.dataset.template!);
-  const liveReady = Boolean(state.bootstrap.model.configured);
-  if (button.dataset.enableWeb === 'true' && liveReady) {
-    const liveRadio = document.querySelector<HTMLInputElement>('input[name=mode][value=live]');
-    if (liveRadio) liveRadio.checked = true;
-  }
-  const prompt = button.dataset.prompt;
-  if (prompt && liveReady && currentMode() === 'live') {
-    state.instructionDraft = prompt;
-  }
-  populateProfileForm();
-  if (button.dataset.template === 'agent' && currentMode() === 'live') {
-    const webBox = $<HTMLInputElement>('toggle-web-search');
-    if (!webBox.disabled && button.dataset.enableWeb !== undefined) {
-      webBox.checked = button.dataset.enableWeb === 'true';
+  if (!button || button.hidden || state.current) return;
+  newRun();
+  const replay = currentMode() === 'replay';
+  if (!replay && button.dataset.company) {
+    $<HTMLInputElement>('competitor-name').value = button.dataset.company;
+    $<HTMLInputElement>('product').value = button.dataset.product ?? '';
+    $<HTMLTextAreaElement>('research-focus').value = button.dataset.focus ?? '';
+    $<HTMLTextAreaElement>('task-prompt').value = button.dataset.focus ?? '';
+    const signal = button.dataset.signal;
+    if (signal) {
+      for (const input of document.querySelectorAll<HTMLInputElement>('input[name=signal-type]')) {
+        input.checked = input.value === signal;
+      }
     }
-    syncWebToggleAndBadges();
-    syncWindowPresetState();
-    syncDepthPresetState();
-    $<HTMLTextAreaElement>('instruction').focus();
-  } else if (button.dataset.template === 'web') {
-    $<HTMLInputElement>('competitor-name').focus();
+    applyWindowPreset(30);
   }
-  renderRun();
-  announce('已选择' + profileDisplayName(currentProfile().id, currentProfile().name) + '。');
+  openTaskEditor();
+  announce('已填入产品调查示例。');
 });
 
 $('run-form').addEventListener('keydown', event => {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !$<HTMLButtonElement>('start-run').disabled) {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !$('task-editor').hidden && !$<HTMLButtonElement>('start-run').disabled) {
     event.preventDefault();
     $<HTMLFormElement>('run-form').requestSubmit();
   }
 });
-$('instruction').addEventListener('input', () => {
-  if (!state.current) state.instructionDraft = $<HTMLTextAreaElement>('instruction').value;
-});
-for (const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]')) {
-  input.addEventListener('change', () => modeChanged(true));
-}
+$('task-runtime').addEventListener('change', () => modeChanged(true));
+$('task-model').addEventListener('change', () => modeChanged());
 $('permission').addEventListener('change', permissionChanged);
 
 // Quick Date Window & 3-Tier Depth Presets
-$('investigation-fields').addEventListener('click', event => {
+$('task-details').addEventListener('click', event => {
   const target = event.target as HTMLElement;
   const windowBtn = target.closest<HTMLButtonElement>('[data-window-days]');
   if (windowBtn) {
@@ -1073,45 +1183,29 @@ $('toggle-trace-drawer').addEventListener('click', () => setTraceDrawer(!state.t
 $('close-trace-drawer').addEventListener('click', () => setTraceDrawer(false));
 $('trace-backdrop').addEventListener('click', () => setTraceDrawer(false));
 
-// Close popover or Trace drawer on Escape / outside click
+// Return focus to the disclosure or drawer control on Escape.
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
-    if (state.traceDrawerOpen) {
+    if (isExportModalOpen()) {
+      event.preventDefault();
+      closeExportModal(true);
+    } else if (isConnectionEditorOpen()) {
+      event.preventDefault();
+      closeConnectionEditor(true);
+    } else if (isSkillModalOpen()) {
+      event.preventDefault();
+      closeSkillModal(true);
+    } else if (state.traceDrawerOpen) {
       setTraceDrawer(false);
       $('toggle-trace-drawer').focus();
     } else if (state.settingsOpen) {
+      event.preventDefault();
       setSettingsOpen(false);
       $('settings-toggle').focus();
+    } else if (!state.submitting && !$('task-editor').hidden && $('task-editor').contains(document.activeElement)) {
+      closeTaskEditor();
     }
   }
-});
-document.addEventListener('click', event => {
-  if (!state.settingsOpen) return;
-  const target = event.target as HTMLElement;
-  if (!target.closest('.settings-anchor') && !target.closest('#composer-mode-badge')) {
-    setSettingsOpen(false);
-  }
-});
-
-// Sidebar history search, select & delete
-$('history-search').addEventListener('input', () => {
-  state.historyQuery = $<HTMLInputElement>('history-search').value;
-  renderSidebar();
-});
-$('history-list').addEventListener('click', event => {
-  const del = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-delete-run]');
-  if (del) {
-    void handleDeleteRun(del.dataset.deleteRun!);
-    return;
-  }
-  const target = (event.target as HTMLElement).closest<HTMLElement>('[data-run]');
-  const run = state.runs.find(r => r.id === target?.dataset.run);
-  if (run) { clearError(); selectRun(run); }
-});
-$('history-select').addEventListener('change', () => {
-  const run = state.runs.find(r => r.id === $<HTMLSelectElement>('history-select').value);
-  if (run) selectRun(run);
-  else newRun();
 });
 
 // 2-Tab Bar & Keyboard Navigation (report <-> process)
@@ -1196,13 +1290,19 @@ $('trace-content').addEventListener('click', event => {
 // Connections / Extensions interactions
 $('connections-panel').addEventListener('click', event => {
   const target = event.target as HTMLElement;
+  const add = target.closest<HTMLButtonElement>('[data-edit-connection]');
+  if (add) { openConnectionEditor(add.dataset.editConnection!); return; }
   if (target.closest('[data-ext-refresh]')) {
     void loadExtensions(true);
     return;
   }
-  if (target.closest('[data-close-skill]')) {
-    state.activeSkillName = undefined;
-    renderExtensions();
+  const deleteProviderBtn = target.closest<HTMLButtonElement>('[data-delete-provider]');
+  if (deleteProviderBtn) {
+    void handleDeleteProvider(deleteProviderBtn.dataset.deleteProvider!, refreshBootstrapQuietly);
+    return;
+  }
+  if (target.closest('[data-delete-search]')) {
+    void handleDeleteSearch(refreshBootstrapQuietly);
     return;
   }
   const inspectBtn = target.closest<HTMLButtonElement>('[data-inspect-skill]');
@@ -1215,9 +1315,19 @@ $('connections-panel').addEventListener('click', event => {
     void handleToggleSkill(toggleSkillBtn.dataset.toggleSkill!, toggleSkillBtn.dataset.nextEnabled === 'true', refreshBootstrapQuietly);
     return;
   }
+  const deleteSkillBtn = target.closest<HTMLButtonElement>('[data-delete-skill]');
+  if (deleteSkillBtn) {
+    void handleDeleteSkill(deleteSkillBtn.dataset.deleteSkill!, refreshBootstrapQuietly);
+    return;
+  }
   const toggleMcpBtn = target.closest<HTMLButtonElement>('[data-toggle-mcp]');
   if (toggleMcpBtn) {
     void handleToggleMcp(toggleMcpBtn.dataset.toggleMcp!, toggleMcpBtn.dataset.nextEnabled === 'true', refreshBootstrapQuietly);
+    return;
+  }
+  const deleteMcpBtn = target.closest<HTMLButtonElement>('[data-delete-mcp]');
+  if (deleteMcpBtn) {
+    void handleDeleteMcp(deleteMcpBtn.dataset.deleteMcp!, refreshBootstrapQuietly);
     return;
   }
   const testMcpBtn = target.closest<HTMLButtonElement>('[data-test-mcp]');
@@ -1226,27 +1336,99 @@ $('connections-panel').addEventListener('click', event => {
   }
 });
 
+$('skill-modal').addEventListener('click', event => {
+  if ((event.target as HTMLElement).closest('[data-close-skill]')) {
+    closeSkillModal(true);
+  }
+});
+$('skill-modal-backdrop').addEventListener('click', () => closeSkillModal(true));
+
+$('connection-editor').addEventListener('click', event => {
+  if ((event.target as HTMLElement).closest('[data-close-connection]')) {
+    closeConnectionEditor(true);
+  }
+});
+$('connection-modal-backdrop').addEventListener('click', () => closeConnectionEditor(true));
+$('connection-editor').addEventListener('submit', event => {
+  event.preventDefault();
+  if (event.target instanceof HTMLFormElement) void saveConnection(event.target, refreshBootstrapQuietly);
+});
+
+$('export-modal').addEventListener('click', event => {
+  if ((event.target as HTMLElement).closest('[data-close-export]')) {
+    closeExportModal(true);
+  }
+});
+$('export-modal-backdrop').addEventListener('click', () => closeExportModal(true));
+
 $('nav-sources').addEventListener('click', () => showView(state.view === 'connections' ? 'workbench' : 'connections'));
 $('mobile-sources').addEventListener('click', () => showView(state.view === 'connections' ? 'workbench' : 'connections'));
 $('nav-workbench').addEventListener('click', () => showView('workbench'));
+$('mobile-workbench').addEventListener('click', () => showView('workbench'));
+
+function openResearch(): void {
+  clearError();
+  showView('research');
+  window.scrollTo(0, 0);
+  $('research-title').focus({ preventScroll: true });
+}
+
+$('nav-research').addEventListener('click', openResearch);
+$('mobile-research').addEventListener('click', () => {
+  if (state.view === 'research') showView('workbench');
+  else openResearch();
+});
+$('back-to-research').addEventListener('click', openResearch);
+$('start-research').addEventListener('click', () => {
+  newRun();
+  $('task-prompt').focus();
+});
+$('research-search').addEventListener('input', renderResearch);
+$('research-mode').addEventListener('change', renderResearch);
+$('research-list').addEventListener('click', event => {
+  const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-research-run], [data-delete-run]');
+  if (target?.dataset.deleteRun) {
+    void handleDeleteRun(target.dataset.deleteRun);
+    return;
+  }
+  const run = state.runs.find(item => item.id === target?.dataset.researchRun);
+  if (!run) return;
+  clearError();
+  selectRun(run, true);
+  window.scrollTo(0, 0);
+  $('run-title').focus({ preventScroll: true });
+});
 
 // Global delegated actions (copy, jump tab, open trace drawer, clone run)
 document.body.addEventListener('click', event => {
   const target = event.target as HTMLElement;
 
-  const copyReportBtn = target.closest<HTMLButtonElement>('#copy-report');
-  if (copyReportBtn) {
-    const report = state.current && state.reportCache.get(state.current.id);
-    if (report) {
-      void navigator.clipboard.writeText(report).then(() => {
+  const openExportBtn = target.closest<HTMLButtonElement>('[data-open-export]');
+  if (openExportBtn) {
+    openExportModal(openExportBtn);
+    return;
+  }
+
+  const copyReportBtn = target.closest<HTMLButtonElement>('#copy-report, [data-copy-report]');
+  if (copyReportBtn && state.current) {
+    const run = state.current;
+    void (async () => {
+      try {
+        const cached = state.reportCache.get(run.id);
+        const report = cached ?? await fetchReportApi(run.id);
+        state.reportCache.set(run.id, report);
+        await navigator.clipboard.writeText(report);
         copyReportBtn.textContent = '已复制';
         announce('报告已复制。');
-      }).catch(() => alertError('浏览器未允许复制，请下载报告。'));
-    }
+      } catch {
+        alertError('浏览器未允许复制，请下载报告。');
+      }
+    })();
     return;
   }
 
   if (target.closest('[data-print-report]')) {
+    if (isExportModalOpen()) closeExportModal();
     const details = $('report-content').querySelector<HTMLDetailsElement>('.report-full');
     if (details) details.open = true;
     window.print();
@@ -1320,7 +1502,8 @@ document.body.addEventListener('click', event => {
 
   if (target.closest('[data-clone-run]') && state.current) {
     const run = state.current;
-    newRun({ profile: run.profile, mode: run.mode, permission: run.permission, task: structuredClone(run.task) });
+    newRun({ profile: run.profile, mode: run.mode, permission: run.permission, task: structuredClone(run.task), model: run.model });
+    $('task-prompt').focus();
   }
 });
 
@@ -1340,24 +1523,25 @@ async function init(): Promise<void> {
     const bootstrap = await fetchBootstrap();
     state.bootstrap = bootstrap;
     state.runs = bootstrap.runs;
-    setProfileRadio('agent');
-    const defaultRadio = document.querySelector<HTMLInputElement>(`input[name=mode][value=${bootstrap.model.configured ? 'live' : 'replay'}]`);
-    if (defaultRadio) defaultRadio.checked = true;
+    $<HTMLSelectElement>('task-runtime').value = bootstrap.model.configured ? 'live' : 'replay';
+    renderTaskModels();
     renderSkillCheckboxes();
-    $('model-status').textContent = bootstrap.model.configured
-      ? `${bootstrap.model.provider} · ${bootstrap.model.id}`
-      : '离线演示模式 · 未配置 .env';
     setConnection('本地服务已连接');
     populateProfileForm();
     permissionChanged();
-    renderSidebar();
+    renderCapacity();
     const selected = state.runs.find(run => run.id === localStorage.getItem('cwatch-selected-run'))
-      ?? state.runs.find(isActiveRun)
-      ?? state.runs[0];
+      ?? state.runs.find(isActiveRun);
     if (selected) selectRun(selected);
     else { showTab('report'); renderRun(); }
+    $<HTMLTextAreaElement>('task-prompt').disabled = false;
+    $<HTMLSelectElement>('task-runtime').disabled = false;
+    $<HTMLButtonElement>('task-next').disabled = false;
+    $<HTMLButtonElement>('nav-research').disabled = false;
+    $<HTMLButtonElement>('mobile-research').disabled = false;
   } catch (error) {
     setConnection('本地服务未连接', false);
+    $('start-note').textContent = '连接失败，请刷新页面重试。';
     alertError(error);
     $<HTMLButtonElement>('start-run').disabled = true;
   }

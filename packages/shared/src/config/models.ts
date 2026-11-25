@@ -7,6 +7,11 @@ export interface ModelConfig {
   providerMaxRetries?: number;
 }
 
+export function workbenchModelIds(defaultId: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const additional = (env.WEB_MODEL_IDS ?? '').split(',').map(id => id.trim()).filter(id => id && id.length <= 256);
+  return [...new Set([defaultId, ...additional])];
+}
+
 /** Parse host-only configuration; never include this object in model context or traces. */
 export function readModelConfig(env: NodeJS.ProcessEnv = process.env): ModelConfig {
   const required = (name: string): string => {

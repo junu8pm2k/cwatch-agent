@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { z } from 'zod';
 import { RunService } from '@cwatch/server-core/runtime/run-service';
-import { readModelConfig } from '@cwatch/shared/config/models';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import type { RunMessageInput, RunStartInput, WorkbenchBootstrap } from '@cwatch/core/types/runs';
+import { buildDraftExport, isDraftExportFormat } from './export.ts';
 
 const rewriteTsSpecifier: ts.TransformerFactory<ts.SourceFile> = context => sourceFile => {
   const visit: ts.Visitor = node => {
@@ -80,12 +80,25 @@ export async function startWebServer(options: WebServerOptions) {
       } else if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' });
       if (req.method === 'GET' && assets.has(path)) { const asset = assets.get(path)!; res.writeHead(200, { 'Content-Type': asset.type }); res.end(asset.body); return; }
       if (path === '/api/bootstrap' && req.method === 'GET') {
-        let model: WorkbenchBootstrap['model'] = { configured: false, provider: '', id: '' };
-        try { const configured = readModelConfig(process.env); model = { configured: true, provider: configured.provider, id: configured.modelId }; } catch {}
+        const model = service.connections.modelSummary();
         return send(res, 200, { csrfToken, model, profiles: service.profiles(), skills: service.skills(), runs: service.list(), maxConcurrentRuns: 2 } satisfies WorkbenchBootstrap);
       }
       if (path === '/api/extensions' && req.method === 'GET') return send(res, 200, service.extensions());
-      const skillMatch = /^\/api\/extensions\/skills\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(toggle))?$/.exec(path);
+      if (req.method === 'POST') {
+        if (path === '/api/extensions/providers') { service.connections.addProvider(await body(req)); return send(res, 201, service.extensions()); }
+        if (path === '/api/extensions/search') { service.connections.saveSearch(await body(req)); return send(res, 200, service.extensions()); }
+        if (path === '/api/extensions/search/delete') { await body(req); service.connections.clearSearch(); return send(res, 200, service.extensions()); }
+        if (path === '/api/extensions/mcp') { service.addMcp(await body(req)); return send(res, 201, service.extensions()); }
+        if (path === '/api/extensions/skills') { service.addSkill(await body(req)); return send(res, 201, service.extensions()); }
+      }
+      const providerMatch = /^\/api\/extensions\/providers\/([a-z][a-z0-9-]{0,39})\/delete$/.exec(path);
+      if (providerMatch) {
+        if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' });
+        await body(req);
+        service.connections.removeProvider(providerMatch[1]);
+        return send(res, 200, service.extensions());
+      }
+      const skillMatch = /^\/api\/extensions\/skills\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(toggle|delete))?$/.exec(path);
       if (skillMatch) {
         const [, name, action] = skillMatch;
         if (req.method === 'GET' && !action) return send(res, 200, service.skillDetail(name));
@@ -93,9 +106,13 @@ export async function startWebServer(options: WebServerOptions) {
           const input = z.object({ enabled: z.boolean() }).strict().parse(await body(req));
           return send(res, 200, service.toggleSkill(name, input.enabled));
         }
+        if (req.method === 'POST' && action === 'delete') {
+          await body(req);
+          return send(res, 200, service.removeSkill(name));
+        }
         return send(res, 405, { error: 'method_not_allowed' });
       }
-      const mcpMatch = /^\/api\/extensions\/mcp\/([a-zA-Z0-9_-]{1,40})\/(toggle|test)$/.exec(path);
+      const mcpMatch = /^\/api\/extensions\/mcp\/([a-zA-Z0-9_-]{1,40})\/(toggle|test|delete)$/.exec(path);
       if (mcpMatch) {
         const [, slug, action] = mcpMatch;
         if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' });
@@ -103,19 +120,33 @@ export async function startWebServer(options: WebServerOptions) {
           const input = z.object({ enabled: z.boolean() }).strict().parse(await body(req));
           return send(res, 200, service.toggleMcp(slug, input.enabled));
         }
+        if (action === 'delete') {
+          await body(req);
+          return send(res, 200, service.removeMcp(slug));
+        }
         await body(req);
         const ac = new AbortController(); req.once('close', () => ac.abort());
         return send(res, 200, await service.testMcp(slug, ac.signal));
       }
       if (path === '/api/runs' && req.method === 'POST') { const value = await body(req); return send(res, 202, service.start(value as RunStartInput)); }
       if (path === '/api/runs' && req.method === 'GET') return send(res, 200, service.list());
-      const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(events|cancel|delete|approvals|report|trace|messages|end)(?:\/([a-f0-9-]{36}))?)?$/.exec(path);
+      const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(events|cancel|delete|approvals|report|export|trace|messages|end)(?:\/([a-f0-9-]{36}))?)?$/.exec(path);
       if (!match) return send(res, 404, { error: 'not_found' });
       const [, runId, action, requestId] = match;
       if (req.method === 'GET' && !action) return send(res, 200, service.get(runId));
       if (req.method === 'GET' && action === 'trace') return send(res, 200, service.trace(runId));
       if (req.method === 'GET' && action === 'report') {
         const report = service.report(runId); res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="competitor-report.md"' }); res.end(report); return;
+      }
+      if (req.method === 'GET' && action === 'export') {
+        const format = url.searchParams.get('format') ?? 'md';
+        if (!isDraftExportFormat(format)) return send(res, 400, { error: 'unsupported_export_format' });
+        const run = service.get(runId), report = service.report(runId);
+        const redactor = new Redactor([...Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''), ...service.connections.secrets()]);
+        const exported = buildDraftExport(run, report, format);
+        res.writeHead(200, { 'Content-Type': exported.contentType, 'Content-Disposition': exported.contentDisposition });
+        res.end(redactor.clean(exported.body));
+        return;
       }
       if (req.method === 'POST' && action === 'cancel') { await body(req); return send(res, 200, service.cancel(runId)); }
       if (req.method === 'POST' && action === 'delete') { await body(req); return send(res, 200, service.delete(runId)); }
@@ -141,7 +172,7 @@ export async function startWebServer(options: WebServerOptions) {
       return send(res, 405, { error: 'method_not_allowed' });
     } catch (error) {
       if (res.headersSent) { res.end(); return; }
-      const redactor = new Redactor(Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''));
+      const redactor = new Redactor([...Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''), ...service.connections.secrets()]);
       const message = redactor.clean(error instanceof Error ? error.message : String(error));
       const status = message.includes('not_found') ? 404 : message.includes('capacity') || message.includes('run_active') || message.includes('not_pending') || message.includes('not_waiting') || message.includes('id_conflict') || message.includes('message_limit') || message.includes('hash_mismatch') ? 409 : message.includes('too_large') ? 413 : 400;
       send(res, status, { error: message });
@@ -153,6 +184,7 @@ export async function startWebServer(options: WebServerOptions) {
   } catch (error) { await service.close(); throw error; }
   const address = server.address(); if (!address || typeof address === 'string') throw Error('invalid_server_address');
   origin = 'http://127.0.0.1:' + address.port;
+  service.setHostOrigin(origin);
   let closing: Promise<void> | undefined;
   const close = () => closing ??= (async () => { for (const stream of streams) stream.end(); const stopped = new Promise<void>(resolveClosed => server.close(() => resolveClosed())); server.closeAllConnections(); await service.close(); await stopped; })();
   return { server, service, origin, close };

@@ -17,9 +17,9 @@ export class UserMcpSource implements SourceClient {
   private operationSignal?: AbortSignal;
   private redactor: Redactor;
   private secrets: string[];
-  constructor(config: UserMcpConfig, readonly cwd: string, private env: NodeJS.ProcessEnv = process.env, private fetcher: typeof fetch = fetch) {
+  constructor(config: UserMcpConfig, readonly cwd: string, private env: NodeJS.ProcessEnv = process.env, private fetcher: typeof fetch = fetch, private tokenOverride?: string) {
     this.config = UserMcpSchema.parse(config);
-    this.secrets = mcpSecrets(this.config, env); this.redactor = new Redactor(this.secrets);
+    this.secrets = [...new Set([...mcpSecrets(this.config, env), ...(tokenOverride ? [tokenOverride] : [])])]; this.redactor = new Redactor(this.secrets);
   }
   private requiredEnv(name: string): string {
     const value = this.env[name]; if (!value?.trim()) throw new Error('mcp_missing_environment:' + name);
@@ -30,7 +30,8 @@ export class UserMcpSource implements SourceClient {
     assertNetworkUrlAllowed(url);
     if (url.origin !== endpoint.origin || url.username || url.password || (this.config.transport === 'streamable-http' && url.toString() !== endpoint.toString())) throw new Error('mcp_endpoint_changed');
     const headers = new Headers(init?.headers);
-    if (this.config.tokenEnv) headers.set(this.config.authHeader, (this.config.authScheme === 'raw' ? '' : 'Bearer ') + this.requiredEnv(this.config.tokenEnv));
+    const token = this.tokenOverride ?? (this.config.tokenEnv ? this.requiredEnv(this.config.tokenEnv) : undefined);
+    if (token) headers.set(this.config.authHeader, (this.config.authScheme === 'raw' ? '' : 'Bearer ') + token);
     const signal = AbortSignal.any([this.lifetime.signal, ...(init?.signal ? [init.signal] : []), ...((init?.method ?? 'GET').toUpperCase() !== 'GET' && this.operationSignal ? [this.operationSignal] : [])]);
     const response = await this.fetcher(target, { ...init, headers, redirect: 'error', signal });
     if ([401, 403, 429].includes(response.status) || response.status >= 500 || response.status >= 300 && response.status < 400) throw new Error('mcp_HTTP_' + response.status);
@@ -43,7 +44,7 @@ export class UserMcpSource implements SourceClient {
     signal.throwIfAborted();
     if (this.client) return this.client;
     this.operationSignal = signal; this.lifetime = new AbortController();
-    if (this.config.tokenEnv) this.requiredEnv(this.config.tokenEnv);
+    if (!this.tokenOverride && this.config.tokenEnv) this.requiredEnv(this.config.tokenEnv);
     const attempt = async (mode: 'stdio' | 'streamable-http' | 'sse') => {
       const client = new Client({ name: 'cwatch-user-mcp', version: '0.1.0' }, { jsonSchemaValidator: new McpSchemaValidator() });
       let transport: NonNullable<UserMcpSource['transport']>;

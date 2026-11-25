@@ -92,6 +92,14 @@ export class SkillStore {
       return this.manifest(entry.name);
     }).sort((a, b) => a.name.localeCompare(b.name));
   }
+  installDocument(content: string): InstalledSkill {
+    parseSkill(content);
+    const temporary = this.files.staging();
+    try {
+      writeFileSync(this.files.path(temporary + '/SKILL.md'), content, { flag: 'wx' });
+      return this.installDirectory(this.files.path(temporary));
+    } finally { this.files.removeTree(temporary); }
+  }
   installDirectory(source: string, origin: InstalledSkill['origin'] = { kind: 'local' }): InstalledSkill {
     const original = resolve(source);
     if (lstatSync(original).isSymbolicLink()) throw new Error('skill_symlink_not_allowed');
