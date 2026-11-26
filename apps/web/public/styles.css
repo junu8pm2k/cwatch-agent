@@ -3157,6 +3157,24 @@ input.research-input {
   gap: 12px;
 }
 
+.provider-model-id-list {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-model-id-row {
+  display: flex;
+  gap: 8px;
+}
+
+.provider-model-id-row .button {
+  flex: none;
+}
+
+.provider-model-id-add {
+  align-self: flex-start;
+}
+
 .ext-editor-error {
   margin: 0;
   padding: 9px 12px;
