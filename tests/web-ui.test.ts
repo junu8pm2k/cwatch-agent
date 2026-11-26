@@ -464,13 +464,26 @@ check('integration','Web UI Connections adds provider via bottom-right plus butt
     await editor.locator('input[name=provider]').fill('deepseek');
     await editor.locator('input[name=baseUrl]').fill('https://api.deepseek.com/v1');
     await editor.locator('input[name=apiKey]').fill('sk-workbench-provider-secret');
-    await editor.locator('textarea[name=modelIds]').fill('deepseek-chat\ndeepseek-reasoner');
+    const modelIds=editor.getByRole('textbox',{name:'模型 ID',exact:true});
+    const addModelId=editor.getByRole('button',{name:'添加模型 ID',exact:true});
+    assert.equal(await modelIds.count(),1);
+    await modelIds.fill('deepseek-chat');
+    await addModelId.click();
+    assert.equal(await modelIds.nth(1).evaluate(node=>node===document.activeElement),true);
+    await modelIds.nth(1).fill('deepseek-reasoner');
+    await addModelId.click();
+    await modelIds.nth(2).fill('removed-model');
+    await editor.getByRole('button',{name:'移除此模型 ID',exact:true}).last().click();
+    assert.equal(await modelIds.count(),2);
     await editor.locator('input[name=reasoning]').check();
     await editor.getByRole('button',{name:'保存',exact:true}).click();
     await editor.waitFor({state:'hidden'});
     await h.page.locator('.ext-provider-list').getByText('deepseek',{exact:true}).waitFor();
     assert.equal((await h.page.locator('#connections-overview').innerText()).includes('sk-workbench-provider-secret'),false);
-    assert.ok((await h.page.locator('#task-model option').evaluateAll(nodes=>nodes.map(o=>o.textContent))).includes('deepseek-reasoner'));
+    const savedModels=await h.page.locator('#task-model option').evaluateAll(nodes=>nodes.map(o=>o.textContent));
+    assert.ok(savedModels.includes('deepseek-chat'));
+    assert.ok(savedModels.includes('deepseek-reasoner'));
+    assert.equal(savedModels.includes('removed-model'),false);
 
     // Configure search tool via pop modal
     await h.page.locator('[data-edit-connection="search"]').click();

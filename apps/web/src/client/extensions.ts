@@ -33,6 +33,15 @@ const editorMeta: Record<ConnectionKind, { title: string; subtitle: string }> = 
   },
 };
 
+const maxProviderModelIds = 32;
+
+function providerModelIdField(required: boolean): string {
+  return `<div class="provider-model-id-row">
+    <input name="modelIds" aria-label="模型 ID" maxlength="256" placeholder="例如 deepseek-chat" ${required ? 'required pattern=".*\\S.*"' : ''}>
+    ${required ? '' : '<button type="button" class="button ghost sm" aria-label="移除此模型 ID">移除</button>'}
+  </div>`;
+}
+
 function connectionFields(kind: ConnectionKind): string {
   if (kind === 'providers') return `
     <div class="field-row">
@@ -40,7 +49,11 @@ function connectionFields(kind: ConnectionKind): string {
       <label class="field"><span>API 地址</span><input name="baseUrl" type="url" required placeholder="https://api.deepseek.com/v1"></label>
     </div>
     <label class="field"><span>API Key</span><input name="apiKey" type="password" autocomplete="off" required maxlength="4096" placeholder="sk-..."></label>
-    <label class="field"><span>模型 ID</span><textarea name="modelIds" rows="2" required placeholder="每行一个模型 ID，或用逗号分隔，例如 deepseek-chat"></textarea></label>
+    <div class="field" role="group" aria-labelledby="provider-model-ids-label">
+      <span id="provider-model-ids-label">模型 ID</span>
+      <div class="provider-model-id-list" data-provider-model-ids>${providerModelIdField(true)}</div>
+      <button type="button" class="button secondary sm provider-model-id-add" data-add-model-id>添加模型 ID</button>
+    </div>
     <label class="option-chip"><input type="checkbox" name="reasoning"><span>此供应商支持低 / 中 / 高思考强度</span></label>
     <p class="field-note">凭据仅保存在本机 .cwatch 目录中，不会暴露给模型或写入 Trace。</p>`;
   if (kind === 'search') {
@@ -84,6 +97,22 @@ export function isSkillModalOpen(): boolean {
   return !$('skill-modal').hidden;
 }
 
+function bindProviderModelIds(editor: HTMLElement): void {
+  const list = editor.querySelector<HTMLElement>('[data-provider-model-ids]')!;
+  const add = editor.querySelector<HTMLButtonElement>('[data-add-model-id]')!;
+  add.addEventListener('click', () => {
+    list.insertAdjacentHTML('beforeend', providerModelIdField(false));
+    const row = list.lastElementChild!;
+    add.disabled = list.childElementCount >= maxProviderModelIds;
+    row.querySelector('input')!.focus();
+    row.querySelector('button')!.addEventListener('click', () => {
+      row.remove();
+      add.disabled = false;
+      add.focus();
+    });
+  });
+}
+
 export function openConnectionEditor(value: string): void {
   if (!Object.hasOwn(editorMeta, value)) return;
   closeSkillModal(false);
@@ -115,6 +144,7 @@ export function openConnectionEditor(value: string): void {
   editor.hidden = false;
   const firstInput = editor.querySelector<HTMLElement>('input:not([type=file]), textarea, select');
   (firstInput ?? editor).focus();
+  if (kind === 'providers') bindProviderModelIds(editor);
   if (kind === 'skills') {
     const fileInput = $<HTMLInputElement>('connection-skill-file');
     fileInput.addEventListener('change', async () => {
@@ -165,7 +195,7 @@ export async function saveConnection(form: HTMLFormElement, refresh: () => Promi
   const values = new FormData(form);
   const data: Record<string, unknown> = Object.fromEntries([...values].filter(([, value]) => typeof value === 'string' && value.trim()));
   if (kind === 'providers') {
-    data.modelIds = String(data.modelIds ?? '').split(/[\n,，]/).map(value => value.trim()).filter(Boolean);
+    data.modelIds = values.getAll('modelIds').map(value => String(value).trim()).filter(Boolean);
     data.supportsReasoningEffort = values.has('reasoning');
     delete data.reasoning;
   }
