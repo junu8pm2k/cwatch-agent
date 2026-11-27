@@ -383,8 +383,38 @@ check('contract', 'Formal summary uses Step 5 maintenance contract and recovers 
   assert.equal(calls.length, 2);
   assert.deepEqual(calls.map(c => c.maxTokens), [6144, 8192]);
   assert.ok(calls.every(c => c.reasoning === 'low' && (c.samplingParams as any)?.reasoning_effort === 'low' && (c.samplingParams as any)?.response_format?.type === 'json_object'));
+  assert.match(calls[0].systemPrompt ?? '', /JSON array of short nonempty strings/);
+  assert.match(calls[0].systemPrompt ?? '', /without drafting the JSON in reasoning/);
   assert.match(calls[1].systemPrompt ?? '', /exhausted its output limit/);
   assert.match(JSON.stringify(active), /Recovered summary/);
+  assert.ok(h.manager.getEntries().some(entry => entry.type === 'custom' && entry.customType === 'cwatch.context_prepare'));
+  assert.ok(h.manager.getEntries().some(entry => entry.type === 'custom' && entry.customType === 'cwatch.summary_recovery' && (entry.data as any)?.action === 'retry'));
+
+  // Invalid string-for-array summary reports only type mismatch (no misleading <=64 characters error) and recovers.
+  const schemaHarness = await harness();
+  for (let i = 1; i <= 3; i++) toolTurn(schemaHarness.manager, i);
+  const schemaInputs: string[] = [];
+  const schemaRuntime = {
+    completeSimple: async (_model: unknown, context: any) => {
+      schemaInputs.push(JSON.stringify(context));
+      if (schemaInputs.length === 1) {
+        return {
+          role: 'assistant',
+          content: [{ type: 'text', text: JSON.stringify({ userGoal: 'goal', completedWork: 'Not an array '.repeat(12), keyFiles: [], errorsAndFixes: [], unfinishedTasks: [], nextSteps: ['next'], references: [], sourceGaps: [] }) }],
+          usage, stopReason: 'stop',
+        };
+      }
+      return {
+        role: 'assistant',
+        content: [{ type: 'text', text: JSON.stringify({ userGoal: 'goal', completedWork: ['done'], keyFiles: [], errorsAndFixes: [], unfinishedTasks: [], nextSteps: ['next'], references: [], sourceGaps: [] }) }],
+        usage, stopReason: 'stop',
+      };
+    },
+  } as unknown as ModelRuntime;
+  await schemaHarness.context.prepare(schemaHarness.view(), schemaRuntime, schemaHarness.model, 4096, new AbortController().signal);
+  assert.equal(schemaInputs.length, 2);
+  assert.match(schemaInputs[1], /completedWork must be of type array\./);
+  assert.ok(!schemaInputs[1].includes('<=64'));
 
   // Provider error responses must stop immediately without retrying.
   const errHarness = await harness();
