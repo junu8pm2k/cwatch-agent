@@ -31,12 +31,15 @@ export function validateStructuredState<T>(text: string, schema: z.ZodType<T>): 
   const result = schema.safeParse(value);
   if (result.success) return { content: result.data };
   const errors: string[] = [];
+  const pathKey = (path: PropertyKey[]) => path.map(String).join('.');
+  const invalidTypePaths = new Set(result.error.issues.filter(issue => issue.code === 'invalid_type').map(issue => pathKey(issue.path)));
   for (const issue of result.error.issues.slice(0, 12)) {
     if (issue.code === 'unrecognized_keys') {
       const names = issue.keys.slice(0, 4).map(key => /^[a-zA-Z0-9_\[\]-]{1,48}$/.test(key) ? JSON.stringify(key) : '<invalid key>');
       errors.push(`Remove unexpected fields: ${names.join(', ')}${issue.keys.length > names.length ? ', and other extra fields' : ''}.`);
       continue;
     }
+    if (issue.code !== 'invalid_type' && invalidTypePaths.has(pathKey(issue.path))) continue;
     const [field, index] = issue.path;
     const path = typeof field === 'string' && typeof index === 'number' ? `${field}[${index}]` : field ?? 'Working state';
     if (issue.code === 'invalid_type') {

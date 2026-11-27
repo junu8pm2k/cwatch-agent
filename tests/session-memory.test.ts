@@ -81,7 +81,7 @@ check('contract', 'Malformed memory working state sends current field errors and
   const { errorsAndFixes, ...remaining } = content();
   const malformed = [
     { ...remaining, 'errorsAndFixes[': errorsAndFixes },
-    { ...content(), completedWork: 'Plan saved', nextSteps: [] },
+    { ...content(), completedWork: 'Plan saved '.repeat(12), nextSteps: [] },
   ];
   h.setResponse((index: number) => index <= malformed.length
     ? { content: [{ type: 'text', text: JSON.stringify(malformed[index - 1]) }], usage, stopReason: 'stop' }
@@ -95,6 +95,7 @@ check('contract', 'Malformed memory working state sends current field errors and
   ]);
   const lastErrors = h.requests[2].input.validationErrors as string[];
   assert.ok(lastErrors.includes('completedWork must be of type array.'));
+  assert.ok(lastErrors.every(error => !error.includes('<=64')), 'must not emit secondary string-length error on array field');
   assert.ok(lastErrors.some(error => error.startsWith('nextSteps:')));
   assert.ok(lastErrors.every(error => !error.includes('errorsAndFixes')));
   assert.ok(!JSON.stringify(h.requests[2].input).includes('Plan saved'));
