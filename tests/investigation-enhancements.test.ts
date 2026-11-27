@@ -50,6 +50,10 @@ function scriptedModel(steps: Decision[]): ModelPort {
         const latest = [...input.state.observations].reverse().find(o => o.name === 'workflow__analyze')?.result as { claims?: Array<{ id: string }> } | undefined;
         step.args.claimIds = latest?.claims?.map(c => c.id) ?? [];
       }
+      if (step.kind === 'call_tool' && step.name === 'session__read_page_snapshot' && step.args.snapshotId === '$fetched_page') {
+        const fetched = input.state.observations.find(o => o.name === 'web_fetch')?.result as RetrievalResult;
+        step.args.snapshotId = fetched.pages![0].textSnapshot!.id;
+      }
       return step;
     },
   };
@@ -73,11 +77,13 @@ function webFetchSource(pages: Record<string, { title: string; content: string }
 
 check('integration', 'workflow__extract_signal verifies fetched snapshot and quote, preserves excerpt, and blocks hallucinated quotes or unfetched URLs', async () => {
   const data = store(), registry = new ToolRegistry(), t = webTask();
-  await registry.register('web', 'builtin', webFetchSource({ [pageUrl]: { title: pageTitle, content: pageText } }), live);
+  const longPage = 'Node.js publication introduction.\n' + 'x'.repeat(26_000) + '\n' + pageText + '\n' + 'y'.repeat(8_000) + '\nNode.js publication appendix.';
+  await registry.register('web', 'builtin', webFetchSource({ [pageUrl]: { title: pageTitle, content: longPage } }), live);
   try {
     const result = await runInvestigation(t, scriptedModel([
       planStep(t),
       { kind: 'call_tool', name: 'web_fetch', args: { url: pageUrl } },
+      { kind: 'call_tool', name: 'session__read_page_snapshot', args: { snapshotId: '$fetched_page', query: 'Official Announcement:', limit: 512 } },
       // Unfetched URL must be rejected.
       { kind: 'call_tool', name: 'workflow__extract_signal', args: { url: 'https://nodejs.org/unfetched', signalType: 'release', eventKey: 'release:unfetched', title: 'Unfetched', value: 'v0', quote: 'This page was never fetched in observations', publishedAt } },
       // Fabricated quote not present in fetched page must be rejected.
@@ -93,6 +99,14 @@ check('integration', 'workflow__extract_signal verifies fetched snapshot and quo
     assert.equal(result.status, 'complete', result.error);
     assert.deepEqual(result.gaps, []);
     const state = data.read<AgentState>('states/' + result.runId + '.json', null!);
+    const fetched = state.observations.find(o => o.name === 'web_fetch')!.result as RetrievalResult;
+    const preview = fetched.pages![0].text;
+    assert.ok(preview.endsWith('Node.js publication appendix.'));
+    assert.ok(!preview.includes('Official Announcement:'));
+    const readback = state.observations.find(o => o.name === 'session__read_page_snapshot')!.result as { content: string; matchOffset: number };
+    assert.equal(typeof readback.content, 'string', JSON.stringify(readback));
+    assert.ok(readback.content.includes(pageText));
+    assert.ok(readback.matchOffset > 24_000);
     const extracts = state.observations.filter(o => o.name === 'workflow__extract_signal').map(o => o.result as Record<string, unknown>);
     assert.equal(extracts.length, 3);
     assert.match(String(extracts[0].error), /fetched_page_not_found/);

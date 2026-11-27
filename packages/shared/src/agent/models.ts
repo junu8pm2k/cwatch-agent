@@ -72,7 +72,7 @@ export class PiModel implements ModelPort {
     const { runPiSubprocess } = await import("./backend/pi/subprocess.ts");
     await runPiSubprocess({ provider: this.provider, modelId: this.modelId, ...this.config, apiKey: this.config.apiKey }, input, { ...hooks, onUsage: async (usage, purpose) => { const normalized = this.recordUsage(usage); if (normalized !== undefined) await hooks.onUsage(normalized, purpose); } }, signal);
   }
-  /** Isolated connectivity/codec probe only; investigations use runSession. */
+  /** Single model decision for routing or connectivity checks. Multi-turn tasks use runSession. */
   async decide(input: ModelInput, signal: AbortSignal): Promise<Decision> {
     const { runtime, model } = await this.configuredRuntime(signal);
     const encoded = encodePiRequest(input);

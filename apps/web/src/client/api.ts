@@ -3,9 +3,14 @@ import type {
   RunMessageInput,
   RunSnapshot,
   RunStartInput,
+  ReportAnnotationInput,
+  ReportReviewView,
   SkillDetail,
+  TaskIntent,
+  TaskIntentInput,
   WorkbenchBootstrap,
   WorkbenchExtensions,
+  WorkbenchProject,
 } from '@cwatch/core/types/runs';
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { state } from './state.ts';
@@ -24,17 +29,25 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const fetchBootstrap = (): Promise<WorkbenchBootstrap> => api<WorkbenchBootstrap>('/api/bootstrap');
+export const taskIntentApi = (input: TaskIntentInput): Promise<TaskIntent> => api<TaskIntent>('/api/task-intent', input);
+export const createProjectApi = (name: string): Promise<WorkbenchProject> => api<WorkbenchProject>('/api/projects', { name });
+export const moveRunApi = (id: string, projectId: string | null): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${id}/project`, { projectId });
+export const renameRunApi = (id: string, title: string): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${id}/title`, { title });
+export const fetchReviewApi = (id: string, saved = false): Promise<ReportReviewView> => api<ReportReviewView>(`/api/runs/${id}/report-review${saved ? '?version=saved' : ''}`);
+export const annotateReportApi = (id: string, input: ReportAnnotationInput): Promise<ReportReviewView> => api<ReportReviewView>(`/api/runs/${id}/report-annotations`, input);
+export const saveReportApi = (id: string, revision: number): Promise<ReportReviewView> => api<ReportReviewView>(`/api/runs/${id}/report-save`, { revision });
+export const sendReportMessageApi = (id: string, input: RunMessageInput): Promise<ReportReviewView> => api<ReportReviewView>(`/api/runs/${id}/report-messages`, input);
 export const startRunApi = (input: RunStartInput): Promise<RunSnapshot> => api<RunSnapshot>('/api/runs', input);
 export const cancelRunApi = (runId: string): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${runId}/cancel`, {});
 export const deleteRunApi = (runId: string): Promise<{ deleted: string }> => api<{ deleted: string }>(`/api/runs/${runId}/delete`, {});
 export const sendMessageApi = (runId: string, input: RunMessageInput): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${runId}/messages`, input);
 export const endConversationApi = (runId: string): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${runId}/end`, {});
-export const respondApprovalApi = (runId: string, requestId: string, allowed: boolean, argsHash: string): Promise<RunSnapshot> =>
-  api<RunSnapshot>(`/api/runs/${runId}/approvals/${requestId}`, { allowed, argsHash });
+export const respondApprovalApi = (runId: string, requestId: string, answer: boolean | { feedback: string }, argsHash: string): Promise<RunSnapshot> =>
+  api<RunSnapshot>(`/api/runs/${runId}/approvals/${requestId}`, typeof answer === 'boolean' ? { allowed: answer, argsHash } : { ...answer, argsHash });
 export const fetchTraceApi = (runId: string): Promise<StructuredTrace> => api<StructuredTrace>(`/api/runs/${runId}/trace`);
 
-export async function fetchReportApi(runId: string): Promise<string> {
-  const response = await fetch(`/api/runs/${runId}/report`);
+export async function fetchReportApi(runId: string, saved = false): Promise<string> {
+  const response = await fetch(`/api/runs/${runId}/report${saved ? '?version=saved' : ''}`);
   if (!response.ok) throw Error('报告读取失败。');
   return response.text();
 }

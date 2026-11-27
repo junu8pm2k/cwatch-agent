@@ -1,6 +1,5 @@
 import type { AgentTask } from '@cwatch/core/types';
 import type { RunModelChoice, RunSnapshot, RunStartInput } from '@cwatch/core/types/runs';
-import { mergeActivities } from './client/activity-merger.ts';
 import {
   cancelRunApi,
   deleteRunApi,
@@ -10,6 +9,7 @@ import {
   respondApprovalApi,
   sendMessageApi,
   startRunApi,
+  taskIntentApi,
 } from './client/api.ts';
 import {
   renderApprovalSpotlight,
@@ -37,17 +37,21 @@ import {
   saveConnection,
 } from './client/extensions.ts';
 import { renderMarkdown } from './client/markdown.ts';
-import { renderResearch } from './client/research.ts';
+import { bindResearchComparison, closeComparison, renderResearch } from './client/research.ts';
+import { bindSpecifiedSources, fillSpecifiedSources, investigationStages, readSpecifiedSources, renderInvestigationAssessment } from './client/investigation-assessment.ts';
+import { bindReportReview, currentReview, invalidateReview, markAnnotatedPassages, renderReportReview } from './client/report-workspace.ts';
 import {
   renderLiveProgressCard,
   renderMetricsRibbon,
   renderPipeline,
   renderPipelineDetail,
+  displayedPipelineStage,
+  PIPELINE_STAGES,
   renderReportToc,
   renderReviewGateCard,
   renderVersionDiffCard,
 } from './client/report-view.ts';
-import { renderCapacity } from './client/sidebar.ts';
+import { bindHistory, renderCapacity } from './client/sidebar.ts';
 import {
   $,
   alertError,
@@ -61,6 +65,7 @@ import {
   isInvestigation,
   permissionNames,
   safeUrl,
+  sessionTitle,
   state,
   statusNames,
   statusTone,
@@ -93,8 +98,9 @@ function selectedTaskModel(): RunModelChoice | undefined {
   const option = $<HTMLSelectElement>('task-model').selectedOptions[0];
   const id = option?.dataset.modelId;
   if (!id || currentMode() === 'replay') return undefined;
-  const effort = $<HTMLSelectElement>('task-reasoning');
-  const reasoningEffort = effort.disabled ? '' : effort.value as RunModelChoice['reasoningEffort'];
+  const reasoningEffort = option.dataset.reasoning === 'true'
+    ? $<HTMLSelectElement>('task-reasoning').value as RunModelChoice['reasoningEffort']
+    : undefined;
   const provider = option.dataset.provider;
   return { id, ...(provider ? { provider } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) };
 }
@@ -132,7 +138,7 @@ function setTaskEditorOpen(open: boolean): void {
 }
 
 function openTaskEditor(): void {
-  if (!state.bootstrap || state.submitting) return;
+  if (!state.bootstrap) return;
   const replay = currentMode() === 'replay';
   const model = selectedTaskModel();
   const reasoning = $<HTMLSelectElement>('task-reasoning').selectedOptions[0]?.textContent;
@@ -149,7 +155,9 @@ function openTaskEditor(): void {
 
 function closeTaskEditor(): void {
   if (currentMode() === 'live') {
-    $<HTMLTextAreaElement>('task-prompt').value = $<HTMLTextAreaElement>('research-focus').value;
+    const focus = $<HTMLTextAreaElement>('research-focus').value;
+    $<HTMLTextAreaElement>('task-prompt').value = focus;
+    state.investigationFormPrompt = focus.trim();
   }
   setTaskEditorOpen(false);
   clearError();
@@ -207,7 +215,7 @@ function openExportModal(trigger?: HTMLElement | null): void {
             <strong>${item.title}</strong>
             <p>${item.desc}</p>
           </div>
-          <a class="button secondary sm" data-export-format="${item.format}" href="/api/runs/${id}/export?format=${item.format}" download>下载 .${item.format}</a>
+          <a class="button secondary sm" data-export-format="${item.format}" href="/api/runs/${id}/export?format=${item.format}${state.savedReportMode ? '&amp;version=saved' : ''}" download>下载 .${item.format}</a>
         </li>`).join('')}
     </ul>
     <div class="export-quick-actions">
@@ -263,15 +271,16 @@ function parseDomains(raw: string): string[] {
 }
 
 const DEPTH_PRESETS = {
-  fast: { label: '快速速览', timeout: 180, tokens: 250000, summary: '180 秒 · 25 万 tokens' },
-  standard: { label: '标准核验', timeout: 480, tokens: 750000, summary: '480 秒 · 75 万 tokens' },
-  deep: { label: '深度穷举', timeout: 900, tokens: 1500000, summary: '900 秒 · 150 万 tokens' },
+  fast: { label: '快速速览', tokens: 250000, summary: '25 万 tokens' },
+  standard: { label: '标准核验', tokens: 750000, summary: '75 万 tokens' },
+  deep: { label: '深度穷举', tokens: 1500000, summary: '150 万 tokens' },
 } as const;
 type DepthPresetKey = keyof typeof DEPTH_PRESETS;
 
-function buildRunLimits(timeoutSec: number, maxTokens: number): NonNullable<RunStartInput['limits']> {
-  return { timeoutMs: timeoutSec * 1000, maxTokens };
+function buildRunLimits(toolTimeoutSec: number, maxTokens: number): NonNullable<RunStartInput['limits']> {
+  return { toolTimeoutMs: toolTimeoutSec * 1000, maxTokens };
 }
+const quickLookupLimits = { maxTokens: 250_000, maxToolCalls: 5, maxSameToolCalls: 3 };
 
 function formatLocalDate(date: Date): string {
   const year = date.getFullYear();
@@ -312,12 +321,11 @@ function applyWindowPreset(days: number): void {
 }
 
 function syncDepthPresetState(): void {
-  const timeout = Number($<HTMLInputElement>('timeout').value);
   const tokens = Number($<HTMLInputElement>('tokens').value);
   let matchedKey: DepthPresetKey | undefined;
   for (const key of Object.keys(DEPTH_PRESETS) as DepthPresetKey[]) {
     const preset = DEPTH_PRESETS[key];
-    if (preset.timeout === timeout && preset.tokens === tokens) {
+    if (preset.tokens === tokens) {
       matchedKey = key;
       break;
     }
@@ -331,13 +339,12 @@ function syncDepthPresetState(): void {
   if (summaryEl) {
     summaryEl.textContent = matchedKey
       ? DEPTH_PRESETS[matchedKey].summary
-      : `自定义（${Number.isFinite(timeout) && timeout > 0 ? timeout : '—'} 秒 · ${Number.isFinite(tokens) && tokens > 0 ? tokens.toLocaleString() : '—'} tokens）`;
+      : `自定义（${Number.isFinite(tokens) && tokens > 0 ? tokens.toLocaleString() : '—'} tokens）`;
   }
 }
 
 function applyDepthPreset(key: DepthPresetKey): void {
   const preset = DEPTH_PRESETS[key];
-  $<HTMLInputElement>('timeout').value = String(preset.timeout);
   $<HTMLInputElement>('tokens').value = String(preset.tokens);
   syncDepthPresetState();
 }
@@ -387,6 +394,7 @@ function populateProfileForm(task = currentProfile().task, preserveWebChoice = f
     $<HTMLInputElement>('end-date').value = invTask.window.end.slice(0, 10);
     $<HTMLTextAreaElement>('research-focus').value = invTask.researchBrief?.focus ?? '';
     $<HTMLTextAreaElement>('task-deliverable').value = invTask.researchBrief?.deliverable ?? '';
+    fillSpecifiedSources(invTask.evidencePolicy);
     for (const input of document.querySelectorAll<HTMLInputElement>('input[name=signal-type]')) {
       input.checked = invTask === currentProfile().task || invTask.signalTypes.some(type => type === input.value);
     }
@@ -453,17 +461,17 @@ function modeChanged(resetInstruction = false): void {
   const supportsReasoning = $<HTMLSelectElement>('task-model').selectedOptions[0]?.dataset.reasoning === 'true';
   const blocked = !replay && !configured;
   const homePrompt = $<HTMLTextAreaElement>('task-prompt');
-  homePrompt.readOnly = replay;
-  homePrompt.required = false;
-  homePrompt.maxLength = 2000;
+  homePrompt.readOnly = replay || state.submitting;
   homePrompt.placeholder = replay
     ? '离线演示使用预设调查任务，点击右侧按钮继续。'
-    : '输入你想调查的公司、产品或核查重点（也可留空直接进入表单填写）…';
-  $<HTMLSelectElement>('task-model').disabled = replay || blocked;
-  $<HTMLSelectElement>('task-reasoning').disabled = replay || blocked || !supportsReasoning;
+    : '例如，帮我看看工作区里的 README.md…';
+  $<HTMLSelectElement>('task-runtime').disabled = state.submitting;
+  $<HTMLSelectElement>('task-model').disabled = replay || blocked || state.submitting;
+  $<HTMLSelectElement>('task-reasoning').disabled = replay || blocked || state.submitting || !supportsReasoning;
   if (!supportsReasoning) $<HTMLSelectElement>('task-reasoning').value = '';
-  $('mode-note').hidden = !blocked && !replay && supportsReasoning;
-  $('mode-note').textContent = replay
+  const deciding = $('task-setup').getAttribute('aria-busy') === 'true';
+  $('mode-note').hidden = !deciding && !blocked && !replay && supportsReasoning;
+  $('mode-note').textContent = deciding ? '正在判断任务类型…' : replay
     ? '离线演示使用预设调查任务和合成快照。'
     : blocked
       ? '请先在「来源与连接」添加模型供应商，或在 .env 配置模型凭据。'
@@ -471,6 +479,7 @@ function modeChanged(resetInstruction = false): void {
         ? '可用模型来自本机与工作台配置，思考强度由所选模型服务支持。'
         : '当前模型连接使用模型默认思考强度。';
   for (const question of document.querySelectorAll<HTMLElement>('[data-live-question]')) question.hidden = replay;
+  $<HTMLButtonElement>('task-next').disabled = state.submitting;
   $<HTMLButtonElement>('start-run').disabled = state.submitting || blocked;
   $<HTMLButtonElement>('task-back').disabled = state.submitting;
 }
@@ -478,10 +487,10 @@ function modeChanged(resetInstruction = false): void {
 function permissionChanged(): void {
   const value = $<HTMLSelectElement>('permission').value;
   $('permission-note').textContent = value === 'explore'
-    ? '只读探索：可读取与联网搜索，禁止修改、发送或发布。'
+    ? '真实调查需要确认计划。可读取与联网搜索，禁止修改、发送或发布。'
     : value === 'ask'
-      ? '写入前审批：每次写入、发送或发布前都会在顶部卡片由你确认。'
-      : '允许已配置操作：无需逐次弹窗，仍严格受来源与权限边界约束。';
+      ? '调查计划、写入、发送和发布均需要你的确认。'
+      : '调查计划需要你的确认。已配置的操作由 Agent 自动执行。';
   syncWebToggleAndBadges();
   syncWindowPresetState();
   syncDepthPresetState();
@@ -491,6 +500,7 @@ function showView(view: typeof state.view): void {
   state.view = view;
   const showingConnections = view === 'connections';
   const showingResearch = view === 'research';
+  if (!showingResearch) closeComparison();
   $('connections-panel').hidden = !showingConnections;
   if (!showingConnections) {
     closeConnectionEditor();
@@ -521,7 +531,7 @@ function showView(view: typeof state.view): void {
     renderResearch();
   } else {
     const run = state.current;
-    $('page-title').textContent = run ? '产品调查' : '新建调查';
+    $('page-title').textContent = !run ? '新建任务' : isInvestigation(run.task) ? '产品调查' : '通用任务';
   }
   syncHeaderControls();
 }
@@ -538,6 +548,7 @@ function showTab(tab: MainTab): void {
   }
   if (tab === 'report') renderReport();
   if (tab === 'process') renderProcess();
+  renderPipelineSection();
 }
 
 async function loadReport(run: RunSnapshot): Promise<void> {
@@ -572,6 +583,8 @@ function updateRunMetrics(): void {
 
 function renderReport(): void {
   const run = state.current;
+  const review = run && currentReview(run, renderReport);
+  renderReportReview(run, review);
   if (run?.conversation) {
     const latest = run.messages?.filter(message => message.role === 'assistant').at(-1)?.content;
     if (latest !== undefined) state.reportCache.set(run.id, latest);
@@ -586,7 +599,7 @@ function renderReport(): void {
 
   if (!run?.reportReady) {
     if (run && isActiveRun(run)) {
-      $('report-content').innerHTML = renderLiveProgressCard(run);
+      $('report-content').innerHTML = renderLiveProgressCard(run, displayedPipelineStage(run, state.selectedPipelineStage) === undefined);
       return;
     }
     const domain = isInvestigation(run?.task ?? currentProfile().task);
@@ -594,14 +607,14 @@ function renderReport(): void {
     $('report-content').innerHTML = `
       <div class="empty-state">
         <h3>${escapeHtml(failedOrStopped ? '本次运行未生成结果' : '正在生成结果…')}</h3>
-        <p>${escapeHtml(run?.error ?? (domain ? '采集、分析与审阅完成后，带引用的调查报告将自动呈现在这里。' : '任务完成后，回答内容将在这里展示，并支持复制与导出。'))}</p>
+        <p>${run?.stoppedAtStage ? `${escapeHtml(investigationStages[run.stoppedAtStage] ?? run.stoppedAtStage)}阶段结束。` : ''}${escapeHtml(run?.error ?? (domain ? '采集、分析与审阅完成后，带引用的调查报告将自动呈现在这里。' : '任务完成后，回答内容将在这里展示，并支持复制与导出。'))}</p>
         ${failedOrStopped ? `<div class="empty-actions"><button type="button" class="button primary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button><button type="button" class="button secondary sm" data-clone-run>修改配置</button></div>` : ''}
       </div>`;
     return;
   }
 
-  const doc = state.reportCache.get(run.id);
-  if (doc === undefined) void loadReport(run);
+  const doc = run.reportReview ? review?.markdown : state.reportCache.get(run.id);
+  if (doc === undefined && !run.reportReview) void loadReport(run);
 
   if (!isInvestigation(run.task)) {
     const tocHtml = doc !== undefined ? renderReportToc(doc) : '';
@@ -654,10 +667,11 @@ function renderReport(): void {
     <div class="report-card">
       ${metricsHtml}
       ${reviewGateHtml}
+      ${renderInvestigationAssessment(run)}
       ${versionDiffHtml}
       <div class="report-heading">
         <div>
-          <h3 class="serif-sub">调查结论与引用</h3>
+          <h3 class="serif-sub">${(state.savedReportMode ? review?.savedRevision : review?.revision) ? '原始核验主张与引用' : '调查结论与引用'}</h3>
           <p class="report-sub-hint">点击任意主张卡片，可联动高亮右侧对应证据来源。</p>
         </div>
         <span class="report-mode">${run.mode === 'replay' ? '合成快照 · 演示' : '本地草稿 · 待核对'}</span>
@@ -665,7 +679,7 @@ function renderReport(): void {
       ${claimsHtml}
       <div class="report-actions">
         <button type="button" class="button primary sm" data-open-export>导出草稿</button>
-        <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report" download="competitor-report.md">下载 Markdown 报告</a>
+        <a class="button secondary sm" href="/api/runs/${escapeHtml(run.id)}/report${state.savedReportMode ? '?version=saved' : ''}" download="competitor-report.md">下载 Markdown 报告</a>
         <button type="button" class="button secondary sm" id="copy-report" data-copy-report>复制完整报告</button>
         <button type="button" class="button secondary sm" id="print-report" data-print-report>打印 / 导出 PDF</button>
       </div>
@@ -675,6 +689,7 @@ function renderReport(): void {
         <div class="report-document md-body">${doc === undefined ? '<p class="field-note">正在读取报告…</p>' : renderMarkdown(doc)}</div>
       </details>
     </div>`;
+  if (review) markAnnotatedPassages(review);
 }
 
 function renderPipelineSection(): void {
@@ -682,21 +697,35 @@ function renderPipelineSection(): void {
   const investigation = Boolean(run && isInvestigation(run.task));
   const bar = $('pipeline');
   const detail = $('pipeline-detail');
+  const content = $('pipeline-detail-content');
+  const approval = $('approval-spotlight');
+  const stage = run && displayedPipelineStage(run, state.selectedPipelineStage);
+  const planPending = Boolean(run?.approvals.some(request => request.tool === 'workflow__save_plan'));
+  const approvalVisible = !investigation || stage === undefined || stage === (planPending ? 0 : run?.stage);
+  if (investigation && approvalVisible && stage !== undefined) {
+    if (approval.parentElement !== detail) detail.append(approval);
+  } else if (approval.parentElement === detail) {
+    detail.after(approval);
+  }
+  renderApprovalSpotlight(approvalVisible);
   bar.hidden = !investigation;
   if (!investigation || !run) {
     bar.innerHTML = '';
+    delete bar.dataset.rendered;
     detail.hidden = true;
-    detail.innerHTML = '';
+    content.innerHTML = '';
     return;
   }
-  bar.innerHTML = renderPipeline(run, state.selectedPipelineStage);
-  if (state.selectedPipelineStage !== undefined) {
-    detail.hidden = false;
-    detail.innerHTML = renderPipelineDetail(run, state.selectedPipelineStage);
-  } else {
-    detail.hidden = true;
-    detail.innerHTML = '';
+  const buttons = renderPipeline(run, stage);
+  if (bar.dataset.rendered !== buttons) {
+    const focusedStage = (document.activeElement as HTMLElement | null)?.dataset.pipelineStage;
+    bar.innerHTML = buttons;
+    bar.dataset.rendered = buttons;
+    if (focusedStage !== undefined) bar.querySelector<HTMLButtonElement>(`[data-pipeline-stage="${focusedStage}"]`)?.focus({ preventScroll: true });
   }
+  detail.hidden = stage === undefined;
+  const collapsible = state.selectedPipelineStage !== undefined && !(stage === 0 && (planPending || run.planApproval?.status === 'revising'));
+  content.innerHTML = stage === undefined ? '' : renderPipelineDetail(run, stage, state.tab === 'report', collapsible);
 }
 
 function renderRun(): void {
@@ -711,14 +740,14 @@ function renderRun(): void {
   syncHeaderControls();
 
   if (!run) {
+    renderReportReview();
     renderPipelineSection();
     renderEvidenceRail();
-    renderApprovalSpotlight();
     return;
   }
 
-  $('run-title').textContent = taskTitle(run.task);
-  const labelText = `${statusNames[run.status]} / ${run.mode === 'replay' ? '离线演示' : run.conversation ? '真实会话' : '真实调查'}`;
+  $('run-title').textContent = sessionTitle(run);
+  const labelText = `${statusNames[run.status]} / ${run.mode === 'replay' ? '离线演示' : run.conversation ? '真实会话' : investigation ? '真实调查' : '真实任务'}`;
   const label = $('run-label');
   label.textContent = labelText;
   label.className = 'run-label tone-' + statusTone(run.status);
@@ -735,18 +764,15 @@ function renderRun(): void {
 
   renderPipelineSection();
 
-  const mergedCount = mergeActivities(run.activities).length;
-  $('process-count').textContent = String(mergedCount);
-
   $('run-footer-text').textContent = `${permissionNames[run.permission] ?? run.permission} · 工具调用均经主进程门禁留痕`;
   $('provenance-label').textContent = run.mode === 'replay' ? '合成数据演示' : '来源与引用请人工核验';
 
   updateRunMetrics();
-  renderApprovalSpotlight();
   renderConversation();
   renderProcess();
   renderEvidenceRail();
   if (state.tab === 'report') renderReport();
+  else renderReportReview(run);
   if (state.traceDrawerOpen) renderTrace();
   updateApprovalClocks();
 }
@@ -777,12 +803,14 @@ function updateRun(run: RunSnapshot): void {
   }
   renderCapacity();
   if (state.view === 'connections') renderExtensions();
-  if (state.view === 'research' && (run.reportReady !== previous?.reportReady || run.status !== previous?.status)) renderResearch();
+  if (state.view === 'research' && (run.reportReview?.savedAt !== previous?.reportReview?.savedAt || run.status !== previous?.status)) renderResearch();
 }
 
 function selectRun(run: RunSnapshot, fromResearch = false): void {
   state.stream?.close();
   state.current = run;
+  state.savedReportMode = fromResearch;
+  invalidateReview(run.id);
   $('back-to-research').hidden = !fromResearch;
   state.highlightedClaimId = undefined;
   state.selectedPipelineStage = undefined;
@@ -818,55 +846,67 @@ function selectRun(run: RunSnapshot, fromResearch = false): void {
   };
 }
 
-function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: string; task: AgentTask; model?: RunModelChoice }): void {
+function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: string; task: AgentTask; model?: RunModelChoice; projectId?: string }, projectId = seed?.projectId): void {
   if (!state.bootstrap || state.submitting) return;
   state.stream?.close();
   state.current = undefined;
+  state.savedReportMode = false;
+  state.composeProjectId = projectId;
+  const project = state.projects.find(item => item.id === projectId);
+  $('compose-project').hidden = !project;
+  $('compose-project').textContent = project ? `新会话将加入 ${project.name}` : '';
   state.highlightedClaimId = undefined;
   state.selectedPipelineStage = undefined;
   state.domainFilterOpen = false;
   closeExportModal();
   setTraceDrawer(false);
   setTaskEditorOpen(false);
-  state.instructionDraft = '';
+  const investigation = seed && isInvestigation(seed.task) ? seed.task : undefined;
+  state.investigationFormPrompt = investigation?.researchBrief?.focus?.trim();
   localStorage.removeItem('cwatch-selected-run');
   clearError();
   showView('workbench');
 
   const defaultMode = seed?.mode ?? (state.bootstrap?.model.configured ? 'live' : 'replay');
   $<HTMLSelectElement>('task-runtime').value = defaultMode;
-  $<HTMLTextAreaElement>('task-prompt').value = seed && isInvestigation(seed.task) ? seed.task.researchBrief?.focus ?? '' : '';
+  const prompt = seed && !isInvestigation(seed.task) ? seed.task.instruction.slice(0, 2000) : investigation?.researchBrief?.focus ?? '';
+  $<HTMLTextAreaElement>('task-prompt').value = prompt;
   $<HTMLSelectElement>('permission').value = seed?.permission ?? 'explore';
   renderTaskModels(seed?.model);
 
-  populateProfileForm(seed && isInvestigation(seed.task) ? seed.task : undefined);
+  populateProfileForm(investigation);
   permissionChanged();
   showTab('report');
   renderCapacity();
   renderRun();
   window.scrollTo(0, 0);
-  announce('可以新建调查。');
+  announce('可以新建任务。');
 }
 
 async function handleDeleteRun(runId: string): Promise<void> {
-  if (state.deletingRunIds.has(runId)) return;
+  const run = state.runs.find(item => item.id === runId);
+  if (!run || isActiveRun(run) || state.deletingRunIds.has(runId)) return;
+  const consequences = run.reportReview?.savedAt ? '此会话和「我的调研」中的已保存报告将一并删除。' : '此会话的消息、草稿与标注将一并删除。';
+  if (!window.confirm(`删除会话「${sessionTitle(run)}」？\n${consequences} 此操作无法撤销。`)) return;
   state.deletingRunIds.add(runId);
   clearError();
   renderResearch();
+  renderCapacity();
   try {
     await deleteRunApi(runId);
     state.runs = state.runs.filter(r => r.id !== runId);
     state.reportCache.delete(runId);
+    invalidateReview(runId);
     state.traceCache.delete(runId);
     state.drafts.delete(runId);
     if (state.current?.id === runId) {
       const wasBrowsingResearch = state.view === 'research';
-      const next = state.runs[0];
+      const next = state.runs.find(item => item.projectId === run.projectId) ?? state.runs[0];
       if (next) selectRun(next);
-      else newRun();
+      else newRun(undefined, run.projectId);
       if (wasBrowsingResearch) showView('research');
     }
-    announce('任务记录已删除。');
+    announce('会话已删除。');
   } catch (error) {
     alertError(error);
   } finally {
@@ -901,6 +941,13 @@ function renderSkillCheckboxes(): void {
 async function retryCurrentRun(): Promise<void> {
   const sourceRun = state.current;
   if (!sourceRun || state.submitting || isActiveRun(sourceRun)) return;
+  if (sourceRun.profile === 'agent' && sourceRun.mode === 'live' && sourceRun.permission === 'explore' && !sourceRun.conversation
+      && !isInvestigation(sourceRun.task) && !sourceRun.task.context && sourceRun.task.allowedSources.length === 1 && sourceRun.task.allowedSources[0] === 'web'
+      && sourceRun.error?.startsWith('budget_timeout') && sourceRun.task.instruction.length <= 2000) {
+    newRun(sourceRun);
+    await submitTaskPrompt(sourceRun.task.instruction);
+    return;
+  }
   clearError();
   state.submitting = true;
   renderRun();
@@ -913,12 +960,14 @@ async function retryCurrentRun(): Promise<void> {
       profile: sourceRun.profile,
       mode: sourceRun.mode,
       permission: sourceRun.permission,
+      ...(sourceRun.projectId ? { projectId: sourceRun.projectId } : {}),
       ...(sourceRun.model ? { model: sourceRun.model } : {}),
-      ...(!isInvestigation(task) && sourceRun.mode !== 'replay' ? { conversation: true } : {}),
+      ...(sourceRun.conversation ? { conversation: true } : {}),
+      ...(sourceRun.mode === 'live' && isInvestigation(task) ? { requirePlanApproval: true } : {}),
       task,
       skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(inputEl => inputEl.value),
       limits: buildRunLimits(
-        Math.max(Number($<HTMLInputElement>('timeout').value) || DEPTH_PRESETS.standard.timeout, 1),
+        Number($<HTMLInputElement>('tool-timeout').value) || 120,
         Math.max(Number($<HTMLInputElement>('tokens').value) || DEPTH_PRESETS.standard.tokens, 100),
       ),
     };
@@ -926,7 +975,7 @@ async function retryCurrentRun(): Promise<void> {
     state.runs.unshift(nextRun);
     selectRun(nextRun);
     $('run-title').focus();
-    announce('已重新启动调查。');
+    announce(isInvestigation(task) ? '已重新启动调查。' : '已重新启动任务。');
   } catch (error) {
     alertError(error);
   } finally {
@@ -975,6 +1024,10 @@ $('run-form').addEventListener('submit', event => {
           timezone: 'Asia/Shanghai',
         };
         task.allowedSources = [...document.querySelectorAll<HTMLInputElement>('input[name=source]:checked')].map(input => input.value);
+        task.evidencePolicy = readSpecifiedSources();
+        if (task.evidencePolicy.sources.length && !task.allowedSources.includes('web')) throw Error('使用指定的网址需要开启联网搜索。');
+        if (task.evidencePolicy.scope === 'only' && task.allowedSources.some(source => source !== 'web')) throw Error('选择「只查指定网址」时请关闭其他扩展来源。');
+        if (task.evidencePolicy.scope === 'only') task.competitor.domains = [...new Set(task.evidencePolicy.sources.map(source => new URL(source.url).hostname))];
         task.signalTypes = [...document.querySelectorAll<HTMLInputElement>('input[name=signal-type]:checked')].map(input => input.value as typeof task.signalTypes[number]);
         if (!task.signalTypes.length) throw Error('请至少选择一种关注类型。');
         const focus = $<HTMLTextAreaElement>('research-focus').value.trim();
@@ -992,11 +1045,13 @@ $('run-form').addEventListener('submit', event => {
         profile: profile.id,
         mode: currentMode(),
         permission: $<HTMLSelectElement>('permission').value as RunStartInput['permission'],
+        ...(!replay && isInvestigation(task) ? { requirePlanApproval: true } : {}),
+        ...(state.composeProjectId ? { projectId: state.composeProjectId } : {}),
         ...(model ? { model } : {}),
         task,
         skills: [...document.querySelectorAll<HTMLInputElement>('input[name=skill]:checked')].map(input => input.value),
         limits: buildRunLimits(
-          Number($<HTMLInputElement>('timeout').value),
+          Number($<HTMLInputElement>('tool-timeout').value),
           Number($<HTMLInputElement>('tokens').value),
         ),
       };
@@ -1060,7 +1115,47 @@ $('end-conversation').addEventListener('click', () => {
   });
 });
 
-// Homepage investigation composer
+async function submitTaskPrompt(prompt: string): Promise<void> {
+  const model = selectedTaskModel();
+  const composer = $('task-setup');
+  state.submitting = true;
+  composer.setAttribute('aria-busy', 'true');
+  announce('正在判断任务类型。');
+  modeChanged();
+  try {
+    const intent = await taskIntentApi({ instruction: prompt, ...(model ? { model } : {}) });
+    if (state.current || state.view !== 'workbench') return;
+    if (intent.kind === 'investigation') {
+      populateProfileForm();
+      $<HTMLInputElement>('competitor-name').value = intent.competitor ?? '';
+      $<HTMLInputElement>('product').value = intent.product ?? '';
+      $<HTMLInputElement>('start-date').value = '';
+      $<HTMLInputElement>('end-date').value = '';
+      $<HTMLTextAreaElement>('research-focus').value = prompt;
+      syncWindowPresetState();
+      openTaskEditor();
+      return;
+    }
+    const run = await startRunApi({
+      profile: 'agent', mode: 'live', permission: 'explore',
+      ...(state.composeProjectId ? { projectId: state.composeProjectId } : {}),
+      ...(model ? { model } : {}),
+      ...(intent.needsWeb ? { limits: quickLookupLimits } : {}),
+      task: { kind: 'agent', taskId: 'task-' + Date.now(), instruction: prompt, allowedSources: intent.needsWeb ? ['web'] : [] },
+    });
+    state.runs.unshift(run);
+    selectRun(run);
+    $('run-title').focus();
+    announce('任务已启动。');
+  } catch (error) {
+    alertError(error);
+  } finally {
+    composer.removeAttribute('aria-busy');
+    state.submitting = false;
+    modeChanged();
+  }
+}
+
 for (const id of ['new-run', 'sidebar-new-run']) {
   $(id).addEventListener('click', () => { newRun(); $('task-prompt').focus(); });
 }
@@ -1075,9 +1170,12 @@ $('task-setup').addEventListener('submit', event => {
     return;
   }
   clearError();
-  if (currentMode() === 'live') {
-    $<HTMLTextAreaElement>('research-focus').value = prompt;
+  if (currentMode() === 'live' && prompt && prompt !== state.investigationFormPrompt) {
+    if (state.bootstrap.model.configured) void submitTaskPrompt(prompt);
+    else alertError('请先在「来源与连接」添加模型供应商，或在 .env 配置模型凭据。');
+    return;
   }
+  if (currentMode() === 'live' && !prompt) $<HTMLTextAreaElement>('research-focus').value = '';
   openTaskEditor();
 });
 $('task-prompt').addEventListener('keydown', event => {
@@ -1093,9 +1191,10 @@ $('domains').addEventListener('input', syncWebToggleAndBadges);
 $('settings-toggle').addEventListener('click', () => setSettingsOpen(!state.settingsOpen));
 
 $('task-suggestions').addEventListener('click', event => {
+  if (state.submitting) return;
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-template]');
   if (!button || button.hidden || state.current) return;
-  newRun();
+  newRun(undefined, state.composeProjectId);
   const replay = currentMode() === 'replay';
   if (!replay && button.dataset.company) {
     $<HTMLInputElement>('competitor-name').value = button.dataset.company;
@@ -1142,8 +1241,6 @@ $('start-date').addEventListener('input', syncWindowPresetState);
 $('start-date').addEventListener('change', syncWindowPresetState);
 $('end-date').addEventListener('input', syncWindowPresetState);
 $('end-date').addEventListener('change', syncWindowPresetState);
-$('timeout').addEventListener('input', syncDepthPresetState);
-$('timeout').addEventListener('change', syncDepthPresetState);
 $('tokens').addEventListener('input', syncDepthPresetState);
 $('tokens').addEventListener('change', syncDepthPresetState);
 
@@ -1152,15 +1249,21 @@ $('pipeline').addEventListener('click', event => {
   const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-pipeline-stage]');
   if (!btn || !state.current) return;
   const stageIndex = Number(btn.dataset.pipelineStage);
-  if (!Number.isInteger(stageIndex)) return;
+  if (!Number.isInteger(stageIndex) || stageIndex < 0 || stageIndex >= PIPELINE_STAGES.length) return;
   state.selectedPipelineStage = state.selectedPipelineStage === stageIndex ? undefined : stageIndex;
   renderPipelineSection();
+  renderProcess();
+  if (state.tab === 'report' && !state.current.reportReady) renderReport();
 });
 $('pipeline-detail').addEventListener('click', event => {
   const target = event.target as HTMLElement;
   if (target.closest('[data-close-pipeline-detail]')) {
+    const stageIndex = state.selectedPipelineStage;
     state.selectedPipelineStage = undefined;
     renderPipelineSection();
+    renderProcess();
+    if (state.tab === 'report' && !state.current?.reportReady) renderReport();
+    $('pipeline').querySelector<HTMLButtonElement>(`[data-pipeline-stage="${stageIndex}"]`)?.focus({ preventScroll: true });
   }
 });
 
@@ -1233,6 +1336,22 @@ $('approval-spotlight').addEventListener('click', event => {
   void respondApprovalApi(run.id, requestId, Boolean(target.dataset.approve), target.dataset.hash!)
     .then(updateRun)
     .catch(error => { alertError(error); target.disabled = false; });
+});
+$('approval-spotlight').addEventListener('submit', event => {
+  const form = event.target;
+  const run = state.current;
+  if (!(form instanceof HTMLFormElement) || !form.dataset.planFeedback || !run) return;
+  event.preventDefault();
+  const field = form.elements.namedItem('feedback') as HTMLTextAreaElement;
+  const feedback = field.value.trim();
+  if (!feedback) { field.focus(); return; }
+  const button = form.querySelector<HTMLButtonElement>('button')!;
+  if (button.disabled) return;
+  button.disabled = true;
+  clearError();
+  void respondApprovalApi(run.id, form.dataset.planFeedback, { feedback }, form.dataset.hash!)
+    .then(updateRun)
+    .catch(error => { alertError(error); button.disabled = false; });
 });
 
 // Bidirectional Claim <-> Evidence Rail linkage
@@ -1385,6 +1504,8 @@ $('start-research').addEventListener('click', () => {
 });
 $('research-search').addEventListener('input', renderResearch);
 $('research-mode').addEventListener('change', renderResearch);
+bindResearchComparison();
+bindSpecifiedSources();
 $('research-list').addEventListener('click', event => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-research-run], [data-delete-run]');
   if (target?.dataset.deleteRun) {
@@ -1414,9 +1535,11 @@ document.body.addEventListener('click', event => {
     const run = state.current;
     void (async () => {
       try {
-        const cached = state.reportCache.get(run.id);
-        const report = cached ?? await fetchReportApi(run.id);
-        state.reportCache.set(run.id, report);
+        const saved = state.savedReportMode;
+        const review = currentReview(run, renderReport);
+        const cached = run.reportReview ? review?.markdown : state.reportCache.get(run.id);
+        const report = cached ?? await fetchReportApi(run.id, saved);
+        if (!run.reportReview) state.reportCache.set(run.id, report);
         await navigator.clipboard.writeText(report);
         copyReportBtn.textContent = '已复制';
         announce('报告已复制。');
@@ -1523,6 +1646,7 @@ async function init(): Promise<void> {
     const bootstrap = await fetchBootstrap();
     state.bootstrap = bootstrap;
     state.runs = bootstrap.runs;
+    state.projects = bootstrap.projects ?? [];
     $<HTMLSelectElement>('task-runtime').value = bootstrap.model.configured ? 'live' : 'replay';
     renderTaskModels();
     renderSkillCheckboxes();
@@ -1536,7 +1660,6 @@ async function init(): Promise<void> {
     else { showTab('report'); renderRun(); }
     $<HTMLTextAreaElement>('task-prompt').disabled = false;
     $<HTMLSelectElement>('task-runtime').disabled = false;
-    $<HTMLButtonElement>('task-next').disabled = false;
     $<HTMLButtonElement>('nav-research').disabled = false;
     $<HTMLButtonElement>('mobile-research').disabled = false;
   } catch (error) {
@@ -1546,5 +1669,16 @@ async function init(): Promise<void> {
     $<HTMLButtonElement>('start-run').disabled = true;
   }
 }
+
+bindHistory(run => { clearError(); selectRun(run); $('run-title').focus(); }, projectId => {
+  newRun(undefined, projectId);
+  $('task-prompt').focus();
+}, updateRun, runId => { void handleDeleteRun(runId); });
+
+bindReportReview(renderReport, (id, review) => {
+  const run = state.runs.find(item => item.id === id);
+  if (!run || (run.reportReview?.revision ?? 0) > review.revision) return;
+  updateRun({ ...run, reportReview: { revision: review.revision, savedRevision: review.savedRevision, savedAt: review.savedAt } });
+}, () => { if (state.current) selectRun(state.current); });
 
 void init();

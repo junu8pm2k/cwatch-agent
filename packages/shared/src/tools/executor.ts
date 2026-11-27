@@ -1,8 +1,9 @@
-import { abortable, hash, id, now, type AgentTask, type ExecutionRecord, type ToolBinding } from "@cwatch/core/types";
+import { abortable, hash, id, now, RetrievalSchema, type AgentTask, type ExecutionRecord, type ToolBinding } from "@cwatch/core/types";
 import { ToolRegistry } from './registry.ts';
 import { ActionPolicy, ApprovalManager } from "../agent/core/permission-manager.ts";
 import { FileStore } from "../sessions/storage.ts";
 import { Trace } from "../sessions/trace.ts";
+import { previewFetchedPage } from '../sessions/page-snapshots.ts';
 import { runPreToolUseChecks, toPolicyVerdict, type PrerequisiteManagerLike } from "../agent/core/pre-tool-use.ts";
 import { requestPreToolUseApproval, type PreToolUseRequest, type ToolCallHandshake } from "../agent/pre-tool-use.ts";
 
@@ -61,7 +62,15 @@ export class ToolExecutor {
       if (result && typeof result === 'object' && 'raw' in result && typeof result.raw === 'string') {
         const raw = this.trace.redactor.clean(result.raw), snapshotHash = hash(raw), path = 'retrievals/' + snapshotHash + '.txt';
         this.store.text(path, raw);
-        observation = { ...result, raw: raw.slice(0, 16_000), rawTruncated: raw.length > 16_000, snapshot: { path, hash: snapshotHash } };
+        const archived = { ...result, raw: raw.slice(0, 16_000), rawTruncated: raw.length > 16_000, snapshot: { path, hash: snapshotHash } };
+        observation = archived;
+        if (name === 'web_fetch') {
+          const fetched = RetrievalSchema.safeParse(result);
+          if (fetched.success && fetched.data.status === 'success_with_data' && fetched.data.pages?.length) {
+            const pages = fetched.data.pages.map(page => previewFetchedPage(this.store, this.trace.runId, this.trace.redactor.clean(page)));
+            observation = { ...archived, pages };
+          }
+        }
       }
       record.state = 'completed'; record.endedAt = now(); write();
       this.trace.emit('execution_finished', { requestId, state: record.state, result: this.trace.redactor.clean(observation) });

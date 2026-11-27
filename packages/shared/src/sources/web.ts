@@ -12,6 +12,7 @@ export { WebFailure } from './web-errors.ts';
 export interface WebOptions {
   slug: string; allowedDomains: string[];
   urls?: string[];
+  restrictToUrls?: boolean;
   native?: NativeWebConfig;
   nativeUnavailableReason?: string;
   searchMcp?: SearchMcpOptions;
@@ -44,6 +45,28 @@ export function allowedUrl(value: string, domains: string[]): URL {
   if ([...url.searchParams.keys()].some(key => /^(api[_-]?key|access[_-]?token|password|secret)$/i.test(key))) throw new Error('web_scope: credentials forbidden in URL');
   url.hash = ''; return url;
 }
+export function allowedScopedUrl(value: string, domains: string[], entries: readonly string[] = []): URL {
+  const url = allowedUrl(value, domains);
+  if (!entries.length) return url;
+  if (/%(?:2f|5c|25)/i.test(url.pathname)) throw Error('web_url_outside_specified_sources');
+  const matches = entries.some(entry => {
+    const anchor = allowedUrl(entry, domains);
+    if (url.origin !== anchor.origin) return false;
+    if (anchor.search) return url.pathname === anchor.pathname && url.search === anchor.search;
+    const root = anchor.pathname.replace(/\/$/, '');
+    return url.pathname === root || url.pathname.startsWith(root + '/');
+  });
+  if (!matches) throw Error('web_url_outside_specified_sources');
+  return url;
+}
+
+export function specifiedSearchScope(query: string, urls: readonly string[]): boolean {
+  const scopes = [...query.matchAll(/(?:^|\s)site:([^\s)]+)/gi)].map(match => match[1]);
+  return scopes.length === 1 && urls.some(value => {
+    const anchor = new URL(value), path = anchor.pathname.replace(/\/$/, '');
+    return scopes[0].replace(/\/$/, '') === anchor.host + path;
+  });
+}
 export interface WebDependencies { fetcher?: typeof fetch }
 export function readWebOptions(slug: string, allowedDomains: string[], env: NodeJS.ProcessEnv = process.env): WebOptions {
   const { native, nativeUnavailableReason } = readNativeWebConfig(env);
@@ -65,13 +88,15 @@ export class PreferredWebSource implements SourceClient {
   private readonly fetcher: typeof fetch;
   private detectedRemoteProtocol?: 'mcp' | 'rest';
   constructor(readonly options: WebOptions, dependencies: WebDependencies = {}) { this.fetcher = dependencies.fetcher ?? fetch; }
+  private checkUrl = (url: string) => allowedScopedUrl(url, this.options.allowedDomains, this.options.restrictToUrls ? this.options.urls : []);
   async listTools(): Promise<ToolDefinition[]> {
     for (const url of this.options.urls ?? []) allowedUrl(url, this.options.allowedDomains);
-    return createWebToolDefinitions({ allowedDomains: this.options.allowedDomains, urls: this.options.urls ?? [] });
+    return createWebToolDefinitions({ allowedDomains: this.options.allowedDomains, urls: this.options.urls ?? [], restrictToUrls: this.options.restrictToUrls });
   }
   validateScope(name: string, args: Record<string, unknown>, task: AgentTask): string | undefined {
-    if (name === 'web_fetch') { try { allowedUrl(String(args.url), this.options.allowedDomains); } catch { return 'web_url_outside_scope'; } }
+    if (name === 'web_fetch') { try { this.checkUrl(String(args.url)); } catch { return 'web_url_outside_scope'; } }
     else if (name === 'web_search' && isInvestigationTask(task)) {
+      if (this.options.restrictToUrls && !specifiedSearchScope(String(args.query), this.options.urls ?? [])) return 'web_query_outside_specified_sources';
       const query = String(args.query).toLowerCase();
       const matchesEntity = [task.competitor.name, task.product, ...task.competitor.aliases].some(value => value && query.includes(value.toLowerCase()));
       const matchesDomain = task.competitor.domains.some(domain => queryReferencesDomain(query, domain));
@@ -81,7 +106,7 @@ export class PreferredWebSource implements SourceClient {
   }
   private async callRestApi(api: WebApiOptions, name: string, args: Record<string, unknown>, signal: AbortSignal, context: ToolExecutionContext): Promise<RetrievalResult> {
     const { WebApiAdapter } = await import('./web-api.ts');
-    return await new WebApiAdapter(api, url => allowedUrl(url, this.options.allowedDomains), this.fetcher).call(name, args, signal, context);
+    return await new WebApiAdapter(api, this.checkUrl, this.fetcher).call(name, args, signal, context);
   }
   private buildAutoRestOptions(remote: RemoteMcpOptions): WebApiOptions {
     const api = buildGenericRestApiOptions(remote);
@@ -92,7 +117,7 @@ export class PreferredWebSource implements SourceClient {
     if (!context) throw new Error('web_execution_context_required: use ToolExecutor');
     signal.throwIfAborted();
     let backend: string | undefined;
-    const checkUrl = (url: string) => allowedUrl(url, this.options.allowedDomains);
+    const checkUrl = this.checkUrl;
     try {
       // Priority 1: Explicit REST API configuration (webApi or legacy searchMcp.type=api).
       const explicitApi = this.options.webApi ?? (this.options.searchMcp?.type === 'api' ? this.options.searchMcp : undefined);

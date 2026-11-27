@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
 
 export const timestamp = z.string().datetime({ offset: true });
+export const InvestigationSourceSchema = z.object({ url: z.url({ protocol: /^https$/ }).max(2000), kind: z.enum(['official_site', 'documentation', 'changelog', 'official_forum', 'other']) }).strict();
+export const InvestigationPolicySchema = z.object({ sources: z.array(InvestigationSourceSchema).max(12), scope: z.enum(['prefer', 'only']) }).strict();
+export const InvestigationQuestionSchema = z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{1,48}$/), question: z.string().trim().min(1).max(300), candidatesRequired: z.int().min(1).max(4).default(1) }).strict();
 export const TaskSchema = z.object({
   taskId: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
   competitor: z.object({ id: z.string().min(1), name: z.string().min(1), aliases: z.array(z.string()).default([]), domains: z.array(z.string()).min(1) }).strict(),
@@ -12,9 +15,12 @@ export const TaskSchema = z.object({
   window: z.object({ start: timestamp, end: timestamp, basis: z.enum(['published_at', 'occurred_at', 'effective_at']), timezone: z.string().min(1) }).strict(),
   allowedSources: z.array(z.string()).min(1), outputScope: z.literal('draft'),
   researchBrief: z.object({ focus: z.string().trim().min(1).max(2000).optional(), deliverable: z.string().trim().min(1).max(2000).optional() }).strict().optional(),
+  evidencePolicy: InvestigationPolicySchema.optional(),
 }).strict().superRefine((t, ctx) => {
   if (Date.parse(t.window.start) >= Date.parse(t.window.end)) ctx.addIssue({ code: 'custom', message: 'window must be [start,end), start < end' });
   try { new Intl.DateTimeFormat('en', { timeZone: t.window.timezone }); } catch { ctx.addIssue({ code: 'custom', message: 'unknown IANA timezone' }); }
+  if (t.evidencePolicy?.sources.length && !t.allowedSources.includes('web')) ctx.addIssue({ code: 'custom', path: ['evidencePolicy'], message: 'specified URLs require the web source' });
+  if (t.evidencePolicy?.scope === 'only' && (!t.evidencePolicy.sources.length || t.allowedSources.length !== 1 || t.allowedSources[0] !== 'web')) ctx.addIssue({ code: 'custom', path: ['evidencePolicy'], message: 'strict source scope requires specified URLs and only the web source' });
 });
 export type CompetitorTask = z.infer<typeof TaskSchema>;
 export const GenericTaskSchema = z.object({
@@ -34,6 +40,7 @@ export function parseAgentTask(value: unknown): AgentTask {
   return parsed.data;
 }
 export const statuses = ['success_with_data', 'success_empty', 'auth_failed', 'rate_limited', 'timeout', 'parse_failed', 'cancelled', 'unknown'] as const;
+export const SourceAuthorshipSchema = z.object({ role: z.enum(['official_announcement', 'staff', 'community', 'unknown']), byline: z.string().trim().min(1).max(250).optional() }).strict();
 export const SignalSchema = z.object({
   entity: z.object({ id: z.string().nullable(), name: z.string(), domain: z.string().nullable() }).strict(),
   product: z.string(), signalType: z.enum(['release', 'price', 'content', 'campaign']),
@@ -41,11 +48,16 @@ export const SignalSchema = z.object({
   content: z.object({ title: z.string(), value: z.string(), polarity: z.enum(['supports', 'contradicts']).default('supports') }).strict(),
   published_at: timestamp.nullable(), retrieved_at: timestamp,
   occurred_at: timestamp.nullable().optional(), effective_at: timestamp.nullable().optional(),
+  authorship: SourceAuthorshipSchema.optional(),
   collectionStatus: z.literal('success_with_data'),
 }).strict();
 export type CompetitorSignal = z.infer<typeof SignalSchema>;
 export const SearchHitSchema = z.object({ url: z.string().url(), title: z.string(), snippet: z.string(), published_at: timestamp.nullable(), retrieved_at: timestamp }).strict();
-export const PageSchema = z.object({ url: z.string().url(), title: z.string(), text: z.string(), published_at: timestamp.nullable(), retrieved_at: timestamp, truncated: z.boolean() }).strict();
+export const PageSnapshotIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const PageSchema = z.object({
+  url: z.string().url(), title: z.string(), text: z.string(), published_at: timestamp.nullable(), retrieved_at: timestamp, truncated: z.boolean(),
+  textSnapshot: z.object({ id: PageSnapshotIdSchema, totalChars: z.number().int().nonnegative() }).strict().optional(),
+}).strict();
 /** Host-selected HTTP diagnostics only; never an arbitrary response-header map. Retry times are hints, not guarantees. */
 export const HttpResponseMetadataSchema = z.object({
   status: z.number().int().min(100).max(599),
@@ -148,7 +160,7 @@ export const DecisionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('call_tools'), calls: toolBatch }).strict(),
   z.object({ kind: z.literal('respond'), text: z.string().min(1) }).strict(),
 ]);
-export const PlanSchema = z.object({ taskId: z.string(), objective: z.string().min(1), sources: z.array(z.string()).min(1), queries: z.array(z.string().min(1)).min(1), evidenceRequirements: z.array(z.string().min(1)).min(1), window: z.object({ start: timestamp, end: timestamp }).strict() }).strict();
+export const PlanSchema = z.object({ taskId: z.string(), objective: z.string().min(1), sources: z.array(z.string()).min(1), queries: z.array(z.string().min(1)).min(1), evidenceRequirements: z.array(z.string().min(1)).min(1), window: z.object({ start: timestamp, end: timestamp }).strict(), questions: z.array(InvestigationQuestionSchema).min(1).max(12).optional(), specifiedSources: z.array(InvestigationSourceSchema).max(12).optional(), sourceScope: InvestigationPolicySchema.shape.scope.optional() }).strict();
 export type Plan = z.infer<typeof PlanSchema>;
 export const now = () => new Date().toISOString();
 export const id = () => randomUUID();

@@ -7,7 +7,7 @@ export const DEFAULT_LIMITS = {
   maxOutputTokens: 4096, maxTokens: 400_000,
   timeoutMs: 300_000, modelTimeoutMs: 90_000, toolTimeoutMs: 45_000,
 } as const;
-const completionTools = new Set(['workflow__analyze', 'workflow__review', 'workflow__draft']);
+const completionTools = new Set(['workflow__analyze', 'workflow__submit_analysis', 'workflow__review', 'workflow__draft']);
 export const isCompletionTool = (name: string): boolean => completionTools.has(name);
 const countFor = (counts: Record<string, number> | undefined, name: string) =>
   counts && Object.hasOwn(counts, name) ? counts[name] : 0;
@@ -55,7 +55,7 @@ export function resolveLimits(options: LimitOptions = {}): RunLimits {
   const limits = { ...DEFAULT_LIMITS } as RunLimits;
   for (const key of Object.keys(limits) as Array<keyof RunLimits>) {
     const value = options[key] ?? (key === 'maxSameToolCalls' ? limits.maxToolCalls : limits[key]);
-    const minimum = ['maxSteps', 'maxToolCalls', 'maxSameToolCalls'].includes(key) ? 0 : 1;
+    const minimum = ['maxSteps', 'maxToolCalls', 'maxSameToolCalls', 'timeoutMs'].includes(key) ? 0 : 1;
     const maximum = key.endsWith('Ms') ? 2_147_483_647 : Number.MAX_SAFE_INTEGER;
     if (!Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error('invalid_limit:' + key);
     limits[key] = value;

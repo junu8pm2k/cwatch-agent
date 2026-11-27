@@ -165,7 +165,7 @@ check('contract', 'local fetch rejects a mismatched returned URL and marks bound
     const h = await harness(options(config, {}), { fetcher: async () => Response.json({ url: wrong ? 'https://nodejs.org/other' : pageUrl, content: 'x'.repeat(24_001) }) });
     const result = await h.executor.execute('web_fetch', { url: pageUrl }, live) as RetrievalResult;
     if (wrong) { assert.equal(result.status, 'parse_failed'); assert.equal(result.pages, undefined); }
-    else { assert.equal(result.pages![0].text.length, 24_000); assert.equal(result.pages![0].truncated, true); assert.ok(readFileSync(h.data.path(result.snapshot!.path), 'utf8').includes('x'.repeat(24_001))); }
+    else { assert.equal(result.pages![0].text.length, 8_000); assert.equal(result.pages![0].textSnapshot?.totalChars, 24_001); assert.equal(result.pages![0].truncated, true); assert.ok(readFileSync(h.data.path(result.snapshot!.path), 'utf8').includes('x'.repeat(24_001))); }
     assert.deepEqual(validateTrace(h.finish()), []);
   }
 });

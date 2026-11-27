@@ -38,6 +38,7 @@ import '../tests/web-api.test.ts';
 import '../tests/web-compat.test.ts';
 import '../tests/conversation.test.ts';
 import '../tests/investigation-enhancements.test.ts';
+import '../tests/investigation-stage-gates.test.ts';
 import { cases } from '../tests/harness.ts';
 import { FileStore } from "@cwatch/shared/sessions/storage";
 // Live provider fixtures must never upload to the operator's real Langfuse project.

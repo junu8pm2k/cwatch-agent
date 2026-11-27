@@ -12,7 +12,7 @@
 | --max-consecutive-tool-failures | 4 | 同一工具连续失败达到此值后，本次任务停用该工具。正常返回和空结果均重置失败计数 |
 | --max-same-tool-calls | 跟随总工具额度 | 显式设置时为单工具调用上限，按完整代理名计数，参数变化仍累计 |
 | --max-steps | 64 | 最大模型决策轮数 |
-| --timeout | 300000 | 任务总超时，毫秒 |
+| --timeout | 300000 | 任务总超时，毫秒，设为 0 时关闭 |
 | --model-timeout | 90000 | 单次模型等待超时，毫秒。第一轮包含 Agent 子进程启动 |
 | --tool-timeout | 45000 | 单工具调用超时，毫秒，含权限审批等待 |
 
@@ -20,13 +20,15 @@
 
 调查从总工具额度中为 `workflow__analyze`、`workflow__review` 和 `workflow__draft` 预留最多 6 次调用。采集用尽可用额度后，模型仍可根据已有材料生成报告并记录缺口。轮数、总 Token 与超时继续按硬上限执行。
 
-| Web 调研档位 | 工具总次数 | 模型轮数 | 总时间 | 总 Token |
-|---|---:|---:|---:|---:|
-| 快速速览 | 80 | 40 | 180 秒 | 25 万 |
-| 标准核验 | 160 | 72 | 480 秒 | 75 万 |
-| 深度穷举 | 300 | 120 | 900 秒 | 150 万 |
+启用阶段核验的任务为 `workflow__analyze`、`workflow__submit_analysis`、`workflow__review` 和 `workflow__draft` 预留最多 8 次调用，实际预留同时受总调用数的三分之一限制。搜索达到候选覆盖、两种策略无新增或工具预算时记录停因；全局失败和取消轨迹记录当时的调研阶段。
 
-Web 默认单工具超时为 60 秒。客户端发送时间和 Token，服务端按档位确定工具和轮数额度。API 可通过 `limits` 显式覆盖，包括 `maxConsecutiveToolFailures`。
+| Web 调研档位 | 工具总次数 | 模型轮数 | 总 Token |
+|---|---:|---:|---:|
+| 快速速览 | 80 | 40 | 25 万 |
+| 标准核验 | 160 | 72 | 75 万 |
+| 深度穷举 | 300 | 120 | 150 万 |
+
+Web 工作台的新任务按每次工具调用独立计时，默认 120 秒，可在运行设置中调整到 1–300 秒。工作台配置的网页搜索、正文抓取请求也使用这个时限。单次模型请求有独立的 90 秒上限。工具次数和模型轮数由 Token 档位决定。API 可通过 `limits` 显式覆盖工具额度。现有 API 调用方显式传入的 `limits.timeoutMs` 仍设置整次运行的时限。
 
 更新代码后，已启动的 Web 主进程和新启动的 Agent 子进程可继续使用旧版消息格式。重启 Web 服务后，新任务使用当前工作区的预算策略。
 
@@ -58,7 +60,7 @@ Prompt Cache 不提供额外上下文额度，也不抵扣本项目累计 Token 
 npm start -- run --mode live --task examples/task.json --sources examples/sources.json --max-tokens 50000 --max-output-tokens 2048 --max-same-tool-calls 4 --context-chars 100000 --max-response-chars 16000 --timeout 180000 --model-timeout 45000 --tool-timeout 20000
 ~~~
 
-程序调用可在 RuntimeOptions 中传同名 camelCase 字段。所有值必须是安全整数；三种次数允许 0（立即阻止），其余必须大于 0。毫秒参数不得超过 Node 定时器范围，避免溢出后变成近乎立即超时。CLI 在创建输出目录前校验。
+程序调用可在 RuntimeOptions 中传同名 camelCase 字段。所有值必须是安全整数。三种次数设为 0 时立即阻止，`timeoutMs` 设为 0 时关闭总计时，其余字段必须大于 0。毫秒参数不得超过 Node 定时器范围，避免溢出后变成近乎立即超时。CLI 在创建输出目录前校验。
 
 `run_started` 记录生效的额度和收尾预留，`usage_reported` 记录已计入额度的调用、跳过次数、每种工具用量、累计 Token 和耗时。工具耗尽或跳过时以 `budget_exceeded` 记录 `outcome`。轮数、Token 或任务超时触及硬上限时，记录明确的 `run_failed` 原因。
 
@@ -66,4 +68,4 @@ npm start -- run --mode live --task examples/task.json --sources examples/source
 
 浏览器内部 HTTP 请求另受请求次数、单资源/总字节预算约束，见 source-adapters.md。一次 browser_tool 调用仍计作一次 Agent 工具尝试，内部资源请求不会计作额外模型工具轮数。
 
-远程 Web MCP 来源可显式设置 searchMcp.requestTimeoutMs（1000–120000 毫秒，默认 30000），同时用于 HTTP 与 tools/call；连接与发现最多 min(30000, requestTimeoutMs)。父工具超时、运行超时与取消仍优先，不因为来源设置更大而延长父预算，不自动重试或更换抓取后端。`examples/sources-web.json` 与三个竞品验收来源现均设为 60000，为约 30 秒返回正文的原服务留出余量；父工具 45000 的独立复验见 p1-fetch-acceptance-2026-10-24.md。
+远程 Web MCP 来源可显式设置 searchMcp.requestTimeoutMs（1000–300000 毫秒，默认 30000），同时用于 HTTP 与 tools/call。工作台使用任务的单次工具超时配置。连接与发现最多 min(30000, requestTimeoutMs)。父工具超时、运行超时与取消仍优先，不因为来源设置更大而延长父预算，不自动重试或更换抓取后端。`examples/sources-web.json` 与三个竞品验收来源现均设为 60000，为约 30 秒返回正文的原服务留出余量；父工具 45000 的独立复验见 p1-fetch-acceptance-2026-10-24.md。

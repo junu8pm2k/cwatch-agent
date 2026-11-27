@@ -3,12 +3,12 @@ import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { resolve } from 'node:path';
 import { startWebServer } from '../apps/web/src/server.ts';
-import { RunService } from '@cwatch/server-core/runtime/run-service';
+import { RunService, type RunServiceOptions } from '@cwatch/server-core/runtime/run-service';
 import { check, store } from './harness.ts';
-import type { WorkbenchBootstrap, RunSnapshot } from '@cwatch/core/types/runs';
+import type { WorkbenchBootstrap, RunSnapshot, ReportReviewView } from '@cwatch/core/types/runs';
 
-async function harness(root = process.cwd()){
-  const data=store(),service=new RunService({root,outputRoot:resolve(data.root,'runs')});
+async function harness(root = process.cwd(), options: Pick<RunServiceOptions, 'intentModelFactory' | 'reportModelFactory'> = {}){
+  const data=store(),service=new RunService({root,outputRoot:resolve(data.root,'runs'),...options});
   const app=await startWebServer({root,port:0,service});
   const bootstrap=await(await fetch(app.origin+'/api/bootstrap')).json() as WorkbenchBootstrap;
   const post=(path:string,value:unknown,headers:Record<string,string>={})=>fetch(app.origin+path,{method:'POST',headers:{Origin:app.origin,'Content-Type':'application/json','X-Cwatch-Token':bootstrap.csrfToken,...headers},body:JSON.stringify(value)});
@@ -43,6 +43,47 @@ check('contract','Workbench mutations require exact origin, CSRF token and bound
     assert.equal(h.service.list().length,0);
   }finally{await h.close();}
 });
+check('contract', 'Task intent validates a tool-free model result and leaves run creation to the caller', async () => {
+  const observed: string[] = [];
+  const h = await harness(process.cwd(), { intentModelFactory: choice => ({ decide: async input => {
+    assert.deepEqual(choice, { id: 'fixture-model' });
+    assert.deepEqual(input.tools, []);
+    const { request } = JSON.parse(input.volatile);
+    observed.push(request);
+    switch (request) {
+      case '查一下当前 LTS 版本': return { kind: 'respond', text: '```json\n{"kind":"agent","needsWeb":true}\n```' };
+      case '调查一下kimi的codingplan':
+      case '调查一下 Kimi Coding Plan 月付多少钱': return { kind: 'respond', text: '{"kind":"agent","needsWeb":true}' };
+      case '帮我调查一下本地的产品文档': return { kind: 'respond', text: '{"kind":"agent","needsWeb":false}' };
+      case '调研一下Qwen的codingplan': return { kind: 'respond', text: '{"kind":"investigation","competitor":"Qwen","product":"Coding Plan"}' };
+      case '核查 OpenAI 过去半年的产品变更': return { kind: 'respond', text: '{"kind":"investigation","competitor":"OpenAI","product":"invented product"}' };
+      default: return { kind: 'call_tool', name: 'workflow__save_plan', args: {} };
+    }
+  } }) });
+  try {
+    const endpoint = '/api/task-intent';
+    const classify = (instruction: string) => h.post(endpoint, { instruction, model: { id: 'fixture-model' } });
+    assert.equal((await h.post(endpoint, { instruction: 'test' }, { 'X-Cwatch-Token': 'wrong' })).status, 403);
+    assert.equal((await classify('   ')).status, 400);
+    assert.equal((await classify('a'.repeat(2001))).status, 400);
+    assert.deepEqual(observed, []);
+    const lookup = await classify('查一下当前 LTS 版本');
+    assert.equal(lookup.status, 200);
+    assert.deepEqual(await lookup.json(), { kind: 'agent', needsWeb: true });
+    assert.deepEqual(await (await classify('调查一下kimi的codingplan')).json(), { kind: 'investigation', competitor: 'kimi', product: 'codingplan' });
+    assert.deepEqual(await (await classify('调查一下 Kimi Coding Plan 月付多少钱')).json(), { kind: 'agent', needsWeb: true });
+    assert.deepEqual(await (await classify('帮我调查一下本地的产品文档')).json(), { kind: 'agent', needsWeb: false });
+    assert.deepEqual(await (await classify('调研一下Qwen的codingplan')).json(), { kind: 'investigation', competitor: 'Qwen', product: 'Coding Plan' });
+    const research = await classify('核查 OpenAI 过去半年的产品变更');
+    assert.equal(research.status, 200);
+    assert.deepEqual(await research.json(), { kind: 'investigation', competitor: 'OpenAI', product: null });
+    const invalid = await classify('返回一个工具调用');
+    assert.equal(invalid.status, 502);
+    assert.match((await invalid.json()).error, /模型未返回有效的任务类型/);
+    assert.equal(h.service.list().length, 0);
+  } finally { await h.close(); }
+});
+
 check('integration','Workbench HTTP starts a real replay, streams its state, downloads the report and isolates run IDs',async()=>{
   const h=await harness();const controller=new AbortController();
   try{
@@ -56,6 +97,58 @@ check('integration','Workbench HTTP starts a real replay, streams its state, dow
     const deleted=await h.post('/api/runs/'+run.id+'/delete',{});assert.equal(deleted.status,200);assert.deepEqual(await deleted.json(),{deleted:run.id});
     assert.equal((await fetch(h.origin+'/api/runs/'+run.id)).status,404);
   }finally{controller.abort();await h.close();}
+});
+
+check('integration', 'Report review persists the working conversation and an independent saved version across a restart', async () => {
+  const h = await harness(process.cwd(), { reportModelFactory: () => ({ decide: async input => {
+    assert.deepEqual(input.tools, []);
+    const context = JSON.parse(input.volatile);
+    assert.match(context.report, /这是一份校订后的合成报告/);
+    assert.equal(context.question, '能补充说明吗？');
+    return { kind: 'respond', text: '这份材料用于演示。' };
+  } }) });
+  let restarted: RunService | undefined;
+  try {
+    const projectResponse = await h.post('/api/projects', { name: '发布跟踪' });
+    assert.equal(projectResponse.status, 201);
+    const project = await projectResponse.json();
+    assert.equal((await h.post('/api/projects', { name: '发布跟踪' })).status, 409);
+    const response = await h.post('/api/runs', { profile: 'standard', mode: 'replay' });
+    const run = await response.json() as RunSnapshot;
+    await h.service.wait(run.id);
+    const endpoint = '/api/runs/' + run.id;
+    assert.equal((await fetch(h.origin + endpoint + '/report-review?version=saved')).status, 404);
+    assert.equal((await h.post(endpoint + '/project', { projectId: project.id })).status, 200);
+    const renamed = await h.post(endpoint + '/title', { title: ' 发布跟踪会话 ' });
+    assert.equal(renamed.status, 200);
+    assert.equal(((await renamed.json()) as RunSnapshot).title, '发布跟踪会话');
+    const original = h.service.report(run.id);
+    const note = { revision: 0, quote: '本报告来自明确标注的合成测试快照', note: '说明快照用途', replacement: '这是一份校订后的合成报告' };
+    const annotated = await h.post(endpoint + '/report-annotations', note);
+    assert.equal(annotated.status, 200);
+    const draft = await annotated.json() as ReportReviewView;
+    assert.equal(draft.revision, 1);
+    assert.match(draft.markdown, /这是一份校订后的合成报告/);
+    assert.match(original, /本报告来自明确标注的合成测试快照/);
+    assert.equal((await h.post(endpoint + '/report-save', { revision: 0 })).status, 409);
+    assert.equal((await h.post(endpoint + '/report-save', { revision: 1 })).status, 200);
+    const message = { messageId: '3b6363ca-2875-415b-86ec-a93620ad5acc', text: '能补充说明吗？' };
+    const reply = await h.post(endpoint + '/report-messages', message);
+    assert.equal(reply.status, 200);
+    assert.equal(((await reply.json()) as ReportReviewView).messages[1].content, '这份材料用于演示。');
+    const retried = await h.post(endpoint + '/report-messages', message);
+    assert.equal(((await retried.json()) as ReportReviewView).messages.length, 2);
+    assert.equal((await h.post(endpoint + '/report-annotations', { revision: 1, note: '新草稿的标注', quote: '' })).status, 200);
+    await h.close();
+    restarted = new RunService({ root: h.service.root, outputRoot: h.service.outputRoot });
+    assert.equal(restarted.get(run.id).projectId, project.id);
+    assert.equal(restarted.get(run.id).title, '发布跟踪会话');
+    assert.equal(restarted.get(run.id).reportReview?.savedRevision, 1);
+    assert.equal(restarted.reportReview(run.id).annotations.length, 2);
+    assert.equal(restarted.reportReview(run.id).messages[0].content, message.text);
+    assert.equal(restarted.reportReview(run.id, true).annotations.length, 1);
+    assert.equal(restarted.reportReview(run.id, true).messages.length, 0);
+  } finally { await restarted?.close(); await h.close(); }
 });
 
 check('contract','Workbench connections API manages providers, search, MCP and skills with CSRF protection and secret isolation',async()=>{

@@ -65,7 +65,7 @@ Pi AgentSession / ReplayModel
 3. HTTP 仍走 `web.api.http.fetch` 权限复查。远端服务负责实际抓取和正文提取，本项目不在此路径维护 HTML/PDF 抽取器。
 4. 支持 JSON 中的 markdown / raw_content / text / content 等常见字段，以及 `response.pagePath` / `textField` 显式映射；`response.format=text` 可接收纯文本。
 5. 上游返回 URL 时必须与许可输入一致；批量提取返回必须恰好一页。只配置 search 时，fetch 明确报 operation_not_configured，不自动请求其他服务。
-6. 返回 `pages`，包含 URL、标题、正文、抓取时间。正文最多 24000 字符并标记 truncated；完整已脱敏上游响应进入快照。
+6. 返回 `pages`，包含 URL、标题、正文和抓取时间。宿主保存完整脱敏上游响应。超过 8,000 字符的正文另存为本次运行的全文快照，回执带正文首尾预览和 `textSnapshot`。Agent 可以用 `session__read_page_snapshot` 按快照 ID 搜索或分页读取省略的内容。
 
 域名检查约束宿主输入与返回材料，不能逐动作拦截远端服务内部的 DNS、重定向或抓取行为。正文仍按不可信外部数据处理。
 

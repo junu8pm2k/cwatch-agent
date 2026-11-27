@@ -1,6 +1,7 @@
 import type { RunSnapshot } from '@cwatch/core/types/runs';
 import { mergeActivities, type MergedActivity } from './activity-merger.ts';
 import { renderMarkdown } from './markdown.ts';
+import { displayedPipelineStage, renderPlanStageBody } from './report-view.ts';
 import { $, escapeHtml, formatDurationMs, formatTime, isActiveRun, state } from './state.ts';
 
 function formatArgsSummary(raw: string): string {
@@ -15,27 +16,36 @@ function formatArgsSummary(raw: string): string {
  * Inline Approval Spotlight: floats prominently right at the top of the active run
  * whenever Ask mode requests human confirmation — zero tab hunting.
  */
-export function renderApprovalSpotlight(): void {
+export function renderApprovalSpotlight(visible: boolean): void {
   const host = $('approval-spotlight');
   const run = state.current;
   if (!run?.approvals.length) {
     host.hidden = true;
     host.innerHTML = '';
+    delete host.dataset.requests;
     return;
   }
-  host.hidden = false;
-  host.innerHTML = run.approvals.map(request => `
+  host.hidden = !visible;
+  const requests = run.approvals.map(request => request.requestId).join(',');
+  if (host.dataset.requests === requests) return;
+  host.dataset.requests = requests;
+  host.innerHTML = run.approvals.map(request => {
+    const isPlan = request.tool === 'workflow__save_plan';
+    return `
     <article class="approval-card">
       <div class="approval-card-head">
         <div class="approval-title-group">
           <span class="pulse-dot tone-warn" aria-hidden="true"></span>
-          <h3>这次操作需要你的确认</h3>
+          <h3>${isPlan ? '审批调查计划' : '这次操作需要你的确认'}</h3>
         </div>
         <span class="approval-clock" data-expires="${escapeHtml(request.expiresAt)}"></span>
       </div>
-      <p class="approval-tool"><code>${escapeHtml(request.tool)}</code></p>
+      ${isPlan
+        ? `<p class="approval-desc">批准后开始采集。${run.mode === 'live' ? '也可以提交修改意见，让 Agent 重拟后再审批。' : ''}</p>${renderPlanStageBody(run)}
+      ${run.planApproval?.feedback ? `<p class="approval-desc">上次修改意见</p><p class="plan-feedback-text">${escapeHtml(run.planApproval.feedback)}</p>` : ''}`
+        : `<p class="approval-tool"><code>${escapeHtml(request.tool)}</code></p>
       <p class="approval-desc">仅批准本次请求与下方参数。批准后，主进程仍会复查来源与当前权限。</p>
-      <pre class="approval-params">${escapeHtml(formatArgsSummary(request.argsSummary))}</pre>
+      <pre class="approval-params">${escapeHtml(formatArgsSummary(request.argsSummary))}</pre>`}
       <details class="approval-meta-details">
         <summary>请求校验信息</summary>
         <dl class="kv-grid">
@@ -44,10 +54,15 @@ export function renderApprovalSpotlight(): void {
         </dl>
       </details>
       <div class="approval-actions">
-        <button type="button" class="button primary approve" data-approve="${escapeHtml(request.requestId)}" data-hash="${escapeHtml(request.argsHash)}">批准这一次</button>
-        <button type="button" class="button secondary" data-deny="${escapeHtml(request.requestId)}" data-hash="${escapeHtml(request.argsHash)}">拒绝操作</button>
+        <button type="button" class="button primary approve" data-approve="${escapeHtml(request.requestId)}" data-hash="${escapeHtml(request.argsHash)}">${isPlan ? '批准计划并开始采集' : '批准这一次'}</button>
+        <button type="button" class="button secondary" data-deny="${escapeHtml(request.requestId)}" data-hash="${escapeHtml(request.argsHash)}">${isPlan ? '拒绝计划' : '拒绝操作'}</button>
       </div>
-    </article>`).join('');
+      ${isPlan && run.mode === 'live' ? `<form class="plan-feedback-form" data-plan-feedback="${escapeHtml(request.requestId)}" data-hash="${escapeHtml(request.argsHash)}">
+        <label class="field"><span>计划修改意见</span><textarea name="feedback" rows="3" maxlength="2000" placeholder="例如，优先查官方定价页，并把历史价格和当前价格分开核验。" required></textarea></label>
+        <button type="submit" class="button secondary">提交修改意见</button>
+      </form>` : ''}
+    </article>`;
+  }).join('');
   updateApprovalClocks();
 }
 
@@ -203,19 +218,21 @@ export function renderProcess(): void {
     target.innerHTML = '<div class="empty-state"><h3>暂无执行轨迹</h3><p>启动任务后，每一步规划、搜索、读取与审阅都会以卡片呈现。</p></div>';
     return;
   }
-  const merged = mergeActivities(run.activities);
+  const stage = displayedPipelineStage(run, state.selectedPipelineStage);
+  const merged = mergeActivities(run.activities).filter(item => stage === undefined || item.stage === stage);
+  $('process-count').textContent = String(merged.length);
   const old = target.querySelector('.activity-scroll');
   const scroll = old?.scrollTop ?? 0;
   const atBottom = !old || old.scrollHeight - old.clientHeight - scroll < 70;
 
   const canRetry = ['failed', 'cancelled', 'unknown', 'partial'].includes(run.status);
   target.innerHTML = (run.mode === 'replay' ? '<div class="run-notice">当前为离线演示，使用合成测试快照。</div>' : '')
-    + (run.error
+    + (run.error && (stage === undefined || stage === run.stage)
       ? `<div class="run-notice tone-error run-error-bar"><span>${escapeHtml(run.error)}</span>${canRetry ? `<button type="button" class="button secondary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button>` : ''}</div>`
       : '')
     + (merged.length
       ? `<div class="activity-scroll"><ul class="step-card-list">${merged.map(renderMergedCard).join('')}</ul></div>`
-      : '<div class="empty-state"><p>正在准备执行环境…</p></div>');
+      : `<div class="empty-state"><p>${stage === undefined ? '正在准备执行环境…' : '该阶段暂无执行步骤。'}</p></div>`);
 
   const next = target.querySelector('.activity-scroll');
   if (next) next.scrollTop = atBottom ? next.scrollHeight : scroll;

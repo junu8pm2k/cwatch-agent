@@ -24,7 +24,7 @@ const sourceSchema = z.object({
   toolSemantics: z.record(z.string(), z.enum(['collect', 'analyze', 'modify', 'send', 'publish'])).optional(),
   allowedDomains: z.array(z.string().regex(/^(?:\*|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/)).min(1).optional(),
   searchMcp: SearchMcpConfigSchema.optional(),
-  webApi: WebApiConfigSchema.optional(),
+  webApi: WebApiConfigSchema.optional(), restrictToUrls: z.boolean().optional(),
 }).strict().superRefine((value,ctx)=>{
   if (value.kind === 'mcp') {
     try { assertMcpIntegrationAllowed(value.slug, value.command, value.args); } catch { ctx.addIssue({code:'custom',message:'github_api_disabled_by_project_policy'}); }
@@ -33,6 +33,7 @@ const sourceSchema = z.object({
     try { assertNetworkUrlAllowed(url); } catch { ctx.addIssue({code:'custom',message:'github_api_disabled_by_project_policy'}); }
   }
   if (value.webApi && value.kind !== 'web') ctx.addIssue({code:'custom',message:'webApi configuration only belongs to web sources'});
+  if (value.restrictToUrls && (value.kind !== 'web' || !value.urls?.length)) ctx.addIssue({code:'custom',message:'restrictToUrls requires explicit web URLs'});
   if (value.webApi && value.searchMcp) ctx.addIssue({code:'custom',message:'choose webApi or searchMcp, not both'});
   if (value.kind === 'api' && !value.api) ctx.addIssue({code:'custom',message:'API source requires api configuration'});
   if (value.api && value.kind !== 'api') ctx.addIssue({code:'custom',message:'api configuration only belongs to API sources'});
@@ -118,7 +119,12 @@ export class McpSource implements SourceClient {
   async close(): Promise<void> { await this.client.close().catch(() => {}); await this.transport?.close().catch(() => {}); this.connected = false; }
 }
 export class SourceServerBuilder {
-  constructor(readonly root: string, readonly mcpPool = new McpConnectionPool(), private readonly searchOverride?: RemoteMcpOptions) {}
+  constructor(
+    readonly root: string,
+    readonly mcpPool = new McpConnectionPool(),
+    private readonly searchOverride?: RemoteMcpOptions,
+    private readonly webRequestTimeoutMs?: number,
+  ) {}
   async build(config: SourceConfig, mode: 'live' | 'replay', signal: AbortSignal): Promise<{ client: SourceClient; channel: 'builtin' | 'mcp' }> {
     config = sourceSchema.parse(config);
     let client: SourceClient; const channel = ['mcp','api'].includes(config.kind) ? 'mcp' : 'builtin';
@@ -131,7 +137,12 @@ export class SourceServerBuilder {
       if (override) options.searchMcp = override;
       else if (config.webApi && mode === 'live') options.webApi = readWebApi(config.webApi, process.env);
       else if (mode === 'live') options.searchMcp = readSearchMcp(config.searchMcp ?? {}, process.env);
+      if (this.webRequestTimeoutMs !== undefined) {
+        if (options.searchMcp) options.searchMcp = { ...options.searchMcp, requestTimeoutMs: this.webRequestTimeoutMs };
+        if (options.webApi) options.webApi = { ...options.webApi, requestTimeoutMs: this.webRequestTimeoutMs };
+      }
       options.urls = config.urls;
+      options.restrictToUrls = config.restrictToUrls;
       client = new PreferredWebSource(options);
     }
     else if (config.kind === 'browser') { const { BrowserSource } = await import("./browser.ts"); client = new BrowserSource(config); }

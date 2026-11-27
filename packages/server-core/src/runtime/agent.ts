@@ -9,7 +9,7 @@ export function runAgent(rawTask: unknown, model: Parameters<typeof runTask>[1],
   const task = GenericTaskSchema.parse(rawTask);
   return runTask(task, model, registry, store, mode, options, context => {
     const gaps = [...(options.initialGaps ?? [])];
-    const client = new SessionTools(task, registry, context.options.userSkills, context.transcript, context.workingState, context.memory);
+    const client = new SessionTools(task, registry, context.store, context.trace.runId, context.options.userSkills, context.transcript, context.workingState, context.memory);
     return { slug: 'session', channel: 'builtin', client, gaps,
       skill: () => loadAgentSkill(options.skillPath), skillPath: options.skillPath ?? 'skills/general-agent/SKILL.md', skillName: 'general-agent',
       onObservation: (name, value) => {

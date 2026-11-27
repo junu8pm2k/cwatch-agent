@@ -32,7 +32,7 @@ const RemoteMcpConfigSchema = z.object({
   url: z.string().url().optional(), urlEnv: envName.optional(), tokenEnv: envName.optional(),
   fetchUrl: z.string().url().optional(), fetchUrlEnv: envName.optional(), fetchTokenEnv: envName.optional(),
   transport: z.enum(['auto', 'streamable-http', 'sse']).optional(),
-  requestTimeoutMs: z.number().int().min(1000).max(120_000).optional(),
+  requestTimeoutMs: z.number().int().min(1000).max(300_000).optional(),
   authHeader: z.string().regex(/^[A-Za-z0-9-]+$/).optional(), authScheme: z.enum(['bearer', 'raw']).optional(),
   tools: z.object({ search: z.string().min(1).optional(), fetch: z.string().min(1).optional() }).strict().optional(),
 }).strict();
@@ -156,7 +156,7 @@ export class RemoteSearchMcp {
   async call(operation: string, args: Record<string, unknown>, signal: AbortSignal, context: ToolExecutionContext): Promise<RetrievalResult> {
     signal.throwIfAborted();
     const endpoint = mcpEndpoint(this.options.url), serverId = hash(endpoint.toString()).slice(0, 16);
-    const requestTimeoutMs = z.number().int().min(1000).max(120_000).parse(this.options.requestTimeoutMs ?? 30_000);
+    const requestTimeoutMs = z.number().int().min(1000).max(300_000).parse(this.options.requestTimeoutMs ?? 30_000);
     const controlTimeoutMs = Math.min(30_000, requestTimeoutMs);
     const metadata = { provider: 'mcp', serverId, protocol: 'mcp', operation };
     const headers = new Headers();
