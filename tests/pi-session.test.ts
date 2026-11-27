@@ -334,8 +334,10 @@ check('integration', 'Real Pi session incrementally persists isolated session me
 check('contract', 'Real Pi invalid memory response stops without a memory cursor or further business action', async () => {
   const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1 } }, memoryResponse: 'vague unsupported memory' });
   assert.match(actual.result.error!, /session_memory_update_failed/); assert.equal(actual.source.calls.length, 0);
-  assert.equal(actual.requests.length, 3);
-  assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 2);
+  assert.equal(actual.requests.length, 4);
+  assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 3);
+  const retries = actual.requests.slice(2).map(request => JSON.parse(request.messages.at(-1).content));
+  assert.ok(retries.every(input => input.validationErrors.some((error: string) => error.startsWith('Invalid JSON syntax'))));
   assert.equal(actual.data.read('session-memory/' + actual.result.runId + '.json', null), null);
   assert.ok(actual.data.lines<any>('sessions/' + actual.result.runId + '.jsonl').some(entry => entry.customType === 'cwatch.memory_response'));
 });
