@@ -407,11 +407,73 @@ function renderDraftSummary(step: TraceStep): string {
   </section>`;
 }
 
+function memoryReasonLabel(reason?: string, stop?: string): string | undefined {
+  if (reason === 'output_limit') return '达到输出上限';
+  if (reason === 'invalid_working_state') return '记忆 JSON 校验失败';
+  if (reason === 'unexpected_tool_call') return '返回异常工具调用';
+  if (reason === 'unsuccessful_response') return '模型未正常结束';
+  if (reason === 'delta_too_large') return '单轮增量超出维护输入上限';
+  return stop === 'stop' ? '正常结束' : stop;
+}
+
 function renderModelSummary(step: TraceStep): string {
   const input = asRecord(step.input);
   const output = asRecord(step.output);
   const attrs = asRecord(step.attributes);
+  const blockingStep = asString(attrs?.blockedByMemoryStep);
+  if (blockingStep) return `<section class="trace-semantic-card" aria-label="模型轮次摘要">
+    <p>会话记忆更新未完成，本轮模型请求未发送。</p>
+    <button type="button" class="button secondary sm" data-trace-step="${escapeHtml(blockingStep)}">查看记忆尝试</button>
+  </section>`;
+  if (step.name === 'model.memory') {
+    const attempt = asNumber(input?.attempt);
+    const limit = asNumber(input?.wireMaxOutputTokens ?? input?.maxOutputTokens);
+    const usage = asRecord(step.usage[0]?.reported);
+    const used = asNumber(usage?.output ?? usage?.completionTokens ?? usage?.completion_tokens);
+    const textChars = asNumber(output?.textChars);
+    const thinkingChars = asNumber(output?.thinkingChars);
+    const reason = asString(output?.reason);
+    const stop = asString(output?.stopReason);
+    const checkpoint = asNumber(output?.savedRevision ?? input?.checkpointRevision);
+    const checkpointStatus = output?.checkpointStatus === 'saved' ? '已保存' : output?.checkpointStatus === 'unchanged' ? '保留原版本' : undefined;
+    const validation = asStringArray(output?.validationErrors);
+    const pendingRounds = asNumber(output?.pendingRounds);
+    const circuitOpen = asBoolean(output?.circuitOpen);
+    const reasonLabel = memoryReasonLabel(reason, stop);
+    const action = output?.action === 'retry'
+      ? '重试'
+      : output?.action === 'stop'
+        ? '停止'
+        : output?.action === 'degrade'
+          ? `降级放行主任务${circuitOpen ? '（本运行已熔断后续记忆更新）' : ''}`
+          : undefined;
+    return `<section class="trace-semantic-card" aria-label="会话记忆更新摘要">
+      <div class="trace-semantic-head"><span class="trace-semantic-title">会话记忆更新${attempt === undefined ? '' : ` · 第 ${attempt} 次`}</span></div>
+      <dl class="trace-semantic-kv">
+        ${reasonLabel ? `<dt>停止原因</dt><dd>${escapeHtml(reasonLabel)}</dd>` : ''}
+        ${used !== undefined || limit !== undefined ? `<dt>输出用量 / 上限</dt><dd>${used?.toLocaleString() ?? '—'} / ${limit?.toLocaleString() ?? '—'} tokens</dd>` : ''}
+        ${textChars !== undefined ? `<dt>正文长度</dt><dd>${textChars.toLocaleString()} 字符</dd>` : ''}
+        ${thinkingChars !== undefined ? `<dt>推理长度</dt><dd>${thinkingChars.toLocaleString()} 字符</dd>` : ''}
+        ${action ? `<dt>处理结果</dt><dd>${escapeHtml(action)}</dd>` : ''}
+        ${pendingRounds !== undefined ? `<dt>待处理轮次</dt><dd>${pendingRounds} 轮</dd>` : ''}
+        ${checkpointStatus && checkpoint !== undefined ? `<dt>记忆检查点</dt><dd>${checkpointStatus} · 修订 ${checkpoint}</dd>` : ''}
+      </dl>
+      ${validation.length ? `<div class="trace-semantic-block"><span class="trace-semantic-label">校验错误</span><ul class="trace-semantic-list">${validation.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+      ${attempt === undefined && !reason ? '<p class="trace-semantic-empty">该记录仅包含模型用量。</p>' : ''}
+    </section>`;
+  }
   if (!input && !output && !step.usage.length) return '';
+
+  const memoryDegraded = asRecord(attrs?.memoryDegraded);
+  const degradedStep = asString(memoryDegraded?.stepId);
+  const degradedReason = memoryReasonLabel(asString(memoryDegraded?.reason));
+  const degradedBanner = memoryDegraded
+    ? `<div class="trace-semantic-block">
+      <span class="trace-semantic-label">会话记忆降级</span>
+      <p class="trace-semantic-text">本轮记忆更新未成功（${escapeHtml(degradedReason ?? '未知原因')}），已沿用旧检查点继续主任务${memoryDegraded.circuitOpen === true ? '，并已熔断本运行后续自动记忆更新' : ''}。</p>
+      ${degradedStep ? `<button type="button" class="button secondary sm" data-trace-step="${escapeHtml(degradedStep)}">查看记忆尝试</button>` : ''}
+    </div>`
+    : '';
 
   const modelMeta = asRecord(attrs?.model);
   const modelName = [asString(modelMeta?.provider), asString(modelMeta?.id)].filter(Boolean).join(' · ');
@@ -472,10 +534,12 @@ function renderModelSummary(step: TraceStep): string {
     <div class="trace-semantic-head">
       <span class="trace-semantic-title">模型轮次摘要</span>
       <div class="trace-semantic-badges">
+        ${memoryDegraded ? '<span class="trace-semantic-badge tone-warn">记忆降级</span>' : ''}
         ${decisionBadge}
         ${hasTotalTokens ? `<span class="trace-semantic-badge tone-neutral">${totalTokens.toLocaleString()} tokens</span>` : ''}
       </div>
     </div>
+    ${degradedBanner}
     <div class="trace-semantic-block">
       <span class="trace-semantic-label">本轮决策</span>
       ${decisionBody}

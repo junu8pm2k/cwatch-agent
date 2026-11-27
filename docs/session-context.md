@@ -106,15 +106,15 @@ Live Pi 运行默认启用 Session Memory，独立保存为 `session-memory/<run
 
 隔离维护上下文只读取宿主最新 memory 和 lastMessageId 之后的新原生消息，使用治理后的只读工具结果投影；不重新注入整个会话、历史 memory 请求或业务工具定义。已有 SDK `ModelRuntime.completeSimple` 承担无工具的独立维护请求，使用同一模型和取消信号。这实现了截图中隔离增量维护的职责，未调用或假定 SDK 存在 forked Agent API，也没有新增并发后台子 Agent。当前执行在下一轮业务请求前串行完成。
 
-宿主经独立 session_memory IPC 端口读写文件，校验 sessionId/taskId、内容哈希、版本号、原生转录完整性、游标进度和工具轮次配对。模型仅生成工作状态正文，身份、版本、计数与路径由宿主补齐。文件原子替换并读回校验。输出截断和工作状态格式错误会触发受控重试。校验始终未通过、模型无有效 usage、返回工具调用、预算耗尽、取消、版本冲突或写入失败时停止运行并保留旧检查点。已完成的原子写入不会因后续的进程取消或审计故障自动回滚。
+宿主经独立 session_memory IPC 端口读写文件，校验 sessionId/taskId、内容哈希、版本号、原生转录完整性、游标进度和工具轮次配对。模型仅生成工作状态正文，身份、版本、计数与路径由宿主补齐。文件原子替换并读回校验。输出截断和工作状态格式错误会触发受控重试。若单批次内模型生成类维护失败耗尽重试（输出截断、格式校验失败、返回意外工具调用、非 `stop` 响应或单轮增量超出维护输入上限），宿主保留旧检查点不变、放行当前主任务，并重置窗口增长基线冷却一个触发周期；同一运行内连续失败两个维护批次后打开记忆熔断，跳过后续自动维护（任一次成功提交会清零连续计数）。记忆降级只记入 Trace 与 Langfuse，不写入任务结果的 `gaps`。模型无有效 usage、预算耗尽、响应超限、取消/超时、版本冲突、游标/快照完整性异常或写入失败等硬错误仍停止运行并保留旧检查点。已完成的原子写入不会因后续的进程取消或审计故障自动回滚。
 
 Memory 请求与响应分别作为 `cwatch.memory_request` / `cwatch.memory_response` 追加到完整转录，成功后记录 checkpoint 元数据与 `session_memory_updated` Trace；`model_usage.purpose=memory` 纳入累计 Token、模型超时和调查超时，不增加业务决策或业务工具次数。初始化阈值前不会凭空增加维护模型请求，Replay 固定脚本不运行该维护链。
 
 `session__read_session_memory` 可读取本次运行最新文件（尚未初始化时返回 initialized:false），走既有执行器与权限。正式 compact 后会附上已保存 memory、文件路径、lastMessageId 和滞后说明；更新较新的宿主 workflow 状态与新消息优先。Memory 可以滞后，最终 respond 后不强制额外更新，也不自动作为跨运行长期记忆或崩溃恢复入口。
 
-程序调用者可通过 `RuntimeOptions.sessionMemory` 调整 initializeTokens、growthTokens、toolCalls、maxInputChars，或设为 false 关闭。默认维护输入最多 48,000 字符，同时受总上下文与模型窗口约束。一般模型首次输出最多 1,024 Token，支持 Step 5 专用推理契约的模型首次输出最多 2,048 Token，已有检查点时为 3,072。重试重新获取预算，输出最多 4,096 Token，输入缩到首个完整增量轮次，其余增量通过 pendingMessages 留待后续更新。输出截断最多补一次。JSON 或字段校验失败会把缺失字段、字段类型和多余字段等具体错误放进下一次请求的 `validationErrors`。每次更新最多发出三次请求。完整通过格式及 12,000 字符的正文校验后才保存。首个完整轮次无法装下则停止。
+程序调用者可通过 `RuntimeOptions.sessionMemory` 调整 initializeTokens、growthTokens、toolCalls、maxInputChars，或设为 false 关闭。默认维护输入最多 48,000 字符，同时受总上下文与模型窗口约束。一般模型首次输出最多 1,024 Token、重试最多 4,096 Token；支持 Step 5 专用推理契约的模型初始化输出最多 4,096 Token、已有检查点增量更新最多 6,144 Token、重试最多 8,192 Token，均受调用者单次额度、模型上限及剩余总预算限制。重试重新获取预算，输入缩至首个完整增量轮次（首轮已满足 12,000 字符恢复预算时保持完整工具摘要与完整旧记忆条目，不拦腰截断；超大单轮仍按工具结果裁剪拟合），其余增量通过 pendingMessages 留待后续更新。输出截断最多补一次。JSON 或字段校验失败会把缺失字段、字段类型和多余字段等具体错误放进下一次请求的 `validationErrors`。每次更新最多发出三次请求。完整通过格式及 12,000 字符的正文校验后才保存。
 
-维护请求的推理契约按实际端点核对。仅对 HTTPS 官方 api.stepfun.com / api.stepfun.ai 的 step-5-preview 使用官方 reasoning_effort=low 与 response_format=json_object，经 SDK samplingParams 传递；low 不承诺关闭 thinking，推理与正文仍共享输出预算。其他模型不猜测供应商参数，也不把 SDK 的 thinking/off 配置当作供应商已关闭推理的证据。依据为 [Step 5 官方推理参数说明](https://platform.stepfun.com/cookbook/step-5-reasoning)。SDK 通用 HTTP 重试显式设为 0。cwatch.memory_wire_request 保存不含凭据的实际输出上限、推理档位、格式和工具数量；cwatch.memory_recovery 记录 retry/stop 及正文、thinking 字符数。每次已返回的 usage 都在判断恢复前计量；取消但没有返回 usage 的请求只保留请求证据，不虚构零用量。恢复仍受模型/运行超时及同一取消信号控制，恢复失败不新增自动续跑承诺。
+维护请求的推理契约按实际端点核对。仅对 HTTPS 官方 api.stepfun.com / api.stepfun.ai 的 step-5-preview 使用官方 reasoning_effort=low 与 response_format=json_object，经 SDK samplingParams 传递；low 不承诺关闭 thinking，推理与正文仍共享输出预算。正式压缩摘要在同类 Step 5 官方端点也复用该维护契约（首次最多 6,144 Token，遇到输出截断或非法 JSON 时受控重试一次，最多 8,192 Token；供应商 `error` 响应不重试）。其他模型不猜测供应商参数，也不把 SDK 的 thinking/off 配置当作供应商已关闭推理的证据。依据为 [Step 5 官方推理参数说明](https://platform.stepfun.com/cookbook/step-5-reasoning)。SDK 通用 HTTP 重试显式设为 0。cwatch.memory_wire_request 保存不含凭据的实际输出上限、推理档位、格式和工具数量；cwatch.memory_recovery / cwatch.memory_degraded 记录 retry/stop/degrade、熔断状态及正文、thinking 字符数。每次已返回的 usage 都在判断恢复前计量；取消但没有返回 usage 的请求只保留请求证据，不虚构零用量。恢复仍受模型/运行超时及同一取消信号控制，不新增自动续跑承诺。
 
 ## 供应商长度拒绝后的反应式恢复
 

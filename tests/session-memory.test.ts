@@ -108,13 +108,54 @@ check('contract', 'Malformed memory working state sends current field errors and
   assert.deepEqual((recovery[1] as any).data.validationErrors, lastErrors);
 });
 
-check('contract', 'Repeated truncated memory stops at two metered attempts and retains the previous checkpoint', async () => {
+check('contract', 'Repeated truncated memory degrades with cooldown and opens the circuit after two consecutive failed batches while retaining the checkpoint', async () => {
   const h = await harness(); h.turn(1); await h.advance(100); const before = h.memory.load();
   h.turn(2); h.setResponse({ content: [{ type: 'thinking', thinking: 'still thinking' }], usage, stopReason: 'length' });
-  await assert.rejects(h.advance(200), /output limit exhausted after 2 attempts/);
+  await h.advance(200);
   assert.equal(h.requests.length, 3); assert.equal(h.metered(), 3); assert.deepEqual(h.memory.load(), before);
-  const recovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery');
-  assert.deepEqual(recovery.map(entry => (entry as any).data.action), ['retry', 'stop']);
+  const firstBatch = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery');
+  assert.deepEqual(firstBatch.map(entry => (entry as any).data.action), ['retry', 'degrade']);
+  assert.equal((firstBatch[1] as any).data.consecutiveFailures, 1);
+  assert.equal((firstBatch[1] as any).data.circuitOpen, false);
+
+  // Cooldown suppresses immediate per-turn retry until another growth/tool threshold accumulates.
+  h.turn(3);
+  await h.advance(210);
+  assert.equal(h.requests.length, 3);
+
+  // Once cooldown completes (growth >= 50 or toolCalls >= 2), a second consecutive batch failure opens the circuit.
+  h.turn(4);
+  await h.advance(260);
+  assert.equal(h.requests.length, 5); assert.equal(h.metered(), 5); assert.deepEqual(h.memory.load(), before);
+  const allRecovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery');
+  assert.equal((allRecovery.at(-1) as any).data.action, 'degrade');
+  assert.equal((allRecovery.at(-1) as any).data.consecutiveFailures, 2);
+  assert.equal((allRecovery.at(-1) as any).data.circuitOpen, true);
+
+  // Circuit open skips all subsequent automatic maintenance in this run.
+  h.turn(5); h.turn(6);
+  await h.advance(500);
+  assert.equal(h.requests.length, 5);
+});
+
+check('contract', 'A successful memory update after cooldown resets consecutive failure count', async () => {
+  const h = await harness(); h.turn(1); await h.advance(100);
+  h.turn(2); h.setResponse({ content: [{ type: 'thinking', thinking: 'first batch fails' }], usage, stopReason: 'length' });
+  await h.advance(200);
+  assert.equal(h.requests.length, 3);
+
+  // Recover on the next cycle after cooldown; failure counter resets so a later failure does not open the circuit immediately.
+  h.setResponse(undefined);
+  h.turn(3); h.turn(4);
+  await h.advance(260);
+  assert.equal(h.memory.load()!.revision, 2);
+
+  h.turn(5); h.setResponse({ content: [{ type: 'thinking', thinking: 'later isolated failure' }], usage, stopReason: 'length' });
+  await h.advance(340);
+  const latestRecovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery').at(-1) as any;
+  assert.equal(latestRecovery.data.action, 'degrade');
+  assert.equal(latestRecovery.data.consecutiveFailures, 1);
+  assert.equal(latestRecovery.data.circuitOpen, false);
 });
 
 check('contract', 'Memory recovery honors cancellation, fresh budget and usage failures before another physical request', async () => {
@@ -161,21 +202,32 @@ check('contract', 'Session memory batches complete rounds without dropping backl
   assert.equal(new Set(ids).size, 9); assert.equal(ids.length, 9);
   for (const request of h.requests) assertCompleteApiRounds(request.input.newMessages.map((entry: any) => entry.message));
   const other = await harness({ maxInputChars: 1024 }); other.turn(1, 10_000);
-  await assert.rejects(other.advance(100), /session_memory_delta_too_large/); assert.equal(other.memory.load(), null);
+  await other.advance(100);
+  assert.equal(other.memory.load(), null);
+  assert.equal(other.requests.length, 0);
+  const degraded = other.manager.getEntries().find(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_degraded') as any;
+  assert.equal(degraded?.data.reason, 'delta_too_large');
+  assert.equal(degraded?.data.consecutiveFailures, 1);
 });
 
-check('contract', 'Failed, unmetered, malformed or cancelled memory responses preserve the previous durable cursor', async () => {
+check('contract', 'Degradable model memory failures preserve the previous durable cursor while unmetered or cancelled updates still abort', async () => {
   for (const response of [
     { content: [{ type: 'text', text: 'vague summary' }], usage, stopReason: 'stop' },
     { content: [{ type: 'text', text: JSON.stringify(content()) }], usage, stopReason: 'length' },
-    { content: [{ type: 'text', text: JSON.stringify(content()) }], usage: undefined, stopReason: 'stop' },
     { content: [{ type: 'toolCall', id: 'forged', name: 'mcp__source__write', arguments: {} }], usage, stopReason: 'toolUse' },
+    { content: [{ type: 'text', text: '' }], usage, stopReason: 'error' },
   ]) {
     const h = await harness(); h.turn(1); await h.advance(100); const before = h.memory.load();
     h.turn(2); h.setResponse(response);
-    await assert.rejects(h.advance(200), /session_memory_update_failed|usage_unavailable/);
+    await h.advance(200);
     assert.deepEqual(h.memory.load(), before);
+    const recovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery').at(-1) as any;
+    assert.equal(recovery?.data.action, 'degrade');
   }
+  const unmetered = await harness(); unmetered.turn(1); await unmetered.advance(100); const beforeUnmetered = unmetered.memory.load();
+  unmetered.turn(2); unmetered.setResponse({ content: [{ type: 'text', text: JSON.stringify(content()) }], usage: undefined, stopReason: 'stop' });
+  await assert.rejects(unmetered.advance(200), /usage_unavailable/);
+  assert.deepEqual(unmetered.memory.load(), beforeUnmetered);
   const h = await harness(); h.turn(1); await h.advance(100); const before = h.memory.load();
   h.turn(2); const controller = new AbortController(); controller.abort(new Error('cancel-memory'));
   await assert.rejects(h.advance(200, controller.signal), /cancel-memory/); assert.deepEqual(h.memory.load(), before);

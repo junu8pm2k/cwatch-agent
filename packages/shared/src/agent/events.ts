@@ -11,11 +11,21 @@ export const ProviderRejectionSchema = z.object({
   reason: z.enum(['context_length_exceeded', 'output_token_limit']),
 }).strict();
 export type ProviderRejectionReason = z.infer<typeof ProviderRejectionSchema>['reason'];
+const memoryReason = z.enum(['output_limit', 'invalid_working_state', 'unexpected_tool_call', 'unsuccessful_response', 'delta_too_large']);
+export const MemoryAttemptSchema = z.discriminatedUnion('phase', [
+  z.object({ phase: z.literal('request'), attempt: count.min(1), maxAttempts: count.min(1), maxOutputTokens: count.min(1), checkpointRevision: count }).strict(),
+  z.object({ phase: z.literal('wire'), attempt: count.min(1), wireMaxOutputTokens: count.min(1) }).strict(),
+  z.object({ phase: z.literal('response'), stopReason: z.enum(['stop','length','toolUse','error','aborted','unknown']), textChars: count, thinkingChars: count }).strict(),
+  z.object({ phase: z.literal('recovery'), attempt: count.min(1), reason: memoryReason, action: z.enum(['retry','stop','degrade']), validationErrors: z.array(text).optional(),
+    checkpointRevision: count.optional(), pendingRounds: count.optional(), consecutiveFailures: count.min(1).optional(), circuitOpen: z.boolean().optional() }).strict(),
+  z.object({ phase: z.literal('degraded'), reason: memoryReason, checkpointRevision: count, pendingRounds: count, consecutiveFailures: count.min(1), circuitOpen: z.boolean() }).strict(),
+]);
 const payloads = {
   run_started: z.object({ task: AgentTaskSchema.optional(), permissionMode: mode.optional(), mode: z.enum(['live','replay']).optional(), purpose: text.optional() }).passthrough(),
   agent_process: z.object({ state: z.enum(['started','ready','stopping','exited']), sessionId: text, pid: count.optional() }).passthrough(),
   skills_loaded: z.object({ skills: z.array(z.object({ name: text, hash: text, resources: z.array(z.string()) }).passthrough()) }).passthrough(),
   session_memory_updated: z.object({ revision: count.min(1), lastMessageId: text, path: text, windowTokens: count, windowGrowthTokens: count, toolCallCount: count }).strict(),
+  session_memory_attempt: z.object({ iteration: count, attemptDetails: MemoryAttemptSchema }).strict(),
   conversation_turn_completed: z.object({ turn: count.min(1), response: text, status: z.enum(['complete','partial']) }).strict(),
   user_message_received: z.object({ turn: count.min(2), text: text.max(24000) }).strict(),
   // api is accepted here only to read historical Trace v2; current ToolBinding cannot emit it.
@@ -54,6 +64,7 @@ export const AgentEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('agent_process'), data: payloads.agent_process }).strict(),
   z.object({ type: z.literal('skills_loaded'), data: payloads.skills_loaded }).strict(),
   z.object({ type: z.literal('session_memory_updated'), data: payloads.session_memory_updated }).strict(),
+  z.object({ type: z.literal('session_memory_attempt'), data: payloads.session_memory_attempt }).strict(),
   z.object({ type: z.literal('conversation_turn_completed'), data: payloads.conversation_turn_completed }).strict(),
   z.object({ type: z.literal('user_message_received'), data: payloads.user_message_received }).strict(),
   z.object({ type: z.literal('context_prepared'), data: payloads.context_prepared }).strict(),

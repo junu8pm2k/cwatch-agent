@@ -24,7 +24,9 @@ npm run probe:langfuse
 
 ## 数据与失败处理
 
-沿用[结构化 Trace](structured-trace.md)作为公开追踪数据源，将 run → model → tool → backend/process 映射成 Langfuse Agent、Generation、Tool 和 Span。上报任务输入、最终输出、工具参数与结果、权限、错误、耗时、模型名及已知 token 用量。任务 ID 作为 session ID；runId 和 taskId 会传播到每个观察项的 metadata。维护调用只有用量、缺少起始时间时，导出零时长并保留 `timingAvailable: false`；未知 token 不填零，也不虚构实际费用。模型输入沿用现有审计数据（上下文大小及公开配置），不包含完整 prompt 或私有思考。
+沿用[结构化 Trace](structured-trace.md)作为公开追踪数据源，将 run → model → tool → backend/process 映射成 Langfuse Agent、Generation、Tool 和 Span。上报任务输入、最终输出、工具参数与结果、权限、错误、耗时、模型名及已知 token 用量。任务 ID 作为 session ID，runId 和 taskId 会传播到每个观察项的 metadata。历史维护调用只有用量、缺少起始时间时，导出零时长并保留 `timingAvailable: false`。未知 token 和实际费用保留为缺失。模型输入沿用现有审计数据（上下文大小及公开配置）。
+
+会话记忆更新的每次尝试对应一个 `model.memory`。Input 记录尝试序号、请求输出上限和更新前的检查点版本。有实际发包上限时也记录 `wireMaxOutputTokens`。Output 记录模型停止原因、正文和推理字符数、重试/停止/降级决策（`retry`/`stop`/`degrade`）、待处理轮次、熔断状态（`circuitOpen`）或保存的版本。JSON 校验失败时会附带字段错误。用量面板显示模型上报的输入和输出 token。模型生成类维护失败耗尽重试后默认降级放行主任务，不写入业务 `gaps`：对应 `model.turn` 正常执行，level 标为 `WARNING`，metadata 中的 `memoryDegraded` 指向失败的记忆尝试与降级原因；预算/取消/持久化等硬错误导致未发送的 `model.turn` 仍标为阻塞，metadata 中的 `blockedByMemoryStep` 指向失败的尝试。记忆诊断只上报这些字段，完整 prompt、记忆 JSON 和推理原文留在本地会话归档。
 
 密钥只在宿主用于鉴权，上报前再次执行环境密钥及现有 Redactor 脱敏。不读取 SDK 私有转录。配置启用后，脱敏后的任务与工具内容会发送到所配置的 Langfuse 实例。
 

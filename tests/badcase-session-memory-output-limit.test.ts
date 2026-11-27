@@ -250,14 +250,14 @@ check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: valid
   assert.match(fetchDef.description, /do not retry the same URL or downgrade to http:\/\//);
 });
 
-check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: Step-5 reasoning model gets 2048 attempt-1 memory output budget to avoid per-turn pendingMessages retry cascade', async () => {
+check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: Step-5 reasoning model gets 4096 initial, 6144 update, and 8192 retry memory budgets without chopping intact entries or compact digests on recovery', async () => {
   const data = store(), sessionId = id(), manager = SessionManager.inMemory(process.cwd(), { id: sessionId });
   const redactor = new Redactor([]);
   const transcript = new SessionTranscript(data, sessionId, redactor);
   const policy = SessionMemoryPolicySchema.parse({ initializeTokens: 100, growthTokens: 50, toolCalls: 2, maxInputChars: 48_000 });
   const memory = new SessionMemoryStore(data, transcript, 'badcase-step5-cap', policy, redactor);
   let sent = 0, headerSent = false;
-  const maxTokensSeen: number[] = [];
+  const seen: Array<{ maxTokens: number; input: any }> = [];
   const flush = () => {
     transcript.append([...(!headerSent ? [manager.getHeader()!] : []), ...manager.getEntries().slice(sent)].map(e => ({ ...e })));
     headerSent = true;
@@ -265,21 +265,27 @@ check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: Step-
   };
   const hooks: Pick<AgentSessionHooks, 'sessionMemory' | 'beforeRequest' | 'onUsage'> = {
     sessionMemory: req => memory.handle(req),
-    beforeRequest: () => ({ maxOutputTokens: 4096 }),
+    beforeRequest: () => ({ maxOutputTokens: 12_288 }),
     onUsage: () => {},
   };
   const archive = async (type: string, value: unknown) => { manager.appendCustomEntry(type, value); flush(); };
   const updater = new PiSessionMemory(manager, hooks, policy, 150_000, 32_000, archive);
   const { model } = await createPiRuntime('stepfun', 'step-5-preview', { apiKey: 'key', baseUrl: 'https://api.stepfun.com/v1' }, new AbortController().signal);
+  const longCompleteItem = 'Fetched official coding plan pricing and quota page at https://docs.bigmodel.cn/cn/update/new-releases with full verified snapshot retrievals/6e05da10d6e82c6511579bb9c924c9611eedd44db26a0000.txt';
+  let callIndex = 0;
   const runtime = {
-    completeSimple: async (_model: unknown, _context: any, options: { maxTokens?: number }) => {
-      maxTokensSeen.push(options.maxTokens ?? 0);
-      return { role: 'assistant', content: [{ type: 'text', text: JSON.stringify(validState('step5 single-shot memory')) }], usage, stopReason: 'stop' };
+    completeSimple: async (_model: unknown, context: any, options: { maxTokens?: number }) => {
+      callIndex++;
+      seen.push({ maxTokens: options.maxTokens ?? 0, input: JSON.parse(context.messages[0].content) });
+      if (callIndex === 2) {
+        return { role: 'assistant', content: [{ type: 'thinking', thinking: 'long reasoning' }, { type: 'text', text: '{"userGoal":"cut' }], usage, stopReason: 'length' };
+      }
+      return { role: 'assistant', content: [{ type: 'text', text: JSON.stringify({ ...validState('step5 rev ' + callIndex), completedWork: [longCompleteItem] }) }], usage, stopReason: 'stop' };
     },
   } as unknown as ModelRuntime;
 
   manager.appendMessage({ role: 'user', content: 'Investigate GLM releases', timestamp: Date.now() });
-  for (let r = 1; r <= 2; r++) {
+  const pushSearchRound = (r: number, snap: string) => {
     manager.appendMessage({
       role: 'assistant',
       content: [{ type: 'text', text: 'Round ' + r }, { type: 'toolCall', id: 'c' + r, name: 'web_search', arguments: { query: 'GLM ' + r, limit: 5 } }],
@@ -287,12 +293,27 @@ check('contract', 'Badcase bad-session-memory-output-limit-and-site-scope: Step-
     });
     manager.appendMessage({
       role: 'toolResult', toolCallId: 'c' + r, toolName: 'web_search',
-      content: [{ type: 'text', text: '{"status":"success_empty","signals":[],"raw":"{}"}' }], isError: false, timestamp: Date.now(),
+      content: [{ type: 'text', text: JSON.stringify({ status: 'success_with_data', backend: 'mcp.remote', snapshot: { path: snap }, signals: [], searchResults: [{ url: 'https://docs.bigmodel.cn/cn/update/new-releases', title: 'GLM Release Notes' }] }) }],
+      isError: false, timestamp: Date.now(),
     });
-  }
+  };
+  pushSearchRound(1, 'retrievals/snap-round-1-full-hash-value.txt');
   flush();
 
-  await updater.prepare(15_000, runtime, model, 4096, new AbortController().signal);
-  assert.deepEqual(maxTokensSeen, [2048]);
-  assert.equal(memory.load()?.pendingMessages, false);
+  await updater.prepare(15_000, runtime, model, 12_288, new AbortController().signal);
+  assert.equal(seen[0].maxTokens, 4096);
+  assert.equal(memory.load()?.revision, 1);
+
+  const fullSnapPath = 'retrievals/6e05da10d6e82c6511579bb9c924c9611eedd44db26a9999.txt';
+  pushSearchRound(2, fullSnapPath);
+  pushSearchRound(3, 'retrievals/second-round-snap.txt');
+  flush();
+
+  await updater.prepare(25_000, runtime, model, 12_288, new AbortController().signal);
+  assert.deepEqual(seen.map(item => item.maxTokens), [4096, 6144, 8192]);
+  // Recovery preserves intact prior memory entries and intact compact retrieval paths when first round fits recovery budget.
+  assert.equal(seen[2].input.currentMemory.completedWork[0], longCompleteItem);
+  assert.ok(JSON.stringify(seen[2].input.newMessages).includes(fullSnapPath));
+  assert.ok(!JSON.stringify(seen[2].input.newMessages).includes('snipped for session memory'));
+  assert.equal(memory.load()?.revision, 2);
 });
