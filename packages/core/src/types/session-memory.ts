@@ -7,9 +7,10 @@ export const SessionMemoryPolicySchema = z.object({
   toolCalls: count.min(1).default(6), maxInputChars: count.min(1024).max(150_000).default(48_000),
 }).strict();
 export type SessionMemoryPolicy = z.infer<typeof SessionMemoryPolicySchema>;
+export const SessionMemoryContentSchema = ContinuationSummarySchema.refine(value => JSON.stringify(value).length <= 12_000, 'memory content exceeds 12000 characters');
 export const SessionMemoryUpdateSchema = z.object({
   expectedRevision: count, lastMessageId: z.string().min(1).max(512), windowTokens: count,
-  windowGrowthTokens: count, pendingMessages: z.boolean(), content: ContinuationSummarySchema.refine(value => JSON.stringify(value).length <= 12_000, 'memory content exceeds 12000 characters'),
+  windowGrowthTokens: count, pendingMessages: z.boolean(), content: SessionMemoryContentSchema,
 }).strict();
 export const SessionMemoryStateSchema = SessionMemoryUpdateSchema.omit({ expectedRevision: true }).extend({
   version: z.literal(1), sessionId: z.string().min(1), taskId: z.string().min(1), revision: count.min(1),

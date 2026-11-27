@@ -76,20 +76,36 @@ check('contract', 'Thinking-only memory exhaustion recovers once using fresh all
   assert.equal(h.memory.load()!.toolCallCount, 3);
 });
 
-check('contract', 'Malformed memory working state retries once with schema guidance and commits valid JSON', async () => {
+check('contract', 'Malformed memory working state sends current field errors and commits only the valid third response', async () => {
   const h = await harness(); const first = h.turn(1); h.turn(2);
-  h.setResponse((index: number) => index === 1
-    ? { content: [{ type: 'text', text: '{"userGoal":"Goal","completedWork[":"(none yet)"}' }], usage, stopReason: 'stop' }
+  const { errorsAndFixes, ...remaining } = content();
+  const malformed = [
+    { ...remaining, 'errorsAndFixes[': errorsAndFixes },
+    { ...content(), completedWork: 'Plan saved', nextSteps: [] },
+  ];
+  h.setResponse((index: number) => index <= malformed.length
+    ? { content: [{ type: 'text', text: JSON.stringify(malformed[index - 1]) }], usage, stopReason: 'stop' }
     : undefined);
   await h.advance(100);
-  assert.equal(h.requests.length, 2); assert.equal(h.metered(), 2);
+  assert.equal(h.requests.length, 3); assert.equal(h.metered(), 3);
   assert.match(h.requests[1].context.systemPrompt, /failed strict JSON schema validation/);
+  assert.deepEqual(h.requests[1].input.validationErrors, [
+    'Missing required field errorsAndFixes. Expected array.',
+    'Remove unexpected fields: "errorsAndFixes[".',
+  ]);
+  const lastErrors = h.requests[2].input.validationErrors as string[];
+  assert.ok(lastErrors.includes('completedWork must be of type array.'));
+  assert.ok(lastErrors.some(error => error.startsWith('nextSteps:')));
+  assert.ok(lastErrors.every(error => !error.includes('errorsAndFixes')));
+  assert.ok(!JSON.stringify(h.requests[2].input).includes('Plan saved'));
   assert.equal(h.memory.load()!.revision, 1); assert.equal(h.memory.load()!.lastMessageId, first);
   assert.equal(h.memory.load()!.pendingMessages, true);
   const recovery = h.manager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'cwatch.memory_recovery');
   assert.deepEqual(recovery.map(entry => ({ action: (entry as any).data.action, reason: (entry as any).data.reason })), [
     { action: 'retry', reason: 'invalid_working_state' },
+    { action: 'retry', reason: 'invalid_working_state' },
   ]);
+  assert.deepEqual((recovery[1] as any).data.validationErrors, lastErrors);
 });
 
 check('contract', 'Repeated truncated memory stops at two metered attempts and retains the previous checkpoint', async () => {
