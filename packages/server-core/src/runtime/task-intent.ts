@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ModelPort } from '@cwatch/core/types';
 import type { TaskIntent } from '@cwatch/core/types/runs';
+import { recordStandaloneGeneration } from '@cwatch/shared/sessions/langfuse';
 
 const target = z.string().trim().min(1).max(100).nullable();
 const intentSchema = z.discriminatedUnion('kind', [
@@ -31,25 +32,44 @@ function explicitProductResearch(instruction: string): TaskIntent | undefined {
 
 const normalizeName = (text: string) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
 
-export async function decideTaskIntent(model: Pick<ModelPort, 'decide'>, instruction: string, signal: AbortSignal): Promise<TaskIntent> {
-  const decision = await model.decide({
-    state: { task: { kind: 'agent', taskId: 'task-intent', instruction, allowedSources: [] }, observations: [], decisions: [], iteration: 0 },
-    stable: instructions,
-    volatile: JSON.stringify({ request: instruction }),
-    tools: [],
-    maxOutputTokens: 2048,
-  }, signal);
-  if (decision.kind !== 'respond') throw Error('invalid_task_intent');
-  let intent: TaskIntent;
+export async function decideTaskIntent(model: Pick<ModelPort, 'decide'> & Partial<Pick<ModelPort, 'traceModel' | 'usage'>>, instruction: string, signal: AbortSignal): Promise<TaskIntent> {
+  const input = { system: instructions, request: instruction };
   try {
-    const text = decision.text.trim();
-    const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
-    intent = intentSchema.parse(JSON.parse(fenced?.[1] ?? text));
-  } catch {
-    throw Error('invalid_task_intent');
+    const decision = await model.decide({
+      state: { task: { kind: 'agent', taskId: 'task-intent', instruction, allowedSources: [] }, observations: [], decisions: [], iteration: 0 },
+      stable: instructions,
+      volatile: JSON.stringify({ request: instruction }),
+      tools: [],
+      maxOutputTokens: 2048,
+    }, signal);
+    if (decision.kind !== 'respond') throw Error('invalid_task_intent');
+    let intent: TaskIntent;
+    try {
+      const text = decision.text.trim();
+      const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
+      intent = intentSchema.parse(JSON.parse(fenced?.[1] ?? text));
+    } catch {
+      throw Error('invalid_task_intent');
+    }
+    const resolved: TaskIntent = intent.kind === 'agent'
+      ? (explicitProductResearch(instruction) ?? intent)
+      : (() => {
+          const request = normalizeName(instruction);
+          const statedName = (name: string | null) => name && request.includes(normalizeName(name)) ? name : null;
+          return { kind: 'investigation', competitor: statedName(intent.competitor), product: statedName(intent.product) };
+        })();
+    void recordStandaloneGeneration({
+      name: 'intent.classify', purpose: 'intent',
+      model: model.traceModel?.id, provider: model.traceModel?.provider,
+      input, output: resolved, usage: model.usage,
+    });
+    return resolved;
+  } catch (error) {
+    void recordStandaloneGeneration({
+      name: 'intent.classify', purpose: 'intent',
+      model: model.traceModel?.id, provider: model.traceModel?.provider,
+      input, error: error instanceof Error ? error.message : String(error), usage: model.usage,
+    });
+    throw error;
   }
-  if (intent.kind === 'agent') return explicitProductResearch(instruction) ?? intent;
-  const request = normalizeName(instruction);
-  const statedName = (name: string | null) => name && request.includes(normalizeName(name)) ? name : null;
-  return { kind: 'investigation', competitor: statedName(intent.competitor), product: statedName(intent.product) };
 }

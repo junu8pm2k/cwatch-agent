@@ -63,6 +63,7 @@ import {
   formatElapsed,
   isActiveRun,
   isInvestigation,
+  langfuseTraceHref,
   permissionNames,
   safeUrl,
   sessionTitle,
@@ -71,9 +72,7 @@ import {
   statusTone,
   taskTitle,
   type MainTab,
-  type TraceFilter,
 } from './client/state.ts';
-import { loadTrace, renderTrace } from './client/trace.ts';
 
 function applyTheme(instant = false): void {
   if (instant) document.documentElement.classList.add('theme-switching');
@@ -228,27 +227,29 @@ function openExportModal(trigger?: HTMLElement | null): void {
   $('export-modal').focus();
 }
 
-function setTraceDrawer(open: boolean): void {
-  const allowed = open && Boolean(state.current) && state.view === 'workbench';
-  state.traceDrawerOpen = allowed;
-  $('trace-drawer').hidden = !allowed;
-  $('trace-backdrop').hidden = !allowed;
-  const trigger = $('toggle-trace-drawer');
-  trigger.setAttribute('aria-expanded', String(allowed));
-  trigger.classList.toggle('is-active', allowed);
-  if (allowed && state.current) {
-    void loadTrace(state.current.id);
-    renderTrace();
-  }
-}
-
 function syncHeaderControls(): void {
-  const hasRun = Boolean(state.current);
+  const run = state.current;
+  const hasRun = Boolean(run);
   const inWorkbench = state.view === 'workbench';
-  $('toggle-trace-drawer').hidden = !hasRun || !inWorkbench;
+  const lfLink = $<HTMLAnchorElement>('langfuse-trace-link');
+  const lfHref = hasRun && inWorkbench ? langfuseTraceHref(run) : undefined;
+  lfLink.hidden = !lfHref;
+  if (lfHref) {
+    lfLink.href = lfHref;
+    const lfStatus = run?.langfuse?.status;
+    $('langfuse-trace-label').textContent = lfStatus === 'streaming'
+      ? 'Langfuse Trace（实时）'
+      : lfStatus === 'failed'
+        ? 'Langfuse（上报异常）'
+        : 'Langfuse Trace';
+    lfLink.title = lfStatus === 'failed' && run?.langfuse?.error
+      ? `Langfuse 上报异常：${run.langfuse.error}`
+      : '在 Langfuse 中查看完整 Trace';
+  } else {
+    lfLink.removeAttribute('href');
+  }
   $('new-run').hidden = state.view === 'research' || (!hasRun && inWorkbench);
   if (!hasRun || !inWorkbench) {
-    if (state.traceDrawerOpen) setTraceDrawer(false);
     if (isExportModalOpen()) closeExportModal();
   }
 }
@@ -764,7 +765,8 @@ function renderRun(): void {
 
   renderPipelineSection();
 
-  $('run-footer-text').textContent = `${permissionNames[run.permission] ?? run.permission} · 工具调用均经主进程门禁留痕`;
+  const lfNote = run.langfuse?.status === 'failed' ? ' · Langfuse 上报失败' : '';
+  $('run-footer-text').textContent = `${permissionNames[run.permission] ?? run.permission} · 工具调用均经主进程门禁留痕${lfNote}`;
   $('provenance-label').textContent = run.mode === 'replay' ? '合成数据演示' : '来源与引用请人工核验';
 
   updateRunMetrics();
@@ -773,7 +775,6 @@ function renderRun(): void {
   renderEvidenceRail();
   if (state.tab === 'report') renderReport();
   else renderReportReview(run);
-  if (state.traceDrawerOpen) renderTrace();
   updateApprovalClocks();
 }
 
@@ -796,9 +797,6 @@ function updateRun(run: RunSnapshot): void {
       }
       announce(statusNames[run.status]);
     }
-    if (state.traceDrawerOpen) {
-      void loadTrace(run.id);
-    }
     renderRun();
   }
   renderCapacity();
@@ -814,8 +812,6 @@ function selectRun(run: RunSnapshot, fromResearch = false): void {
   $('back-to-research').hidden = !fromResearch;
   state.highlightedClaimId = undefined;
   state.selectedPipelineStage = undefined;
-  state.selectedTraceStepId = undefined;
-  state.traceFilter = 'all';
   closeExportModal();
   setTaskEditorOpen(false);
   localStorage.setItem('cwatch-selected-run', run.id);
@@ -859,7 +855,6 @@ function newRun(seed?: { profile: string; mode: 'live' | 'replay'; permission: s
   state.selectedPipelineStage = undefined;
   state.domainFilterOpen = false;
   closeExportModal();
-  setTraceDrawer(false);
   setTaskEditorOpen(false);
   const investigation = seed && isInvestigation(seed.task) ? seed.task : undefined;
   state.investigationFormPrompt = investigation?.researchBrief?.focus?.trim();
@@ -897,7 +892,6 @@ async function handleDeleteRun(runId: string): Promise<void> {
     state.runs = state.runs.filter(r => r.id !== runId);
     state.reportCache.delete(runId);
     invalidateReview(runId);
-    state.traceCache.delete(runId);
     state.drafts.delete(runId);
     if (state.current?.id === runId) {
       const wasBrowsingResearch = state.view === 'research';
@@ -1274,7 +1268,7 @@ $('cancel-run').addEventListener('click', () => {
   void cancelRunApi(run.id).then(updateRun).catch(alertError);
 });
 
-// Theme & Trace Slide-Over Drawer
+// Theme toggle
 $('theme-toggle').addEventListener('click', () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   try { localStorage.setItem('cwatch-theme', state.theme); } catch { /* ignore */ }
@@ -1282,11 +1276,7 @@ $('theme-toggle').addEventListener('click', () => {
   announce(state.theme === 'dark' ? '已切换到深色模式。' : '已切换到浅色模式。');
 });
 
-$('toggle-trace-drawer').addEventListener('click', () => setTraceDrawer(!state.traceDrawerOpen));
-$('close-trace-drawer').addEventListener('click', () => setTraceDrawer(false));
-$('trace-backdrop').addEventListener('click', () => setTraceDrawer(false));
-
-// Return focus to the disclosure or drawer control on Escape.
+// Return focus to the disclosure control on Escape.
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     if (isExportModalOpen()) {
@@ -1298,9 +1288,6 @@ document.addEventListener('keydown', event => {
     } else if (isSkillModalOpen()) {
       event.preventDefault();
       closeSkillModal(true);
-    } else if (state.traceDrawerOpen) {
-      setTraceDrawer(false);
-      $('toggle-trace-drawer').focus();
     } else if (state.settingsOpen) {
       event.preventDefault();
       setSettingsOpen(false);
@@ -1383,26 +1370,6 @@ $('evidence-rail').addEventListener('click', event => {
   if (card?.dataset.evidenceClaim) {
     if (state.tab !== 'report') showTab('report');
     highlightClaim(card.dataset.evidenceClaim, 'claim');
-  }
-});
-
-// Trace drawer interactions
-$('trace-content').addEventListener('click', event => {
-  const target = event.target as HTMLElement;
-  if (target.closest('[data-trace-refresh]') && state.current) {
-    void loadTrace(state.current.id, true);
-    return;
-  }
-  const filterBtn = target.closest<HTMLButtonElement>('[data-trace-filter]');
-  if (filterBtn) {
-    state.traceFilter = filterBtn.dataset.traceFilter as TraceFilter;
-    renderTrace();
-    return;
-  }
-  const stepBtn = target.closest<HTMLButtonElement>('[data-trace-step]');
-  if (stepBtn) {
-    state.selectedTraceStepId = stepBtn.dataset.traceStep;
-    renderTrace();
   }
 });
 
@@ -1610,11 +1577,6 @@ document.body.addEventListener('click', event => {
   const jumpBtn = target.closest<HTMLButtonElement>('[data-jump-tab]');
   if (jumpBtn) {
     showTab(jumpBtn.dataset.jumpTab as MainTab);
-    return;
-  }
-
-  if (target.closest('[data-open-trace]')) {
-    setTraceDrawer(true);
     return;
   }
 

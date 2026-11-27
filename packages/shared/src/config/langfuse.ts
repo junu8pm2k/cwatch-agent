@@ -4,6 +4,12 @@ export interface LangfuseConfig {
   secretKey: string;
   environment: string;
   timeoutMs: number;
+  projectId?: string;
+}
+
+export function langfuseTraceUrl(baseUrl: string, traceId: string, projectId?: string): string {
+  const root = baseUrl.replace(/\/+$/, '');
+  return projectId ? `${root}/project/${encodeURIComponent(projectId)}/traces/${traceId}` : `${root}/trace/${traceId}`;
 }
 
 /** Host-only credentials; never pass this configuration to the model or a worker. */
@@ -23,5 +29,7 @@ export function readLangfuseConfig(env: NodeJS.ProcessEnv = process.env): Langfu
   if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(environment) || environment.startsWith('langfuse')) throw Error('langfuse_config: invalid LANGFUSE_TRACING_ENVIRONMENT');
   const timeoutMs = Number(env.LANGFUSE_TIMEOUT_MS?.trim() || 5000);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw Error('langfuse_config: LANGFUSE_TIMEOUT_MS must be 1..30000');
-  return { baseUrl: url.toString().replace(/\/+$/, ''), publicKey, secretKey, environment, timeoutMs };
+  const projectId = env.LANGFUSE_PROJECT_ID?.trim() || undefined;
+  if (projectId && !/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) throw Error('langfuse_config: invalid LANGFUSE_PROJECT_ID');
+  return { baseUrl: url.toString().replace(/\/+$/, ''), publicKey, secretKey, environment, timeoutMs, ...(projectId ? { projectId } : {}) };
 }

@@ -3,9 +3,10 @@ import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { resolve } from 'node:path';
 import { startWebServer } from '../apps/web/src/server.ts';
+import { formatBatchSummary, groupMergedActivities, mergeActivities } from '../apps/web/src/client/activity-merger.ts';
 import { RunService, type RunServiceOptions } from '@cwatch/server-core/runtime/run-service';
 import { check, store } from './harness.ts';
-import type { WorkbenchBootstrap, RunSnapshot, ReportReviewView } from '@cwatch/core/types/runs';
+import type { WorkbenchBootstrap, RunSnapshot, ReportReviewView, RunActivity } from '@cwatch/core/types/runs';
 
 async function harness(root = process.cwd(), options: Pick<RunServiceOptions, 'intentModelFactory' | 'reportModelFactory'> = {}){
   const data=store(),service=new RunService({root,outputRoot:resolve(data.root,'runs'),...options});
@@ -20,9 +21,10 @@ check('contract','Workbench HTTP serves local assets with a restrictive CSP and 
     const rawStatus=(headers:Record<string,string>)=>new Promise<number|undefined>((resolve,reject)=>{const req=httpRequest(h.origin+'/api/bootstrap',{headers},res=>{res.resume();resolve(res.statusCode);});req.on('error',reject);req.end();});
     const home=await fetch(h.origin);assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy')!,/frame-ancestors 'none'/);assert.match(await home.text(),/调查工作台/);
     assert.equal((await fetch(h.origin+'/client.js')).status,200);
-    for(const mod of ['/client/state.js','/client/api.js','/client/markdown.js','/client/trace.js','/client/activity-merger.js','/client/conversation.js','/client/evidence-rail.js','/client/sidebar.js','/client/extensions.js']){
+    for(const mod of ['/client/state.js','/client/api.js','/client/markdown.js','/client/activity-merger.js','/client/conversation.js','/client/evidence-rail.js','/client/sidebar.js','/client/extensions.js']){
       const res=await fetch(h.origin+mod);assert.equal(res.status,200);assert.match(res.headers.get('content-type')!,/javascript/);
     }
+    assert.equal((await fetch(h.origin+'/client/trace.js')).status,404);
     for(const path of ['/.env','/package.json','/api/runs/../../.env','/client/../server.js','/client/missing.js','/api/extensions/skills/../../.env'])assert.equal((await fetch(h.origin+path)).status,404);
     assert.equal(await rawStatus({Host:'evil.example'}),403);
     assert.equal(await rawStatus({'Sec-Fetch-Site':'cross-site'}),403);
@@ -247,4 +249,50 @@ check('contract','Workbench export API produces md, html, doc, csv and json draf
     assert.equal(jsonObj.claims.length,1);
     assert.match(jsonObj.reportMarkdown,/合成测试快照/);
   }finally{await h.close();}
+});
+
+check('contract', 'Activity merger groups explicit and legacy parallel tool batches, normalizes soft errors and finalizes ended runs', () => {
+  const activities: RunActivity[] = [
+    // Explicit parallel batch with out-of-order completion by callId + soft error + skipped
+    { sequence: 1, timestamp: '2026-04-10T08:00:01.000Z', kind: 'tool', stage: 1, tool: 'web_search', message: '准备调用 web_search', detail: '{"query":"q1"}', callId: 'c1', batchId: 'batch-10', batchSize: 3 },
+    { sequence: 2, timestamp: '2026-04-10T08:00:01.005Z', kind: 'tool', stage: 1, tool: 'web_fetch', message: '准备调用 web_fetch', detail: '{"url":"https://a.example/p"}', callId: 'c2', batchId: 'batch-10', batchSize: 3 },
+    { sequence: 3, timestamp: '2026-04-10T08:00:01.010Z', kind: 'tool', stage: 1, tool: 'web_search', message: '准备调用 web_search', detail: '{"query":"q2"}', callId: 'c3', batchId: 'batch-10', batchSize: 3 },
+    { sequence: 4, timestamp: '2026-04-10T08:00:02.000Z', kind: 'tool', stage: 1, tool: 'web_fetch', state: 'completed', message: 'web_fetch 已完成', detail: 'unknown:web_result_error', callId: 'c2' },
+    { sequence: 5, timestamp: '2026-04-10T08:00:03.000Z', kind: 'tool', stage: 1, tool: 'web_search', state: 'completed', message: 'web_search 已完成', callId: 'c1' },
+    { sequence: 6, timestamp: '2026-04-10T08:00:03.100Z', kind: 'tool', stage: 1, tool: 'web_search', state: 'skipped', message: 'web_search 已跳过（工具额度受限）', callId: 'c3' },
+    // Legacy parallel burst without batchId + one dangling start on ended run
+    { sequence: 7, timestamp: '2026-04-10T08:00:05.000Z', kind: 'tool', stage: 1, tool: 'web_fetch', message: '准备调用 web_fetch', detail: '{"url":"https://b.example/1"}' },
+    { sequence: 8, timestamp: '2026-04-10T08:00:05.004Z', kind: 'tool', stage: 1, tool: 'web_fetch', message: '准备调用 web_fetch', detail: '{"url":"https://b.example/2"}' },
+    { sequence: 9, timestamp: '2026-04-10T08:00:06.000Z', kind: 'tool', stage: 1, tool: 'web_fetch', state: 'completed', message: 'web_fetch 已完成' },
+  ];
+
+  const mergedActive = mergeActivities(activities, true);
+  assert.equal(mergedActive.length, 5);
+  assert.equal(mergedActive[0].state, 'completed');
+  assert.equal(mergedActive[1].state, 'failed');
+  assert.equal(mergedActive[1].errorDetail, 'unknown:web_result_error');
+  assert.equal(mergedActive[2].state, 'info');
+  assert.equal(mergedActive[2].skipped, true);
+  assert.equal(mergedActive[3].state, 'completed');
+  assert.equal(mergedActive[4].state, 'running');
+
+  const nodesActive = groupMergedActivities(mergedActive);
+  assert.equal(nodesActive.length, 2);
+  assert.equal(nodesActive[0].kind, 'batch');
+  if (nodesActive[0].kind === 'batch') {
+    assert.equal(nodesActive[0].items.length, 3);
+    assert.deepEqual(nodesActive[0].counts, { completed: 1, failed: 1, running: 0, skipped: 1 });
+    assert.equal(nodesActive[0].durationMs, 2100);
+    assert.equal(formatBatchSummary(nodesActive[0].counts), '1 成功 · 1 异常 · 1 跳过');
+  }
+  assert.equal(nodesActive[1].kind, 'batch');
+  if (nodesActive[1].kind === 'batch') {
+    assert.equal(nodesActive[1].state, 'running');
+    assert.deepEqual(nodesActive[1].counts, { completed: 1, failed: 0, running: 1, skipped: 0 });
+  }
+
+  // Ended run finalizes dangling running step as failed so zero ghost "进行中" remains
+  const mergedEnded = mergeActivities(activities, false);
+  assert.equal(mergedEnded[4].state, 'failed');
+  assert.ok(mergedEnded[4].errorDetail?.includes('未返回结果'));
 });

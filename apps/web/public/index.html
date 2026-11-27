@@ -66,10 +66,10 @@
       </div>
       <div class="header-actions">
         <span class="connection" id="connection"><span class="dot"></span>正在连接</span>
-        <button type="button" class="button ghost sm" id="toggle-trace-drawer" hidden aria-expanded="false" aria-controls="trace-drawer" title="打开结构化 Trace 抽屉">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 5.5h14M3 10h9M3 14.5h12"/><circle cx="15.5" cy="10" r="2"/></svg>
-          <span>运行详情</span>
-        </button>
+        <a class="button ghost sm" id="langfuse-trace-link" target="_blank" rel="noopener noreferrer" hidden title="在 Langfuse 中查看完整 Trace">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M11 4h5v5M16 4l-7 7M9 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg>
+          <span id="langfuse-trace-label">Langfuse Trace</span>
+        </a>
         <button type="button" class="button secondary sm" id="new-run" hidden>
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
           <span>新建任务</span>
@@ -451,19 +451,6 @@
     </div>
   </main>
 </div>
-
-<!-- VerdaAI-inspired Slide-Over Trace Drawer -->
-<div id="trace-backdrop" class="trace-backdrop" hidden></div>
-<aside id="trace-drawer" class="trace-drawer" role="dialog" aria-modal="false" aria-labelledby="trace-drawer-title" hidden>
-  <div class="trace-drawer-head">
-    <div>
-      <h2 id="trace-drawer-title">结构化 Trace</h2>
-      <p class="trace-drawer-sub">模型轮次、工具耗时与审计事件流</p>
-    </div>
-    <button type="button" id="close-trace-drawer" class="icon-close-btn" aria-label="关闭 Trace 抽屉">×</button>
-  </div>
-  <div id="trace-content" class="trace-drawer-body"></div>
-</aside>
 
 <!-- Skill Detail Pop Modal -->
 <div id="skill-modal-backdrop" class="modal-backdrop" hidden></div>

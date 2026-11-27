@@ -1,8 +1,8 @@
 import type { RunSnapshot } from '@cwatch/core/types/runs';
-import { mergeActivities, type MergedActivity } from './activity-merger.ts';
+import { formatBatchSummary, groupMergedActivities, mergeActivities, type MergedActivity, type StepRenderNode } from './activity-merger.ts';
 import { renderMarkdown } from './markdown.ts';
 import { displayedPipelineStage, renderPlanStageBody } from './report-view.ts';
-import { $, escapeHtml, formatDurationMs, formatTime, isActiveRun, state } from './state.ts';
+import { $, escapeHtml, formatDurationMs, formatTime, isActiveRun, langfuseTraceHref, state } from './state.ts';
 
 function formatArgsSummary(raw: string): string {
   try {
@@ -38,7 +38,9 @@ export function renderApprovalSpotlight(visible: boolean): void {
           <span class="pulse-dot tone-warn" aria-hidden="true"></span>
           <h3>${isPlan ? '审批调查计划' : '这次操作需要你的确认'}</h3>
         </div>
-        <span class="approval-clock" data-expires="${escapeHtml(request.expiresAt)}"></span>
+        ${request.expiresAt
+          ? `<span class="approval-clock" data-expires="${escapeHtml(request.expiresAt)}"></span>`
+          : '<span class="approval-clock">等待确认</span>'}
       </div>
       ${isPlan
         ? `<p class="approval-desc">批准后开始采集。${run.mode === 'live' ? '也可以提交修改意见，让 Agent 重拟后再审批。' : ''}</p>${renderPlanStageBody(run)}
@@ -68,12 +70,14 @@ export function renderApprovalSpotlight(visible: boolean): void {
 
 export function updateApprovalClocks(): void {
   for (const node of document.querySelectorAll<HTMLElement>('[data-expires]')) {
-    const remaining = Math.ceil((Date.parse(node.dataset.expires!) - Date.now()) / 1000);
+    const expires = node.dataset.expires;
+    if (!expires) continue;
+    const remaining = Math.ceil((Date.parse(expires) - Date.now()) / 1000);
     node.textContent = remaining > 0 ? `审批剩余 ${remaining} 秒` : '审批已到期，正在更新状态';
   }
 }
 
-function renderMergedCard(item: MergedActivity): string {
+function renderMergedCardContent(item: MergedActivity): string {
   const icon = item.state === 'completed' ? '✓' : item.state === 'failed' ? '!' : item.state === 'running' ? '…' : '·';
   const hasPayload = Boolean(item.detail || item.errorDetail);
   const body = `
@@ -87,28 +91,47 @@ function renderMergedCard(item: MergedActivity): string {
       </span>
     </div>`;
 
-  if (!hasPayload) {
-    return `<li class="step-card state-${item.state}">${body}</li>`;
-  }
-  return `<li class="step-card state-${item.state}">
-    <details>
+  if (!hasPayload) return body;
+  return `<details>
       <summary>${body}</summary>
       <div class="step-card-detail">
         ${item.detail ? `<pre class="json-pre">${escapeHtml(formatArgsSummary(item.detail))}</pre>` : ''}
         ${item.errorDetail ? `<pre class="json-pre error-pre">${escapeHtml(formatArgsSummary(item.errorDetail))}</pre>` : ''}
       </div>
-    </details>
+    </details>`;
+}
+
+function renderMergedNode(node: StepRenderNode): string {
+  if (node.kind === 'single') {
+    return `<li class="step-card state-${node.item.state}">${renderMergedCardContent(node.item)}</li>`;
+  }
+  const icon = node.state === 'completed' ? '✓' : node.state === 'failed' ? '!' : node.state === 'running' ? '…' : '·';
+  const summary = formatBatchSummary(node.counts);
+  return `<li class="step-batch state-${node.state}" data-batch-id="${escapeHtml(node.batchId)}">
+    <div class="step-batch-head">
+      <span class="step-state state-${node.state}" aria-hidden="true">${icon}</span>
+      <span class="step-pill cat-batch">并行 ×${node.items.length}</span>
+      <span class="step-title">并行调用 ${node.items.length} 项工具${summary ? `<span class="step-batch-meta">（${escapeHtml(summary)}）</span>` : ''}</span>
+      <span class="step-right">
+        ${node.durationMs !== undefined ? `<span class="step-dur">${escapeHtml(formatDurationMs(node.durationMs))}</span>` : ''}
+        <time datetime="${escapeHtml(node.startedAt)}">${formatTime(node.startedAt)}</time>
+      </span>
+    </div>
+    <ul class="step-tree-list" aria-label="并行工具调用列表">
+      ${node.items.map(item => `<li class="step-tree-item state-${item.state}">${renderMergedCardContent(item)}</li>`).join('')}
+    </ul>
   </li>`;
 }
 
 function inlineToolsBlock(run: RunSnapshot): string {
-  const merged = mergeActivities(run.activities).filter(item => item.category !== 'system');
+  const merged = mergeActivities(run.activities, isActiveRun(run)).filter(item => item.category !== 'system');
   if (!merged.length) return '';
   const running = merged.find(item => item.state === 'running');
   const completedCount = merged.filter(item => item.state === 'completed').length;
   const label = running
     ? `正在${running.title}…`
     : `已执行 ${completedCount || merged.length} 项工具步骤`;
+  const nodes = groupMergedActivities(merged.slice(-8));
   return `<details class="inline-tools">
     <summary>
       <span class="inline-tools-left">
@@ -118,10 +141,10 @@ function inlineToolsBlock(run: RunSnapshot): string {
       <span class="inline-link-hint">展开步骤</span>
     </summary>
     <div class="inline-tools-body">
-      <ul class="step-card-list compact">${merged.slice(-8).map(renderMergedCard).join('')}</ul>
+      <ul class="step-card-list compact">${nodes.map(renderMergedNode).join('')}</ul>
       <div class="inline-tools-footer">
         <button type="button" class="link-btn" data-jump-tab="process">查看全部执行步骤 →</button>
-        <button type="button" class="link-btn" data-open-trace>打开 Trace 抽屉 →</button>
+        ${langfuseTraceHref(run) ? `<a class="link-btn" href="${escapeHtml(langfuseTraceHref(run))}" target="_blank" rel="noopener noreferrer">在 Langfuse 查看 Trace ↗</a>` : ''}
       </div>
     </div>
   </details>`;
@@ -135,7 +158,7 @@ export function renderConversation(): void {
 
   const messages = run.messages ?? [];
   const busy = run.status === 'preparing' || run.status === 'running' || run.status === 'cancelling';
-  const merged = mergeActivities(run.activities);
+  const merged = mergeActivities(run.activities, isActiveRun(run));
   const latestItem = merged.at(-1);
   const key = [
     run.id,
@@ -219,7 +242,8 @@ export function renderProcess(): void {
     return;
   }
   const stage = displayedPipelineStage(run, state.selectedPipelineStage);
-  const merged = mergeActivities(run.activities).filter(item => stage === undefined || item.stage === stage);
+  const merged = mergeActivities(run.activities, isActiveRun(run)).filter(item => stage === undefined || item.stage === stage);
+  const nodes = groupMergedActivities(merged);
   $('process-count').textContent = String(merged.length);
   const old = target.querySelector('.activity-scroll');
   const scroll = old?.scrollTop ?? 0;
@@ -230,8 +254,8 @@ export function renderProcess(): void {
     + (run.error && (stage === undefined || stage === run.stage)
       ? `<div class="run-notice tone-error run-error-bar"><span>${escapeHtml(run.error)}</span>${canRetry ? `<button type="button" class="button secondary sm" data-retry-run ${state.submitting ? 'disabled' : ''}>尝试重试</button>` : ''}</div>`
       : '')
-    + (merged.length
-      ? `<div class="activity-scroll"><ul class="step-card-list">${merged.map(renderMergedCard).join('')}</ul></div>`
+    + (nodes.length
+      ? `<div class="activity-scroll"><ul class="step-card-list">${nodes.map(renderMergedNode).join('')}</ul></div>`
       : `<div class="empty-state"><p>${stage === undefined ? '正在准备执行环境…' : '该阶段暂无执行步骤。'}</p></div>`);
 
   const next = target.querySelector('.activity-scroll');

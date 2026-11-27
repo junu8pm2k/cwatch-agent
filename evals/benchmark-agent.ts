@@ -103,12 +103,15 @@ async function main() {
     providerMaxRetries: z.int().min(0).max(2).parse(config.agent.providerMaxRetries),
   });
   const registry = new ToolRegistry();
+  const otelTraceFile = input.traceFile.endsWith('.json')
+    ? input.traceFile.replace(/\.json$/, '.otel.json')
+    : input.traceFile + '.otel.json';
   const since = performance.now();
   try {
     const result = await runAgent({ kind: 'agent', taskId: input.id, instruction, allowedSources: [], responseCharacterLimit },
       model, registry, store, 'live', {
         ...config.limits, workspaceRoot: workspace, sessionMemory: false, promptCache: 'none',
-        userSkills, builtinTools: input.profile === undefined,
+        userSkills, builtinTools: input.profile === undefined, otelTraceFile,
         skillPath: resolve('skills/general-agent/SKILL.md'), secrets: [process.env.API_KEY ?? ''],
       }, AbortSignal.timeout(config.limits.timeoutMs), new ActionPolicy('explore'));
     const trace = new Trace(store, input.id, result.runId, redactor).exportStructured();

@@ -93,6 +93,17 @@ check('contract', 'tool timeout stops waiting even if adapter ignores cancellati
   const h = await executionHarness({ handler: async () => new Promise(() => {}) });
   await assert.rejects(h.executor.execute('mcp__official__op', {}, live), /timeout/i); assert.equal(h.data.executions()[0].state, 'cancelled'); assert.equal(h.client.calls.length, 1);
 });
+check('contract', 'waiting for human approval does not expire or consume tool timeout', async () => {
+  const answer = deferred<boolean>();
+  const h = await executionHarness({ action: 'send', mode: 'ask', ttl: 0, responder: async req => { assert.equal(req.expiresAt, undefined); return answer.promise; } });
+  // Harness toolTimeoutMs is 80ms; wait 130ms before approving and verify execution succeeds.
+  const running = h.executor.execute('mcp__official__op', {}, live);
+  await new Promise(resolve => setTimeout(resolve, 130));
+  assert.equal(h.approvals.pending.size, 1);
+  answer.resolve(true);
+  await running;
+  assert.equal(h.client.calls.length, 1);
+});
 check('contract', 'effective policy rechecked after approval', async () => {
   const answer = deferred<boolean>(); const h = await executionHarness({ action: 'publish', mode: 'ask', responder: async () => answer.promise });
   const running = h.executor.execute('mcp__official__op', {}, live); await waitTick(); h.policy.setMode('explore'); answer.resolve(true); await assert.rejects(running); assert.equal(h.client.calls.length, 0);

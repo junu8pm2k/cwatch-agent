@@ -7,6 +7,7 @@ import { runPreToolUseChecks, toPolicyVerdict, type PreToolUseInput } from './co
 
 export interface PreToolUseHost extends Omit<PreToolUseInput, 'toolName' | 'input'> {
   approvals: ApprovalManager; trace: Trace;
+  onApprovalWait?: { pause(): void; resume(): void };
 }
 
 
@@ -31,12 +32,15 @@ export async function requestPreToolUseApproval(request: PreToolUseRequest, host
   if (initial.type === 'block') return respond('block', 'policy_block: ' + initial.reason);
   let approvedArgsHash: string | undefined;
   if (initial.type === 'prompt') {
+    host.onApprovalWait?.pause();
     try {
       approvedArgsHash = await host.approvals.wait(request.requestId, host.task.taskId, request.toolName, request.input, signal, value => JSON.stringify(host.trace.redactor.clean(value)));
       host.trace.emit('approval_resolved', { requestId: request.requestId, decision: 'approved', argsHash: approvedArgsHash });
     } catch (error) {
       host.trace.emit('approval_resolved', { requestId: request.requestId, decision: 'denied_or_cancelled', error: String(error) });
       return respond('block', error instanceof Error ? error.message : String(error));
+    } finally {
+      host.onApprovalWait?.resume();
     }
   }
   if (signal.aborted) return respond('block', 'pre_tool_use_cancelled');

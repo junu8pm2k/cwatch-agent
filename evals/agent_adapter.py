@@ -107,6 +107,9 @@ def run_agent_trial(case, case_dir, fixture_hash):
     archived_trace = "provider-timeout.trace.json"
     try:
         (case_dir / "trace.json").rename(case_dir / archived_trace)
+        otel_trace = case_dir / "trace.otel.json"
+        if otel_trace.exists():
+            otel_trace.rename(case_dir / "provider-timeout.trace.otel.json")
     except OSError:
         return attempt, None
     retry = {"runId": result.runId, "reason": result.error, "durationMs": result.durationMs, "trace": archived_trace}

@@ -34,22 +34,27 @@ export class ActionPolicy {
     return fail('unknown_semantics');
   }
 }
-export interface ApprovalRequest { requestId: string; taskId: string; tool: string; argsHash: string; argsSummary: string; expiresAt: string; createdAt: string }
+export interface ApprovalRequest { requestId: string; taskId: string; tool: string; argsHash: string; argsSummary: string; createdAt: string; expiresAt?: string }
 export type ApprovalResponder = (request: ApprovalRequest, signal: AbortSignal) => Promise<boolean>;
 export class ApprovalManager {
   readonly pending = new Map<string, ApprovalRequest>();
-  constructor(private responder?: ApprovalResponder, readonly ttlMs = 30_000) {}
+  constructor(private responder?: ApprovalResponder, readonly ttlMs = 0) {}
   async wait(requestId: string, taskId: string, tool: string, args: Record<string, unknown>, signal: AbortSignal, summarize: (v: unknown) => string): Promise<string> {
-    const request = Object.freeze({ requestId, taskId, tool, argsHash: hash(args), argsSummary: summarize(args), createdAt: now(), expiresAt: new Date(Date.now() + this.ttlMs).toISOString() });
+    const hasTtl = Number.isFinite(this.ttlMs) && this.ttlMs > 0;
+    const request: ApprovalRequest = Object.freeze({
+      requestId, taskId, tool, argsHash: hash(args), argsSummary: summarize(args), createdAt: now(),
+      ...(hasTtl ? { expiresAt: new Date(Date.now() + this.ttlMs).toISOString() } : {}),
+    });
     this.pending.set(requestId, request);
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(new Error('approval_expired')), this.ttlMs);
-    const combined = AbortSignal.any([signal, controller.signal]);
+    const controller = new AbortController();
+    const timeout = hasTtl ? setTimeout(() => controller.abort(new Error('approval_expired')), this.ttlMs) : undefined;
+    const combined = hasTtl ? AbortSignal.any([signal, controller.signal]) : signal;
     try {
       if (!this.responder) throw new Error('approval_unavailable');
       const answer = await abortable(this.responder(request, combined), combined);
       if (!answer) throw new Error('approval_denied');
-      if (Date.now() >= Date.parse(request.expiresAt) || this.pending.get(requestId) !== request || hash(args) !== request.argsHash) throw new Error('approval_invalid');
+      if ((request.expiresAt && Date.now() >= Date.parse(request.expiresAt)) || this.pending.get(requestId) !== request || hash(args) !== request.argsHash) throw new Error('approval_invalid');
       return request.argsHash;
-    } finally { clearTimeout(timeout); this.pending.delete(requestId); }
+    } finally { if (timeout) clearTimeout(timeout); this.pending.delete(requestId); }
   }
 }

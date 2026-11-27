@@ -140,13 +140,14 @@ check('contract', 'Prompt budget disclosure keeps prefixHash and stable prompt c
     const tracker = new WorkingStateTracker();
     const attachments = tracker.attachments({
       task: t, runId: 'budget-snapshot-run', state, store: data, registry, permissionMode: 'explore', visibleTools: registry.list(),
-      budgets: { steps: 5, maxSteps: 40, toolCalls: 12, maxToolCalls: 48, maxSameToolCalls: 16, callsByTool: { web_search: 8, web_fetch: 3 } },
+      budgets: { steps: 5, maxSteps: 40, toolCalls: 12, maxToolCalls: 48, maxSameToolCalls: 16, callsByTool: { web_search: 8, web_fetch: 3 }, tokensUsed: 120_000, maxTokens: 400_000 },
     });
     const status = JSON.parse(attachments.find(item => item.name === 'Execution and agent status')!.content);
     assert.equal(status.budgets.steps, '5/40');
     assert.equal(status.budgets.tools, '12/48');
     assert.equal(status.budgets.sameToolCap, 16);
     assert.equal(status.budgets.byTool.web_search, 8);
+    assert.equal(status.budgets.tokens, '120000/400000');
 
     const webDefs = createWebToolDefinitions({ allowedDomains: ['bigmodel.cn'], urls: [] });
     assert.match(webDefs.find(d => d.name === 'web_search')!.description, /budgets/i);
@@ -617,4 +618,66 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
   const readDigest = JSON.parse(inputsSeen[1].newMessages.find((m: any) => m.message.role === 'toolResult').message.content[0].text);
   assert.equal(readDigest.memoryDigest, true);
   assert.ok(readDigest.preview.length <= 240);
+});
+
+check('integration', 'Pi session injects token budget warning in _hostBudgetNotice at >=75% maxTokens without mutating system prompt or observations', async () => {
+  const data = store(), registry = new ToolRegistry(), web = webTestSource();
+  const t: CompetitorTask = { ...task(), allowedSources: ['web'] };
+  await registry.register('web', 'builtin', web.client, live);
+  const initialPlan = json<Decision[]>('fixtures/model-script.json')[0] as Extract<Decision, { kind: 'call_tool' }>;
+  const planDecision: Decision = { ...initialPlan, args: { ...initialPlan.args, taskId: t.taskId, sources: ['web'] } };
+
+  // 8 turns * 150 tokens = 1200 maxTokens: Turn 5 = 750 (63%, no notice), Turn 6 = 900 (75%, token notice on review), Turn 7 = 1050 (88%, suppressed on draft), Turn 8 = 1200 (respond).
+  const provider = await startBudgetPiProvider([
+    { decision: planDecision },
+    { decision: { kind: 'call_tool', name: 'web_search', args: { query: 'Node.js release 1', limit: 5 } } },
+    { decision: { kind: 'call_tool', name: 'web_search', args: { query: 'Node.js release 2', limit: 5 } } },
+    { decision: { kind: 'call_tool', name: 'web_fetch', args: { url: 'https://nodejs.org/en/blog/release/v24.0.0' } } },
+    { decision: { kind: 'call_tool', name: 'workflow__analyze', args: {} } },
+    { decision: { kind: 'call_tool', name: 'workflow__review', args: {} } },
+    { decision: { kind: 'call_tool', name: 'workflow__draft', args: { narrative: 'Finished cleanly after token budget notice.', claimIds: [] } } },
+    { decision: { kind: 'respond', text: 'Completed within token budget.' } },
+  ]);
+
+  try {
+    const result = await runInvestigation(t, provider.model(), registry, data, 'live', {
+      builtinTools: false,
+      sessionMemory: false,
+      maxSteps: 20,
+      maxToolCalls: 30,
+      maxSameToolCalls: 30,
+      maxTokens: 1200,
+    });
+    assert.equal(result.status, 'partial', result.error);
+    assert.ok(result.report);
+    assert.deepEqual(provider.errors, []);
+
+    // System prompt remains identical across all turns (prompt cache prefix preserved).
+    const firstSystem = provider.requests[0].messages[0].content;
+    for (const req of provider.requests) assert.equal(req.messages[0].content, firstSystem);
+
+    const toolMessageFor = (reqIndex: number, toolCallId: string) => {
+      const msg = provider.requests[reqIndex].messages.find((m: any) => m.role === 'tool' && m.tool_call_id === toolCallId);
+      assert.ok(msg, `missing tool message ${toolCallId} in turn ${reqIndex + 1}`);
+      return JSON.parse(msg.content) as Record<string, unknown>;
+    };
+    // Turn 5 analyze result (750/1200 = 63%) has no token budget notice yet.
+    const analyzeMsg = toolMessageFor(5, 'budget-call-5-0');
+    assert.equal('_hostBudgetNotice' in analyzeMsg, false);
+    // Turn 6 review result (900/1200 = 75%) carries proactive token budget warning.
+    const reviewMsg = toolMessageFor(6, 'budget-call-6-0');
+    assert.match(String(reviewMsg._hostBudgetNotice), /Token budget: 900\/1200 \(75% used, 300 remaining\)/);
+    // Turn 7 draft result suppresses redundant token warning.
+    const draftMsg = toolMessageFor(7, 'budget-call-7-0');
+    assert.equal('_hostBudgetNotice' in draftMsg, false);
+
+    // Host state.observations never persist _hostBudgetNotice.
+    const state = data.read<AgentState>('states/' + result.runId + '.json', null!);
+    for (const obs of state.observations) {
+      if (obs.result && typeof obs.result === 'object') assert.equal('_hostBudgetNotice' in (obs.result as Record<string, unknown>), false);
+    }
+  } finally {
+    await provider.close();
+    await registry.close();
+  }
 });

@@ -9,10 +9,8 @@ import type {
   WorkbenchExtensions,
   WorkbenchProject,
 } from '@cwatch/core/types/runs';
-import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 
 export type MainTab = 'report' | 'process';
-export type TraceFilter = 'all' | 'model' | 'tool' | 'backend' | 'errors';
 
 export const $ = <E extends HTMLElement = HTMLElement>(id: string): E => document.getElementById(id) as E;
 
@@ -27,6 +25,10 @@ export function safeUrl(raw: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function langfuseTraceHref(run?: RunSnapshot): string | undefined {
+  return run?.langfuse?.traceUrl ? safeUrl(run.langfuse.traceUrl) : undefined;
 }
 
 export const statusNames: Record<RunStatus, string> = {
@@ -111,7 +113,6 @@ export interface ClientState {
   current?: RunSnapshot;
   view: 'workbench' | 'connections' | 'research';
   tab: MainTab;
-  traceDrawerOpen: boolean;
   settingsOpen: boolean;
   domainFilterOpen: boolean;
   highlightedClaimId?: string;
@@ -126,11 +127,6 @@ export interface ClientState {
   pendingMessage?: { runId: string; text: string; messageId: string };
   reportCache: Map<string, string>;
   loadingReports: Set<string>;
-  traceCache: Map<string, { revision: number; trace: StructuredTrace }>;
-  loadingTraces: Set<string>;
-  traceErrors: Map<string, string>;
-  traceFilter: TraceFilter;
-  selectedTraceStepId?: string;
   skillDetailCache: Map<string, SkillDetail>;
   activeSkillName?: string;
   loadingSkillName?: string;
@@ -155,7 +151,6 @@ export const state: ClientState = {
   savedReportMode: false,
   view: 'workbench',
   tab: 'report',
-  traceDrawerOpen: false,
   settingsOpen: false,
   domainFilterOpen: false,
   theme: readInitialTheme(),
@@ -165,10 +160,6 @@ export const state: ClientState = {
   drafts: new Map(),
   reportCache: new Map(),
   loadingReports: new Set(),
-  traceCache: new Map(),
-  loadingTraces: new Set(),
-  traceErrors: new Map(),
-  traceFilter: 'all',
   skillDetailCache: new Map(),
   mcpTestResults: new Map(),
   testingMcpSlugs: new Set(),

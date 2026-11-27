@@ -49,9 +49,24 @@ function seedRichRun(outputRoot: string): { runId: string; traceRunId: string; s
     updatedAt: endedAt,
     endedAt,
     traceRunId,
+    langfuse: {
+      status: 'exported',
+      traceId: '0123456789abcdef0123456789abcdef',
+      traceUrl: 'https://cloud.langfuse.com/project/proj-fixture/traces/0123456789abcdef0123456789abcdef',
+    },
     activities: [
-      { sequence: 1, timestamp: '2026-04-10T08:00:01.000Z', kind: 'plan', message: '调查计划已保存并提交。' },
-      { sequence: 2, timestamp: '2026-04-10T08:00:17.000Z', kind: 'system', message: '调查已完成，报告已保存。' },
+      { sequence: 1, timestamp: '2026-04-10T08:00:01.000Z', kind: 'plan', stage: 0, message: '调查计划已保存并提交。' },
+      { sequence: 2, timestamp: '2026-04-10T08:00:02.000Z', kind: 'tool', stage: 1, tool: 'web_search', message: '准备调用 web_search', detail: '{"query":"Acme Code Plan pricing 2026"}', callId: 'call-1', batchId: 'batch-1', batchSize: 3 },
+      { sequence: 3, timestamp: '2026-04-10T08:00:02.005Z', kind: 'tool', stage: 1, tool: 'web_fetch', message: '准备调用 web_fetch', detail: '{"url":"https://docs.acme.example/pricing/code-plan-2026"}', callId: 'call-2', batchId: 'batch-1', batchSize: 3 },
+      { sequence: 4, timestamp: '2026-04-10T08:00:02.010Z', kind: 'tool', stage: 1, tool: 'web_fetch', message: '准备调用 web_fetch', detail: '{"url":"https://timeout.acme.example/old"}', callId: 'call-3', batchId: 'batch-1', batchSize: 3 },
+      { sequence: 5, timestamp: '2026-04-10T08:00:04.000Z', kind: 'tool', stage: 1, tool: 'web_search', state: 'completed', message: 'web_search 已完成', callId: 'call-1' },
+      { sequence: 6, timestamp: '2026-04-10T08:00:05.000Z', kind: 'tool', stage: 1, tool: 'web_fetch', state: 'completed', message: 'web_fetch 已完成', callId: 'call-2' },
+      { sequence: 7, timestamp: '2026-04-10T08:00:06.000Z', kind: 'error', stage: 1, tool: 'web_fetch', state: 'failed', message: 'web_fetch 未完成', detail: 'timeout: upstream fetch timed out', callId: 'call-3' },
+      { sequence: 8, timestamp: '2026-04-10T08:00:07.000Z', kind: 'analysis', stage: 1, tool: 'workflow__assess_search', message: '准备调用 workflow__assess_search', detail: '{"query":"Acme Code Plan pricing 2026"}' },
+      { sequence: 9, timestamp: '2026-04-10T08:00:07.200Z', kind: 'error', stage: 1, tool: 'workflow__assess_search', state: 'failed', message: 'workflow__assess_search 未完成', detail: 'Error: search_candidate_not_observed' },
+      { sequence: 10, timestamp: '2026-04-10T08:00:08.000Z', kind: 'tool', stage: 1, tool: 'web_search', message: '准备调用 web_search', detail: '{"query":"extra query"}', callId: 'call-4' },
+      { sequence: 11, timestamp: '2026-04-10T08:00:08.050Z', kind: 'tool', stage: 1, tool: 'web_search', state: 'skipped', message: 'web_search 已跳过（工具额度受限）', callId: 'call-4' },
+      { sequence: 12, timestamp: '2026-04-10T08:00:17.000Z', kind: 'system', stage: 4, message: '调查已完成，报告已保存。' },
     ],
     approvals: [],
     gaps: ['pricing_enterprise_tier: 未公开企业版年度折扣细则'],
@@ -471,119 +486,54 @@ registerCase('integration', 'Evidence Rail renders enriched fields, toggles snap
   }
 });
 
-registerCase('integration', 'Trace drawer renders semantic summary cards, collapses raw JSON by default, supports prev/next step replay and blocks XSS', async () => {
-  const h = await createHarness('trace-semantic', {}, true);
+registerCase('integration', 'Workbench retires custom trace drawer and renders safe external Langfuse Trace links', async () => {
+  const h = await createHarness('langfuse-link', {}, true);
   try {
     await h.page.goto(h.app.origin);
     await h.ui.openSavedRun(h.seeded!.runId);
     await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
-    await h.ui.openTrace();
-    await h.page.locator('.trace-tree .trace-row').first().waitFor({ state: 'visible' });
 
-    const totalSteps = await h.page.locator('.trace-tree .trace-row').count();
-    assert.equal(totalSteps, 11, 'Expected 1 run + 3 model + 7 tool steps');
+    // Custom trace drawer and toggle button are retired from the workbench DOM
+    assert.equal(await h.page.locator('#trace-drawer').count(), 0);
+    assert.equal(await h.page.locator('#toggle-trace-drawer').count(), 0);
 
-    // Step 1 (agent.run, non-semantic): position 1/11, prev disabled, next enabled, raw JSON open by default
-    const pos = h.page.locator('.trace-step-position');
-    const prevBtn = h.page.locator('.trace-replay-bar').getByRole('button', { name: '上一步', exact: true });
-    const nextBtn = h.page.locator('.trace-replay-bar').getByRole('button', { name: '下一步', exact: true });
-    assert.equal(await pos.textContent(), `第 1 / ${totalSteps} 步`);
-    assert.equal(await prevBtn.isDisabled(), true);
-    assert.equal(await nextBtn.isDisabled(), false);
-    assert.equal(await h.page.locator('.trace-semantic-card').count(), 0);
-    assert.equal(await h.page.locator('.trace-detail details').first().evaluate(el => (el as HTMLDetailsElement).open), true);
+    // Header Langfuse Trace direct link is visible with safe external link attributes
+    const lfLink = h.ui.langfuseLink();
+    await lfLink.waitFor({ state: 'visible' });
+    assert.equal(
+      await lfLink.getAttribute('href'),
+      'https://cloud.langfuse.com/project/proj-fixture/traces/0123456789abcdef0123456789abcdef',
+    );
+    assert.equal(await lfLink.getAttribute('target'), '_blank');
+    assert.equal(await lfLink.getAttribute('rel'), 'noopener noreferrer');
+    assert.match((await lfLink.innerText()).trim(), /Langfuse Trace/);
 
-    // Click "下一步" to step 2 (model.turn calling workflow__save_plan)
-    await nextBtn.click();
-    assert.equal(await pos.textContent(), `第 2 / ${totalSteps} 步`);
-    assert.equal(await prevBtn.isDisabled(), false);
-    const modelCardText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(modelCardText.includes('调用工具'));
-    assert.ok(modelCardText.includes('workflow__save_plan'));
-    assert.ok(modelCardText.includes('420 tokens'));
-    // Raw JSON details collapsed by default and expandable on click
-    const rawDetails = h.page.locator('.trace-raw-details');
-    assert.equal(await rawDetails.count(), 2);
-    assert.equal(await rawDetails.nth(0).evaluate(el => (el as HTMLDetailsElement).open), false);
-    assert.equal(await rawDetails.nth(1).evaluate(el => (el as HTMLDetailsElement).open), false);
-    assert.equal(await rawDetails.nth(0).locator('summary').textContent(), '原始输入载荷 (JSON)');
-    assert.equal(await rawDetails.nth(1).locator('summary').textContent(), '原始输出载荷 (JSON)');
-    await rawDetails.nth(0).locator('summary').click();
-    assert.equal(await rawDetails.nth(0).evaluate(el => (el as HTMLDetailsElement).open), true);
+    // Collect stage shows exact tool counts (including workflow errors & skipped) and renders parallel batch as a file tree
+    await h.page.locator('#pipeline [data-pipeline-stage="1"]').click();
+    const collectDetail = h.page.locator('#pipeline-detail');
+    const collectText = await collectDetail.innerText();
+    assert.ok(collectText.includes('5 次'), 'Collect tool total should count all 5 stage-1 tools');
+    assert.ok(collectText.includes('2 / 2（1 跳过）'), 'Collect success/failure/skipped counts must match stage-1 tool outcomes');
+    const collectBatch = collectDetail.locator('.step-batch[data-batch-id="batch-1"]');
+    await collectBatch.waitFor({ state: 'visible' });
+    assert.ok((await collectBatch.locator('.step-pill.cat-batch').innerText()).includes('并行 ×3'));
+    assert.equal(await collectBatch.locator('.step-tree-item').count(), 3);
 
-    // Click "下一步" to step 3 (workflow__save_plan)
-    await nextBtn.click();
-    assert.equal(await pos.textContent(), `第 3 / ${totalSteps} 步`);
-    const planText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(planText.includes('核验 Acme Code Plan 2026 年 4 月最新定价与功能配额变化'));
-    assert.ok(planText.includes('site:acme.example Acme Code Plan pricing 2026'));
-    assert.ok(planText.includes('公开 HTTPS 来源链接与 SHA-256 快照'));
-    assert.equal(await h.page.locator('.trace-raw-details').first().evaluate(el => (el as HTMLDetailsElement).open), false);
+    // Process tab also renders parallel tool batches as file trees with expandable error detail
+    await h.page.getByRole('tab', { name: /执行轨迹/ }).click();
+    const processBatch = h.page.locator('#process-content .step-batch[data-batch-id="batch-1"]');
+    await processBatch.waitFor({ state: 'visible' });
+    assert.equal(await processBatch.locator('.step-tree-item').count(), 3);
+    assert.ok((await processBatch.locator('.step-batch-head').innerText()).includes('2 成功 · 1 异常'));
+    await processBatch.locator('.step-tree-item.state-failed summary').click();
+    assert.ok((await processBatch.locator('.step-tree-item.state-failed .error-pre').innerText()).includes('timeout: upstream fetch timed out'));
 
-    // Click "上一步" to verify backward replay returns to step 2
-    await prevBtn.click();
-    assert.equal(await pos.textContent(), `第 2 / ${totalSteps} 步`);
-
-    // Select web_search directly and verify safe URL list + XSS defense
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'web_search' }).click();
-    const searchText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(searchText.includes('Acme Code Plan pricing 2026'));
-    assert.ok(searchText.includes('命中 2 条'));
-    assert.equal(await h.page.locator('.trace-semantic-card a[href="https://docs.acme.example/pricing/code-plan-2026"]').count(), 1);
-    assert.equal(await h.page.locator('.trace-semantic-card a[href^="javascript:"]').count(), 0);
-    assert.equal(await h.page.locator('.trace-semantic-card img[src=x]').count(), 0);
-    assert.equal(await h.page.evaluate(() => Reflect.get(window, '__traceXss')), undefined);
-
-    // Select web_fetch and verify URL, HTTP status, page title, char count & truncated badge
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'web_fetch' }).click();
-    const fetchText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(fetchText.includes('Acme Code Plan 2026 Pricing Page'));
-    assert.ok(fetchText.includes('抓取成功'));
-    assert.ok(fetchText.includes('HTTP 200'));
-    assert.ok(fetchText.includes('正文已截断'));
-    assert.ok(fetchText.includes('字符'));
-
-    // Select workflow__extract_signal
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'workflow__extract_signal' }).click();
-    const extractText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(extractText.includes('price'));
-    assert.ok(extractText.includes('acme-code-plan-pro-2026'));
-    assert.ok(extractText.includes('$29/月，速率配额翻倍'));
-    assert.ok(extractText.includes('Starting April 8, 2026'));
-
-    // Select workflow__analyze
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'workflow__analyze' }).click();
-    const analyzeText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(analyzeText.includes('产出主张'));
-    assert.ok(analyzeText.includes('历史比较'));
-    assert.ok(analyzeText.includes('pricing_enterprise_tier'));
-
-    // Select workflow__review and verify decision tone, reworkAvailable & issues
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'workflow__review' }).click();
-    const reviewText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(reviewText.includes('needs_evidence'));
-    assert.ok(reviewText.includes('已解锁返工补充'));
-    assert.ok(reviewText.includes('snapshot_missing_or_corrupt:ev-acme-02'));
-    assert.equal(await h.page.locator('.trace-semantic-badge.tone-warn').count(), 1);
-
-    // Select workflow__draft
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'workflow__draft' }).click();
-    const draftText = await h.page.locator('.trace-semantic-card').innerText();
-    assert.ok(draftText.includes('reports/' + h.seeded!.traceRunId + '.md'));
-    assert.ok(draftText.includes('2 条'));
-    assert.ok(draftText.includes('accept'));
-
-    // Jump to last step and verify "下一步" is disabled at boundary
-    await h.page.locator('.trace-tree .trace-row').last().click();
-    assert.equal(await pos.textContent(), `第 ${totalSteps} / ${totalSteps} 步`);
-    assert.equal(await nextBtn.isDisabled(), true);
-    assert.ok((await h.page.locator('.trace-semantic-card').innerText()).includes('输出文本响应'));
-
-    // Filter to tools only and verify step navigation adapts to filtered list
-    await h.page.locator('#trace-drawer [data-trace-filter="tool"]').click();
-    assert.equal(await pos.textContent(), '第 1 / 7 步');
-    await nextBtn.click();
-    assert.equal(await pos.textContent(), '第 2 / 7 步');
+    // Draft pipeline stage action also links directly to Langfuse
+    await h.page.locator('#pipeline [data-pipeline-stage="4"]').click();
+    const draftLfLink = h.page.locator('#pipeline-detail a[href^="https://cloud.langfuse.com/"]');
+    await draftLfLink.waitFor({ state: 'visible' });
+    assert.equal(await draftLfLink.getAttribute('target'), '_blank');
+    assert.equal(await draftLfLink.getAttribute('rel'), 'noopener noreferrer');
 
     assert.deepEqual(h.pageErrors, []);
     assert.deepEqual(h.consoleErrors, []);
@@ -592,7 +542,7 @@ registerCase('integration', 'Trace drawer renders semantic summary cards, collap
   }
 });
 
-registerCase('integration', 'Evidence Rail and Trace Drawer maintain theme parity and zero horizontal overflow on 390px mobile plus clean real-replay degradation', async () => {
+registerCase('integration', 'Evidence Rail and Langfuse header maintain theme parity and zero horizontal overflow on 390px mobile plus clean real-replay degradation', async () => {
   const h = await createHarness('theme-mobile', {}, true);
   try {
     await h.page.goto(h.app.origin);
@@ -600,7 +550,9 @@ registerCase('integration', 'Evidence Rail and Trace Drawer maintain theme parit
     await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
     await h.page.locator('#evidence-rail .evidence-card').first().waitFor({ state: 'visible' });
 
-    // Expand full metadata drawer containing 64-char SHA-256 and long URL
+    // Expand full metadata drawer containing 64-char SHA-256 and long URL, plus stage-1 parallel file tree
+    await h.page.locator('#pipeline [data-pipeline-stage="1"]').click();
+    await h.page.locator('#pipeline-detail .step-batch').first().waitFor({ state: 'visible' });
     await h.page.locator('#evidence-rail .evidence-card').first().locator('.evidence-detail-toggle').click();
     await h.page.locator('#evidence-rail .evidence-detail-panel').first().waitFor({ state: 'visible' });
 
@@ -612,22 +564,12 @@ registerCase('integration', 'Evidence Rail and Trace Drawer maintain theme parit
     await h.page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'No horizontal overflow on 390px with expanded evidence rail in dark theme');
 
-    // Open Trace drawer on 390px mobile (dark theme) on web_fetch + workflow__analyze
-    await h.ui.openTrace();
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'web_fetch' }).click();
-    assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'No horizontal overflow on 390px with Trace drawer open (dark)');
-
     // Switch back to light theme and check 390px again
-    await h.ui.closeTrace();
     await h.page.setViewportSize({ width: 1440, height: 1080 });
     await h.page.locator('#theme-toggle').click();
     assert.equal(await h.page.evaluate(() => document.documentElement.dataset.theme), 'light');
     await h.page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'No horizontal overflow on 390px in light theme');
-
-    await h.ui.openTrace();
-    await h.page.locator('.trace-tree .trace-row', { hasText: 'workflow__save_plan' }).click();
-    assert.equal(await h.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'No horizontal overflow on 390px with Trace drawer open (light)');
 
     assert.deepEqual(h.pageErrors, []);
     assert.deepEqual(h.consoleErrors, []);
@@ -657,10 +599,7 @@ registerCase('integration', 'Evidence Rail and Trace Drawer maintain theme parit
     const card = hReal.page.locator('#evidence-rail .evidence-card').first();
     await card.waitFor({ state: 'visible' });
     assert.equal((await card.innerText()).includes('undefined'), false);
-    await hReal.ui.openTrace();
-    await hReal.page.locator('.trace-tree .trace-row', { hasText: 'workflow__save_plan' }).click();
-    assert.equal(await hReal.page.locator('.trace-semantic-card').isVisible(), true);
-    assert.equal(await hReal.page.locator('.trace-raw-details').first().evaluate(el => (el as HTMLDetailsElement).open), false);
+    assert.equal(await hReal.ui.langfuseLink().isVisible(), false, 'Replay run must not show external Langfuse link');
     assert.deepEqual(hReal.pageErrors, []);
     assert.deepEqual(hReal.consoleErrors, []);
   } finally {

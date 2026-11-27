@@ -115,7 +115,7 @@ export class InvestigationWorkflow implements SourceClient {
       { name: 'assess_search', description: 'Choose relevant returned URLs for the question and exact search query. Also accepts already-read URLs with query omitted. Empty search results are assessed automatically.', action: 'analyze' as const, inputSchema: z.toJSONSchema(assessSearchSchema, { target: 'draft-7' }) },
       { name: 'submit_analysis', description: 'Give one verified, conflict, or insufficient finding per planned question, using claim IDs from analyze. Verified findings require supported claims.', action: 'analyze' as const, inputSchema: z.toJSONSchema(submitAnalysisSchema, { target: 'draft-7' }) },
     ] : []),
-    { name: 'extract_signal', description: 'Extract a verifiable CompetitorSignal from an already fetched page using a verbatim quote checked against the fetched text/snapshot (publishedAt: ISO-8601 or null).' + (this.task.evidencePolicy ? ' For forum authorship, quote a visible byline that identifies the role; leave unknown without a byline.' : ''), action: 'analyze', inputSchema: this.task.evidencePolicy ? extractSignalInputSchema : legacyExtractSignalInputSchema },
+    { name: 'extract_signal', description: 'Extract a verifiable CompetitorSignal from an already fetched page using a verbatim quote checked against the fetched text/snapshot (publishedAt: ISO-8601 or null).' + (this.task.evidencePolicy ? ' For non-forum pages without a visible author byline (official docs, pricing, changelog), omit authorship or set authorship.role="unknown". Only set a non-unknown role with a verbatim byline copied from the page (required for official_forum posts).' : ''), action: 'analyze', inputSchema: this.task.evidencePolicy ? extractSignalInputSchema : legacyExtractSignalInputSchema },
     { name: 'analyze', description: 'Normalize collected observations, attribute entities, store evidence/fact versions and compare history.', action: 'analyze', inputSchema: empty },
     { name: 'review', description: this.task.evidencePolicy ? 'Audit every analyzed question against all six dimensions. For each issue give a correction. Only propose a targeted recheck with a concrete allowed URL or query for an unresolved question.' : 'Read-only reviewer checks claim/evidence identity, chronology and counter evidence.', action: 'analyze', inputSchema: this.task.evidencePolicy ? z.toJSONSchema(reviewAnalysisSchema, { target: 'draft-7' }) : empty },
     { name: 'draft', description: this.task.evidencePolicy ? 'Save the reviewed findings. Pass exactly the approvedClaimIds returned by review.' : 'Save a draft from reviewed claims and your narrative; only known claim IDs allowed.', action: 'local_draft', inputSchema: z.toJSONSchema(this.task.evidencePolicy ? draftSchema.partial({ narrative: true }) : draftSchema, { target: 'draft-7' }) },
@@ -218,7 +218,7 @@ export class InvestigationWorkflow implements SourceClient {
           && verifySameUrlSearchQuote(candidate.sourceSlug);
         if (inPage || inSnapshot || inSameUrlCorroborated) { matched = { ...candidate, pageNorm }; break; }
       }
-      if (!matched) throw new Error('quote_not_found_in_fetched_page');
+      if (!matched) throw new Error('quote_not_found_in_fetched_page: copy a shorter verbatim substring directly from the fetched page text or snapshot (avoid paraphrasing or inserting punctuation/dates not in the page).');
       const hostname = new URL(input.url).hostname.toLowerCase();
       const matchedDomain = domainMatchesCompetitor(this.task.competitor.domains, hostname);
       const openDomains = this.task.competitor.domains.some(entry => entry.trim() === '*');
@@ -227,7 +227,15 @@ export class InvestigationWorkflow implements SourceClient {
       const entityId = matchedDomain || (openDomains && entityTerms.some(term => mentionCorpus.includes(term))) ? this.task.competitor.id : null;
       const cleanQuote = this.trace.redactor.clean(input.quote.trim());
       const authorship = input.authorship;
-      if (authorship?.role !== undefined && authorship.role !== 'unknown' && (!authorship.byline || !matched.pageNorm.includes(normalizeText(authorship.byline)))) throw Error('authorship_requires_verifiable_byline');
+      const isForum = this.progress?.sourceKind(input.url) === 'official_forum';
+      let effectiveAuthorship = authorship;
+      let authorshipNote: string | undefined;
+      if (authorship?.role === 'official_announcement' && !authorship.byline && !isForum) {
+        effectiveAuthorship = { role: 'unknown' };
+        authorshipNote = 'Normalized authorship.role to "unknown" because no verbatim byline was supplied on this non-forum page (non-forum official pages are attributed by URL domain).';
+      } else if (authorship?.role !== undefined && authorship.role !== 'unknown' && (!authorship.byline || !matched.pageNorm.includes(normalizeText(authorship.byline)))) {
+        throw Error('authorship_requires_verifiable_byline: non-unknown authorship.role requires a verbatim byline present in the fetched page; for pages without a visible author byline (such as official docs, pricing, or changelog pages), omit authorship or set authorship.role="unknown".');
+      }
       const extractedSignal = SignalSchema.parse(this.trace.redactor.clean({
         entity: { id: entityId, name: this.task.competitor.name, domain: hostname },
         product: this.task.product,
@@ -238,7 +246,7 @@ export class InvestigationWorkflow implements SourceClient {
         content: { title: input.title, value: input.value, polarity: input.polarity },
         published_at: input.publishedAt !== undefined ? input.publishedAt : matched.page.published_at,
         retrieved_at: matched.page.retrieved_at,
-        ...(authorship ? { authorship } : this.progress ? { authorship: { role: 'unknown' } } : {}),
+        ...(effectiveAuthorship ? { authorship: effectiveAuthorship } : this.progress ? { authorship: { role: 'unknown' } } : {}),
         collectionStatus: 'success_with_data',
       }));
       const record: ExtractedSignalRecord = {
@@ -265,6 +273,7 @@ export class InvestigationWorkflow implements SourceClient {
         excerpt: record.excerpt,
         stagedCount: this.extractedSignals.length,
         signal: extractedSignal,
+        ...(authorshipNote ? { authorshipNote } : {}),
       };
     }
     if (name === 'analyze') {
@@ -335,7 +344,17 @@ export class InvestigationWorkflow implements SourceClient {
       const claimEvidence = this.progress ? this.facts.evidence().filter(item => this.claims.some(claim => claim.evidenceIds.includes(item.id))).map(item => ({
         id: item.id, url: item.signal.url, source: item.signal.sourceSlug, authorship: item.signal.authorship ?? { role: 'unknown' }, publishedAt: item.signal.published_at, excerpt: item.excerpt?.slice(0, 500),
       })) : undefined;
-      return { claims: this.claims, comparisons: this.comparisons, gaps: this.gaps, evidenceIds: this.evidenceIds, reworkRound: this.reworkCount, ...(this.collection ? { collection: this.collection, claimEvidence } : {}) };
+      return {
+        claims: this.claims,
+        comparisons: this.comparisons,
+        gaps: this.gaps,
+        evidenceIds: this.evidenceIds,
+        reworkRound: this.reworkCount,
+        nextStep: this.progress
+          ? 'Call workflow__submit_analysis now with one finding per planned question based on the returned claims and gaps (use status="insufficient" where verified claims are missing). Do not re-read page snapshots before submitting analysis.'
+          : 'Call workflow__review now with the analyzed claims.',
+        ...(this.collection ? { collection: this.collection, claimEvidence } : {}),
+      };
     }
     if (name === 'submit_analysis' && this.progress) {
       if (!this.analyzed || this.reviewed || this.drafted) throw Error('analysis_submission_out_of_order');

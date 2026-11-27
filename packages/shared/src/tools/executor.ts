@@ -9,7 +9,17 @@ import { requestPreToolUseApproval, type PreToolUseRequest, type ToolCallHandsha
 
 export class ToolExecutor {
   private dispatch: ReturnType<ToolRegistry['dispatcher']>;
-  constructor(readonly registry: ToolRegistry, readonly policy: ActionPolicy, readonly approvals: ApprovalManager, readonly store: FileStore, readonly trace: Trace, readonly task: AgentTask, readonly toolTimeoutMs = 15_000, readonly prerequisiteManager?: PrerequisiteManagerLike) { this.dispatch = registry.dispatcher(); }
+  constructor(
+    readonly registry: ToolRegistry,
+    readonly policy: ActionPolicy,
+    readonly approvals: ApprovalManager,
+    readonly store: FileStore,
+    readonly trace: Trace,
+    readonly task: AgentTask,
+    readonly toolTimeoutMs = 15_000,
+    readonly prerequisiteManager?: PrerequisiteManagerLike,
+    readonly onApprovalWait?: { pause(): void; resume(): void },
+  ) { this.dispatch = registry.dispatcher(); }
   async execute(name: string, rawArgs: Record<string, unknown>, signal: AbortSignal, expectedBinding?: ToolBinding, sdkToolCallId?: string, handshake?: ToolCallHandshake): Promise<unknown> {
     signal.throwIfAborted();
     const binding = structuredClone(expectedBinding ?? this.registry.binding(name));
@@ -25,7 +35,7 @@ export class ToolExecutor {
     write();
     const checkInput = { toolName: name, input: args, task: this.task, binding, registry: this.registry, policy: this.policy, prerequisiteManager: this.prerequisiteManager };
     const timeout = new AbortController();
-    const timeoutHandle = setTimeout(() => timeout.abort(new DOMException('tool timeout', 'TimeoutError')), this.toolTimeoutMs);
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const combined = AbortSignal.any([signal, timeout.signal]);
     try {
       const request: PreToolUseRequest = {
@@ -33,9 +43,10 @@ export class ToolExecutor {
         bindingId: binding.id, argsHash: record.argsHash, input: args,
         ...(sdkToolCallId ? { sdkToolCallId } : {}),
       };
-      const response = await requestPreToolUseApproval(request, { ...checkInput, approvals: this.approvals, trace: this.trace }, combined);
-      if (handshake) { combined.throwIfAborted(); await abortable(handshake.onResponse(response), combined); }
-      combined.throwIfAborted();
+      // Human approval waits must not consume tool execution timeout.
+      const response = await requestPreToolUseApproval(request, { ...checkInput, approvals: this.approvals, trace: this.trace, onApprovalWait: this.onApprovalWait }, signal);
+      if (handshake) { signal.throwIfAborted(); await abortable(handshake.onResponse(response), signal); }
+      signal.throwIfAborted();
       if (response.requestId !== requestId || response.taskId !== this.task.taskId || response.toolName !== name || response.bindingId !== binding.id || response.argsHash !== hash(args) || response.sdkToolCallId !== sdkToolCallId) throw new Error('pre_tool_response_mismatch');
       if (response.action !== 'allow') throw new Error(response.reason);
       const approvedHash = response.approvedArgsHash;
@@ -43,6 +54,9 @@ export class ToolExecutor {
       if (recheck.decision === 'BLOCK' || (recheck.decision === 'APPROVAL' && approvedHash !== hash(args))) throw new Error('policy_changed_or_unapproved');
       record.state = 'executing'; record.execute_count = 1; write();
       this.trace.emit('execution_started', { requestId, bindingId: binding.id, ...(sdkToolCallId ? { sdkToolCallId } : {}) });
+      if (name !== 'workflow__save_plan') {
+        timeoutHandle = setTimeout(() => timeout.abort(new DOMException('tool timeout', 'TimeoutError')), this.toolTimeoutMs);
+      }
       let stageSequence = 0;
       const result = await abortable(this.dispatch(binding, args, combined, {
         event: (type, data) => { combined.throwIfAborted(); this.trace.emit(type, { ...data, requestId, bindingId: binding.id }); },

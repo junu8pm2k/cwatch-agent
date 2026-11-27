@@ -1936,6 +1936,116 @@ main#main {
   gap: 8px;
 }
 
+.step-pill.cat-batch {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.step-batch {
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  transition: border-color 140ms ease;
+}
+.step-batch.state-failed {
+  border-color: var(--error-border);
+}
+.step-batch.state-running {
+  border-color: var(--accent-border);
+}
+
+.step-batch-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.step-card-list.compact .step-batch-head {
+  padding: 7px 10px;
+}
+
+.step-batch-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.step-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px 6px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.step-card-list.compact .step-tree-list {
+  padding: 3px 6px 5px 22px;
+}
+
+.step-tree-item {
+  position: relative;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+.step-tree-item::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: -4px;
+  bottom: -4px;
+  width: 1.5px;
+  background: var(--line-strong);
+}
+.step-tree-item:last-child::before {
+  bottom: auto;
+  height: 22px;
+}
+.step-tree-item::after {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 17px;
+  width: 11px;
+  height: 1.5px;
+  background: var(--line-strong);
+}
+.step-card-list.compact .step-tree-item:last-child::before {
+  height: 19px;
+}
+.step-card-list.compact .step-tree-item::after {
+  top: 14px;
+  width: 9px;
+  left: -12px;
+}
+.step-card-list.compact .step-tree-item::before {
+  left: -12px;
+}
+
+.step-tree-item > details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.step-tree-item > details > summary::-webkit-details-marker {
+  display: none;
+}
+.step-tree-item .step-card-row {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.step-tree-item .step-card-row:hover {
+  background: var(--surface-subtle);
+}
+.step-card-list.compact .step-tree-item .step-card-row {
+  padding: 5px 7px;
+}
+.step-tree-item .step-card-detail {
+  padding: 2px 8px 8px;
+}
+
 /* ==================== Editorial Report & Evidence Companion Rail ==================== */
 .report-card {
   padding: 22px 24px;
@@ -3439,6 +3549,10 @@ input.research-input {
     padding: 10px 14px;
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+    max-width: 100%;
   }
   .run-bar {
     flex-direction: column;
