@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding, type ToolAdmission, type ToolBudgetSnapshot } from '@cwatch/core/types';
 import { ContextPipeline } from '@cwatch/shared/agent/core/prompt-builder';
-import { ProviderRejectionSchema } from '@cwatch/shared/agent/events';
+import { MemoryAttemptSchema, ProviderRejectionSchema } from '@cwatch/shared/agent/events';
 import { applyAgentPromptSnapshot, readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Trace, Redactor, type TraceEvent } from '@cwatch/shared/sessions/trace';
@@ -19,6 +19,40 @@ import { SessionMemoryStore } from '@cwatch/shared/sessions/memory';
 import { PromptCacheStats } from '@cwatch/shared/agent/core/prompt-cache';
 import { PiBuiltinSource, PI_BUILTIN_SOURCE } from '@cwatch/shared/tools/pi-builtins';
 const decisionContent = (decision: Decision | undefined): string => canonical(decision?.kind === 'call_tools' ? { kind: decision.kind, calls: decision.calls.map(({ name, args }) => ({ name, args })) } : decision);
+
+// Only diagnostic fields cross from the session archive into the public trace.
+function memoryAttemptDetails(customType: string, value: unknown) {
+  if (!value || typeof value !== 'object') return;
+  const data = value as Record<string, unknown>;
+  if (customType === 'cwatch.memory_request') return {
+    phase: 'request', attempt: data.attempt, maxAttempts: data.maxAttempts,
+    maxOutputTokens: data.maxTokens, checkpointRevision: data.expectedRevision,
+  };
+  if (customType === 'cwatch.memory_wire_request') return {
+    phase: 'wire', attempt: data.attempt, wireMaxOutputTokens: data.maxTokens,
+  };
+  if (customType === 'cwatch.memory_response') {
+    let textChars = 0, thinkingChars = 0;
+    for (const block of Array.isArray(data.content) ? data.content : []) {
+      if (block?.type === 'text' && typeof block.text === 'string') textChars += block.text.length;
+      if (block?.type === 'thinking' && typeof block.thinking === 'string') thinkingChars += block.thinking.length;
+    }
+    const stopReason = ['stop','length','toolUse','error','aborted'].includes(String(data.stopReason)) ? data.stopReason : 'unknown';
+    return { phase: 'response', stopReason, textChars, thinkingChars };
+  }
+  if (customType === 'cwatch.memory_recovery') return {
+    phase: 'recovery', attempt: data.attempt, reason: data.reason, action: data.action,
+    ...(data.validationErrors === undefined ? {} : { validationErrors: data.validationErrors }),
+    ...(data.checkpointRevision === undefined ? {} : { checkpointRevision: data.checkpointRevision }),
+    ...(data.pendingRounds === undefined ? {} : { pendingRounds: data.pendingRounds }),
+    ...(data.consecutiveFailures === undefined ? {} : { consecutiveFailures: data.consecutiveFailures }),
+    ...(data.circuitOpen === undefined ? {} : { circuitOpen: data.circuitOpen }),
+  };
+  if (customType === 'cwatch.memory_degraded') return {
+    phase: 'degraded', reason: data.reason, checkpointRevision: data.checkpointRevision,
+    pendingRounds: data.pendingRounds, consecutiveFailures: data.consecutiveFailures, circuitOpen: data.circuitOpen,
+  };
+}
 export interface AgentRuntimeOptions extends LimitOptions {
   initialGaps?: string[];
   skillPath?: string; secrets?: string[]; userSkills?: SkillBundle;
@@ -247,6 +281,11 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         } else if (entry.type === 'custom' && entry.customType === 'cwatch.response_revision') {
           const data = z.object({ length: z.int().positive(), limit: z.int().positive() }).strict().parse(entry.data);
           trace.emit('response_revision_requested', { iteration: state.iteration, ...data });
+        } else if (entry.type === 'custom' && typeof entry.customType === 'string' && entry.customType.startsWith('cwatch.memory_')) {
+          const details = memoryAttemptDetails(entry.customType, entry.data);
+          if (!details) continue;
+          const parsed = MemoryAttemptSchema.safeParse(details);
+          if (parsed.success) trace.emit('session_memory_attempt', { iteration: state.iteration, attemptDetails: parsed.data });
         }
       },
       sessionMemory: request => {

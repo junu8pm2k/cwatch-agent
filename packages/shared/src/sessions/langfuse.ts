@@ -47,7 +47,10 @@ export function langfusePayload(
     const start = step.timing.requestedAt ?? step.timing.startedAt ?? step.timing.endedAt;
     const end = step.timing.endedAt;
     if (!start || !end) throw Error('langfuse_export: missing step timing');
-    const failed = Boolean(step.error) || ['failed', 'blocked', 'cancelled'].includes(step.status);
+    const blockedByMemory = typeof step.attributes.blockedByMemoryStep === 'string';
+    const memoryDegraded = record(step.attributes.memoryDegraded);
+    const degradedByMemory = typeof memoryDegraded.reason === 'string';
+    const failed = Boolean(step.error) || ['failed', 'cancelled'].includes(step.status) || step.status === 'blocked' && !blockedByMemory;
     const attributes = [
       attribute('langfuse.observation.type', step.kind === 'model' ? 'generation' : step.kind === 'tool' ? 'tool' : step.kind === 'run' ? 'agent' : 'span'),
       attribute('langfuse.trace.name', 'cwatch.agent'), attribute('langfuse.session.id', sessionId),
@@ -57,7 +60,7 @@ export function langfusePayload(
       attribute('langfuse.observation.metadata.correlation', step.correlation),
       attribute('langfuse.observation.metadata.details', step.attributes),
       attribute('langfuse.observation.input', step.input), attribute('langfuse.observation.output', step.output),
-      attribute('langfuse.observation.level', failed ? 'ERROR' : step.status === 'partial' ? 'WARNING' : 'DEFAULT'),
+      attribute('langfuse.observation.level', failed ? 'ERROR' : step.status === 'partial' || blockedByMemory || degradedByMemory ? 'WARNING' : 'DEFAULT'),
     ];
     if (step.kind === 'run') {
       for (const [key, value] of Object.entries(metadata)) {
@@ -65,6 +68,8 @@ export function langfusePayload(
       }
     }
     if (step.error) attributes.push(attribute('langfuse.observation.status_message', step.error.message));
+    else if (blockedByMemory) attributes.push(attribute('langfuse.observation.status_message', 'Session memory failed before this model request. See the model.memory attempt.'));
+    else if (degradedByMemory) attributes.push(attribute('langfuse.observation.status_message', `Session memory degraded (${memoryDegraded.reason}); continued with previous checkpoint${memoryDegraded.circuitOpen === true ? ' (memory circuit open)' : ''}.`));
     if (Object.keys(agentPrompts).length) {
       attributes.push(attribute('langfuse.observation.metadata.agentPrompts', agentPrompts), attribute('langfuse.observation.metadata.agentPromptSnapshot', agentPrompts.snapshotSha256));
       for (const reference of Array.isArray(agentPrompts.references) ? agentPrompts.references : []) {

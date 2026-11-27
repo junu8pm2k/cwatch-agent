@@ -365,3 +365,32 @@ check('contract', 'Historical compaction entries without a commit remain readabl
   assert.match(JSON.stringify(active), /Historical plain-text summary/); assert.ok(!JSON.stringify(active).includes('raw-marker-1'));
   assertCompleteApiRounds(active);
 });
+
+check('contract', 'Formal summary uses Step 5 maintenance contract and recovers once from output truncation or invalid JSON without retrying provider errors', async () => {
+  const h = await harness();
+  for (let i = 1; i <= 3; i++) toolTurn(h.manager, i);
+  const { model: step5Model } = await createPiRuntime('stepfun-summary', 'step-5-preview', { apiKey: 'fixture-key', baseUrl: 'https://api.stepfun.com/v1' }, new AbortController().signal);
+  h.hooks.beforeRequest = () => ({ maxOutputTokens: 12_288 });
+  const calls: Array<{ maxTokens?: number; reasoning?: string; samplingParams?: Record<string, unknown>; systemPrompt?: string }> = [];
+  const runtime = {
+    completeSimple: async (_model: unknown, context: any, options: any) => {
+      calls.push({ maxTokens: options.maxTokens, reasoning: options.reasoning, samplingParams: options.samplingParams, systemPrompt: context.systemPrompt });
+      if (calls.length === 1) return { role: 'assistant', content: [{ type: 'thinking', thinking: 'exhausted thinking' }], usage, stopReason: 'length' };
+      return { role: 'assistant', content: [{ type: 'text', text: JSON.stringify({ userGoal: 'Recovered summary', completedWork: ['plan saved'], keyFiles: [], errorsAndFixes: [], unfinishedTasks: [], nextSteps: ['continue investigation'], references: [], sourceGaps: [] }) }], usage, stopReason: 'stop' };
+    },
+  } as unknown as ModelRuntime;
+  const active = await h.context.prepare(h.view(), runtime, step5Model, 12_288, new AbortController().signal);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(c => c.maxTokens), [6144, 8192]);
+  assert.ok(calls.every(c => c.reasoning === 'low' && (c.samplingParams as any)?.reasoning_effort === 'low' && (c.samplingParams as any)?.response_format?.type === 'json_object'));
+  assert.match(calls[1].systemPrompt ?? '', /exhausted its output limit/);
+  assert.match(JSON.stringify(active), /Recovered summary/);
+
+  // Provider error responses must stop immediately without retrying.
+  const errHarness = await harness();
+  for (let i = 1; i <= 3; i++) toolTurn(errHarness.manager, i);
+  let errorAttempts = 0;
+  const errRuntime = { completeSimple: async () => { errorAttempts++; return { role: 'assistant', content: [], usage, stopReason: 'error' }; } } as unknown as ModelRuntime;
+  await assert.rejects(errHarness.context.prepare(errHarness.view(), errRuntime, errHarness.model, 4096, new AbortController().signal), /context_compaction_failed/);
+  assert.equal(errorAttempts, 1);
+});

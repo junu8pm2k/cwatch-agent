@@ -47,6 +47,8 @@ Web 工作台的 `GET /api/runs/<工作台任务ID>/trace` 返回同一结构，
 
 `summary.knownTokens` 是可取得用量的合计，`totalTokens` 在用量不完整时为 null。模型轮次不等同供应商物理请求次数，无法确认时 physicalModelRequests 为 null；目前没有可信价格结算信息，actualCost 为 null。辅助 Memory/Compact 用量没有独立请求起始事件时，其步骤标为 unknown，不推测请求耗时或执行成功。
 
+在运行详情中选择 `model.memory` 可以查看一次会话记忆更新的输出上限、实际用量、停止原因、正文与推理长度，以及重试、降级、熔断状态、校验错误和检查点保存结果。若记忆更新降级放行，对应 `model.turn` 会显示记忆降级提示并可通过「查看记忆尝试」跳到失败步骤；若因硬错误阻塞了下一轮模型调用，选择该 `model.turn` 同样可通过「查看记忆尝试」跳到对应步骤。
+
 ## 评测与校验
 
 Runtime 评测保存 `structuredTracePath`。评分器验证 Schema，并依据原始 JSONL、精确字节哈希重新生成结构后逐字段比较；缺失、被修改或不一致都会使 Trace 完整性检查失败。评分器版本指纹包含投影实现。旧观测没有声明结构化路径时仍按既有 JSONL 规则处理。

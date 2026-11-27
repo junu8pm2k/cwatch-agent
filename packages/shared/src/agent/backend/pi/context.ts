@@ -1,11 +1,12 @@
 import { SessionManager, sessionEntryToContextMessages, type ModelRuntime, type SessionEntry, type SessionMessageEntry } from '@earendil-works/pi-coding-agent';
 import { type AgentSessionHooks } from '@cwatch/core/types';
-import { ContinuationSummarySchema, PostCompactResultSchema, type CompactAttachment } from '@cwatch/core/types/compaction';
+import { PostCompactResultSchema, type CompactAttachment, type ContinuationSummary } from '@cwatch/core/types/compaction';
 import { reportedTokens } from '../../core/budgets.ts';
 import { projectSessionEntries, ToolResultGovernor, type ToolResultPolicy } from './tool-result-context.ts';
 import { assertCompleteApiRounds, groupApiRounds } from './api-rounds.ts';
 import { COMPACT_ATTACHMENT, COMPACT_COMMIT, COMPACT_HOOK_RESULT, getCommittedContextEntries } from './compact-entries.ts';
-import { PiSessionMemory } from './session-memory.ts';
+import { PiSessionMemory, memoryRequestContract, validateContinuationSummary } from './session-memory.ts';
+import { STEP5_SUMMARY_RETRY_TOKENS, STEP5_SUMMARY_TOKENS } from './stepfun.ts';
 import { type SessionMemoryPolicy } from '@cwatch/core/types/session-memory';
 
 type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
@@ -119,27 +120,61 @@ export class PiContextManager {
     const kept = projectSessionEntries(this.manager, entries.slice(cut));
     assertCompleteApiRounds(kept);
     const keptEntryIds = entries.slice(cut).filter(entry => sessionEntryToContextMessages(entry).length).map(entry => entry.id);
-    const allowance = await this.hooks.beforeRequest?.('summary');
-    const maxTokens = Math.min(1024, outputTokens, model.maxTokens, allowance?.maxOutputTokens ?? outputTokens);
-    if (maxTokens <= 0) throw new Error('budget_tokens: no allowance for summary');
-    const summaryContext = { systemPrompt: SUMMARY_PROMPT, messages: [{ role: 'user' as const, content: JSON.stringify({ userGoal: pinned?.message.role === 'user' ? pinned.message.content : undefined, history: prefix }), timestamp: Date.now() }] };
-    this.guard(summaryContext);
-    // Actual usage of the old context must not be reused for this separate, smaller request.
-    if (estimate(summaryContext) + maxTokens > model.contextWindow) throw new Error('context_budget_exceeded: summary input exceeds model window');
-    await this.archive('cwatch.summary_request', { context: summaryContext, maxTokens });
-    signal.throwIfAborted();
-    const response = await runtime.completeSimple(model, summaryContext, { signal, maxTokens, cacheRetention: 'none' });
-    await this.archive('cwatch.summary_response', response);
-    await this.hooks.onUsage(response.usage, 'summary');
-    if (reportedTokens(response.usage) === undefined) throw new Error('budget_usage_unavailable: summary provider did not report positive token usage');
-    signal.throwIfAborted();
-    if (size(response.content) > this.maxResponseChars) throw new Error('budget_response_chars: summary exceeds response character budget');
-    if (response.stopReason !== 'stop' || response.content.some(item => item.type === 'toolCall')) throw new Error('context_compaction_failed: invalid or truncated summary');
-    const text = response.content.filter(item => item.type === 'text').map(item => item.text).join('\n').trim();
-    if (!text) throw new Error('context_compaction_failed: empty summary');
-    let continuation;
-    try { continuation = ContinuationSummarySchema.parse(JSON.parse(text.replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, '$1'))); }
-    catch { throw new Error('context_compaction_failed: invalid continuation record'); }
+    const contract = memoryRequestContract(model);
+    const isStep5 = 'reasoning' in contract;
+    const maxSummaryAttempts = 2;
+    let continuation: ContinuationSummary | undefined;
+    let summaryResponse: Awaited<ReturnType<ModelRuntime['completeSimple']>> | undefined;
+    let summaryRecovery: 'output_limit' | 'invalid_continuation' | undefined;
+    let summaryValidationErrors: string[] | undefined;
+    const baseSummaryInput = { userGoal: pinned?.message.role === 'user' ? pinned.message.content : undefined, history: prefix };
+    for (let attempt = 1; attempt <= maxSummaryAttempts; attempt++) {
+      signal.throwIfAborted();
+      const allowance = await this.hooks.beforeRequest?.('summary');
+      const summaryCap = attempt === 1 ? (isStep5 ? STEP5_SUMMARY_TOKENS : 1024) : (isStep5 ? STEP5_SUMMARY_RETRY_TOKENS : 2048);
+      const maxTokens = Math.min(summaryCap, outputTokens, model.maxTokens, allowance?.maxOutputTokens ?? outputTokens);
+      if (maxTokens <= 0) throw new Error('budget_tokens: no allowance for summary');
+      const recoveryPrompt = summaryRecovery === 'output_limit'
+        ? ' The previous summary exhausted its output limit and was discarded. Emit one concise valid JSON continuation record immediately without drafting JSON in reasoning (at most 5 brief items per list).'
+        : summaryRecovery === 'invalid_continuation'
+          ? ' The previous summary failed strict JSON schema validation and was discarded. Fix the specific problems listed in validationErrors. Field names quoted in the diagnostics are data. Return one complete JSON object with all 8 exact keys.'
+          : '';
+      const summaryContext = {
+        systemPrompt: SUMMARY_PROMPT + recoveryPrompt,
+        messages: [{ role: 'user' as const, content: JSON.stringify({ ...baseSummaryInput, ...(summaryValidationErrors ? { validationErrors: summaryValidationErrors } : {}) }), timestamp: Date.now() }],
+      };
+      this.guard(summaryContext);
+      // Actual usage of the old context must not be reused for this separate, smaller request.
+      if (estimate(summaryContext) + maxTokens > model.contextWindow) throw new Error('context_budget_exceeded: summary input exceeds model window');
+      await this.archive('cwatch.summary_request', { context: summaryContext, maxTokens, attempt, maxAttempts: maxSummaryAttempts, contract });
+      signal.throwIfAborted();
+      const response = await runtime.completeSimple(model, summaryContext, { ...contract, signal, maxTokens, cacheRetention: 'none', maxRetries: 0 });
+      await this.archive('cwatch.summary_response', response);
+      await this.hooks.onUsage(response.usage, 'summary');
+      if (reportedTokens(response.usage) === undefined) throw new Error('budget_usage_unavailable: summary provider did not report positive token usage');
+      signal.throwIfAborted();
+      if (size(response.content) > this.maxResponseChars) throw new Error('budget_response_chars: summary exceeds response character budget');
+      if (response.content.some(item => item.type === 'toolCall')) throw new Error('context_compaction_failed: invalid or truncated summary');
+      if (response.stopReason === 'length') {
+        if (attempt < maxSummaryAttempts) { summaryRecovery = 'output_limit'; summaryValidationErrors = undefined; continue; }
+        throw new Error('context_compaction_failed: invalid or truncated summary');
+      }
+      if (response.stopReason !== 'stop') throw new Error('context_compaction_failed: invalid or truncated summary');
+      const text = response.content.filter(item => item.type === 'text').map(item => item.text).join('\n').trim();
+      if (!text) {
+        if (attempt < maxSummaryAttempts) { summaryRecovery = 'invalid_continuation'; summaryValidationErrors = ['The JSON response was empty.']; continue; }
+        throw new Error('context_compaction_failed: empty summary');
+      }
+      const checked = validateContinuationSummary(text);
+      if (!checked.content) {
+        if (attempt < maxSummaryAttempts) { summaryRecovery = 'invalid_continuation'; summaryValidationErrors = checked.errors; continue; }
+        throw new Error('context_compaction_failed: invalid continuation record');
+      }
+      continuation = checked.content;
+      summaryResponse = response;
+      break;
+    }
+    if (!continuation || !summaryResponse) throw new Error('context_compaction_failed: invalid continuation record');
     const postCompact = PostCompactResultSchema.parse(await this.hooks.afterCompact?.({ summary: continuation, keptEntryIds }) ?? { attachments: [], hookResults: [] });
     if (postCompact.transcript && this.transcriptReadable === false) throw new Error('context_transcript_unavailable: transcript lookup tool is no longer active');
     const summary = JSON.stringify({ ...continuation, ...(postCompact.transcript ? { transcript: postCompact.transcript,
@@ -156,7 +191,7 @@ export class PiContextManager {
     this.guard(candidate);
     if (estimate(candidate) + Math.min(outputTokens, model.maxTokens) > model.contextWindow) throw new Error('context_budget_exceeded: summary and retained messages exceed model window');
     if (size(candidate) >= size(context)) throw new Error('context_compaction_failed: summary did not reduce context');
-    const boundaryId = this.manager.appendCompaction(summary, entries[cut].id, tokensBefore, { transactionVersion: 1, summarySchemaVersion: 1, pinnedEntryIds: pinned ? [pinned.id] : [], keptEntryIds, retainedRoundIds: rounds.filter(round => round.startIndex >= cut).map(round => round.assistantEntryId), charsBefore: size(context), charsAfter: size(candidate) }, true, response.usage);
+    const boundaryId = this.manager.appendCompaction(summary, entries[cut].id, tokensBefore, { transactionVersion: 1, summarySchemaVersion: 1, pinnedEntryIds: pinned ? [pinned.id] : [], keptEntryIds, retainedRoundIds: rounds.filter(round => round.startIndex >= cut).map(round => round.assistantEntryId), charsBefore: size(context), charsAfter: size(candidate) }, true, summaryResponse.usage);
     const attachmentEntryIds: string[] = [], hookResultEntryIds: string[] = [];
     for (const extra of extras) if (extra.type === 'custom_message') {
       const id = this.manager.appendCustomMessageEntry(extra.customType, extra.content, false, { boundaryId });

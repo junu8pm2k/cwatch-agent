@@ -491,7 +491,7 @@ check('contract', 'PiBuiltinSource resolves read-only retrievals/<hash>.txt from
   }
 });
 
-check('contract', 'ToolResultGovernor strips large details without adding fake [...snipped...] to <=16KB content, and PiSessionMemory compacts readback pages with 3072 incremental step-5 budget', async () => {
+check('contract', 'ToolResultGovernor strips large details without adding fake [...snipped...] to <=16KB content, and PiSessionMemory compacts readback pages with 6144 incremental step-5 budget', async () => {
   const manager = SessionManager.inMemory(process.cwd(), { id: 'no-false-snip' });
   manager.appendMessage({ role: 'user', content: 'Investigate GLM releases', timestamp: Date.now() });
   manager.appendMessage({
@@ -529,7 +529,7 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
   assert.equal(projectedText.includes('[...snipped...]'), false);
   assert.equal(projectedText.includes('Archived tool result (snip)'), false);
 
-  // Verify PiSessionMemory compacts session__read_tool_result payloads and grants 3072 maxTokens on incremental step-5 updates.
+  // Verify PiSessionMemory compacts session__read_tool_result payloads and grants 4096/6144 maxTokens on step-5 updates.
   const data = store(), sessionId = 'step5-incremental-mem', memManager = SessionManager.inMemory(process.cwd(), { id: sessionId });
   const redactor = new Redactor([]);
   const transcript = new SessionTranscript(data, sessionId, redactor);
@@ -546,7 +546,7 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
   const step5Model = {
     id: 'step-5-preview', name: 'step-5-preview', api: 'openai-completions', provider: 'stepfun',
     baseUrl: 'https://api.stepfun.com/v1', reasoning: true, input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 4096,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 64_000,
   } as any;
   const validMem = {
     userGoal: 'Collect GLM releases',
@@ -572,7 +572,7 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
   } as unknown as ModelRuntime;
   const updater = new PiSessionMemory(memManager, {
     sessionMemory: req => memStore.handle(req),
-    beforeRequest: () => ({ maxOutputTokens: 4096 }),
+    beforeRequest: () => ({ maxOutputTokens: 12_288 }),
     onUsage: () => {},
   }, policy, 150_000, 32_000, async (customType, entryData) => {
     memManager.appendCustomEntry(customType, entryData);
@@ -589,7 +589,7 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
   });
   memManager.appendMessage({ role: 'toolResult', toolCallId: 'c1', toolName: 'workflow__save_plan', content: [{ type: 'text', text: '{"submitted":true}' }], isError: false, timestamp: Date.now() });
   flush();
-  await updater.prepare(500, runtime, step5Model, 4096, live);
+  await updater.prepare(500, runtime, step5Model, 12_288, live);
 
   // Round 2: session__read_tool_result with 4096-char content slice -> incremental revision (loaded !== null)
   memManager.appendMessage({
@@ -608,10 +608,10 @@ check('contract', 'ToolResultGovernor strips large details without adding fake [
     timestamp: Date.now(),
   });
   flush();
-  await updater.prepare(1200, runtime, step5Model, 4096, live);
+  await updater.prepare(1200, runtime, step5Model, 12_288, live);
 
-  // Revision 1 gets 2048; Revision 2 (with existing currentMemory) gets 3072 so incremental merge succeeds on Attempt 1.
-  assert.deepEqual(maxTokensSeen, [2048, 3072]);
+  // Revision 1 gets 4096; Revision 2 (with existing currentMemory) gets 6144 so incremental merge succeeds on Attempt 1.
+  assert.deepEqual(maxTokensSeen, [4096, 6144]);
   // currentMemory arrays are pre-trimmed to <= 6 items and session__read_tool_result is compacted to a memoryDigest.
   assert.ok(inputsSeen[1].currentMemory.references.length <= 6);
   const readDigest = JSON.parse(inputsSeen[1].newMessages.find((m: any) => m.message.role === 'toolResult').message.content[0].text);

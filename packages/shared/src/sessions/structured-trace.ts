@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { reportedTokens } from '../agent/core/budgets.ts';
+import { MemoryAttemptSchema } from '../agent/events.ts';
 import type { TraceEvent } from './trace.ts';
 
 export const STRUCTURED_TRACE_VERSION = 'cwatch.structured-trace.v1' as const;
@@ -68,6 +69,7 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
   }
   const root=step(runStepId,'run','agent.run',null),calls=new Map<string,TraceStep>(),sdkCalls=new Map<string,TraceStep>(),models=new Map<number,TraceStep>(),bindings=new Map<string,Record<string,unknown>>();
   const stages=new Map<string,TraceStep>();let currentModel:TraceStep|undefined,executing:TraceStep|undefined,context:Record<string,unknown>|undefined;
+  let activeMemory:TraceStep|undefined,failedMemory:TraceStep|undefined;
   let terminal:TraceEvent|undefined,usageSummary:Record<string,unknown>={},knownTokens=0,usageRecords=0,unknownUsageRecords=0,auxiliaryUsageRecords=0;
   const terminalTypes=['run_completed','run_failed','run_cancelled'];
   for(const [index,event]of events.entries()){
@@ -84,6 +86,66 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
       owner.correlation.iteration=iteration;owner.input=json({contextChars:d.contextChars,context:context??null});owner.attributes=metadata({purpose:'turn',model:first.data.model??null});
       currentModel=owner;if(iteration!==null)models.set(iteration,owner);category='model';eventStatus='running';
     }
+    const memoryDetails=event.type==='session_memory_attempt'?MemoryAttemptSchema.safeParse(d.attemptDetails).data:undefined;
+    if(memoryDetails){
+      category='memory';
+      const {phase}=memoryDetails;
+      if(phase==='request'){
+        const {attempt,maxAttempts,maxOutputTokens,checkpointRevision}=memoryDetails;
+        owner=activeMemory=step(runId+':memory:'+(index+1),'model','model.memory',runStepId);
+        failedMemory=undefined;
+        owner.status='running';owner.timing.requestedAt=owner.timing.startedAt=event.timestamp;
+        owner.correlation.iteration=iteration;owner.input={attempt,maxAttempts,maxOutputTokens,checkpointRevision};owner.attributes={purpose:'memory'};
+      }else if(phase==='degraded'){
+        const {reason,checkpointRevision,pendingRounds,consecutiveFailures,circuitOpen}=memoryDetails;
+        owner=step(runId+':memory:'+(index+1),'model','model.memory',runStepId);
+        owner.timing.requestedAt=owner.timing.startedAt=owner.timing.endedAt=event.timestamp;
+        owner.correlation.iteration=iteration;owner.input={checkpointRevision};owner.attributes={purpose:'memory'};
+        owner.output=metadata({reason,action:'degrade',checkpointStatus:'unchanged',pendingRounds,consecutiveFailures,circuitOpen});
+        eventError=owner.error={code:reason,message:`Memory update skipped (${reason}). Continuing main turn with checkpoint revision ${checkpointRevision} unchanged.${circuitOpen?' Memory circuit opened for this run.':''}`,category:'model',retryable:false};
+        owner.status=eventStatus='failed';
+        if(currentModel&&currentModel.correlation.iteration===iteration){
+          currentModel.attributes.memoryDegraded=metadata({stepId:owner.stepId,reason,checkpointRevision,pendingRounds,consecutiveFailures,circuitOpen});
+        }
+        activeMemory=undefined;
+      }else if(activeMemory&&activeMemory.correlation.iteration===iteration){
+        owner=activeMemory;
+        if(phase==='wire'&&object(owner.input).attempt===memoryDetails.attempt)owner.input=metadata({...object(owner.input),wireMaxOutputTokens:memoryDetails.wireMaxOutputTokens});
+        if(phase==='response'){
+          const {stopReason,textChars,thinkingChars}=memoryDetails;
+          owner.output={stopReason,textChars,thinkingChars};
+        }
+        if(phase==='recovery'){
+          const {reason,action,validationErrors,pendingRounds,consecutiveFailures,circuitOpen}=memoryDetails;
+          const input=object(owner.input),output=object(owner.output),retryable=action==='retry',degraded=action==='degrade';
+          owner.output=metadata({...output,reason,action,validationErrors,checkpointStatus:'unchanged',
+            ...(pendingRounds===undefined?{}:{pendingRounds}),
+            ...(consecutiveFailures===undefined?{}:{consecutiveFailures}),
+            ...(circuitOpen===undefined?{}:{circuitOpen})});
+          const limit=input.wireMaxOutputTokens??input.maxOutputTokens;
+          const description=reason==='output_limit'
+            ? `reached the ${limit}-token output limit (${output.textChars??'unknown'} text characters, ${output.thinkingChars??'unknown'} reasoning characters).`
+            : reason==='invalid_working_state'
+              ? `returned invalid working state. ${validationErrors?.join(' ')??''}`
+              : reason==='unexpected_tool_call'
+                ? 'returned an unexpected tool call.'
+                : reason==='unsuccessful_response'
+                  ? `ended unsuccessfully (${output.stopReason??'unknown'}).`
+                  : 'exceeded maintenance input budget.';
+          const outcome=retryable?'Retrying.':degraded?`Continuing main turn.${circuitOpen?' Memory circuit opened for this run.':''}`:'Stopped.';
+          eventError=owner.error={code:reason,message:`Memory attempt ${input.attempt} ${description} ${outcome} Checkpoint revision ${input.checkpointRevision} unchanged.`,category:'model',retryable};
+          owner.status=eventStatus='failed';owner.timing.endedAt=event.timestamp;
+          if(action==='stop')failedMemory=owner;
+          if(degraded&&currentModel&&currentModel.correlation.iteration===iteration){
+            currentModel.attributes.memoryDegraded=metadata({stepId:owner.stepId,reason,checkpointRevision:input.checkpointRevision??0,
+              ...(pendingRounds===undefined?{}:{pendingRounds}),
+              ...(consecutiveFailures===undefined?{}:{consecutiveFailures}),
+              circuitOpen:Boolean(circuitOpen)});
+          }
+          activeMemory=undefined;
+        }
+      }
+    }
     if(['decision_made','provider_rejected','response_revision_requested'].includes(event.type)){
       owner=(iteration!==null?models.get(iteration):undefined)??currentModel??root;category='model';owner.timing.endedAt=event.timestamp;
       if(event.type==='decision_made'){owner.output=json(d.decision);owner.status='completed';}
@@ -94,7 +156,11 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
       category='model';const purpose=str(d.purpose)??'turn',total=reportedTokens(d.usage);
       usageRecords++;if(total===undefined)unknownUsageRecords++;else knownTokens+=total;
       if(purpose==='turn'||purpose==='rejected')owner=(iteration!==null?models.get(iteration):undefined)??currentModel??root;
-      else{auxiliaryUsageRecords++;owner=step(runId+':model-usage:'+(index+1),'model','model.'+purpose,runStepId);owner.status='unknown';owner.timing.endedAt=event.timestamp;owner.correlation.iteration=iteration;owner.attributes=metadata({purpose,timingAvailable:false,completionNotAsserted:true});}
+      else{
+        auxiliaryUsageRecords++;
+        if(purpose==='memory'&&activeMemory&&activeMemory.correlation.iteration===iteration)owner=activeMemory;
+        else{owner=step(runId+':model-usage:'+(index+1),'model','model.'+purpose,runStepId);owner.status='unknown';owner.timing.endedAt=event.timestamp;owner.correlation.iteration=iteration;owner.attributes=metadata({purpose,timingAvailable:false,completionNotAsserted:true});}
+      }
       owner.usage.push(metadata({purpose,reported:d.usage,cache:d.cache??null,totalTokens:total??null}));
     }
     if(requestId){
@@ -144,12 +210,24 @@ export function projectStructuredTrace(events:TraceEvent[],validationErrors:stri
       eventStatus=owner.status;
     }
     if(/^(plan_|evidence_saved)/.test(event.type)){owner=executing??root;category='workflow';if(d.error){eventError=normalizeError(d.error,'tool');eventStatus='failed';}}
-    if(event.type==='session_memory_updated')category='memory';
-    if(event.type==='budget_exceeded'){owner=requestId?calls.get(requestId)??root:currentModel??root;eventError=normalizeError(d.error,'budget',str(d.budget)??'budget_exceeded');eventStatus='failed';}
+    if(event.type==='session_memory_updated'){
+      category='memory';
+      if(activeMemory){
+        owner=activeMemory;owner.output=metadata({...object(owner.output),checkpointStatus:'saved',savedRevision:d.revision});
+        owner.status='completed';owner.timing.endedAt=event.timestamp;activeMemory=undefined;
+      }
+    }
+    if(event.type==='budget_exceeded'){owner=requestId?calls.get(requestId)??root:activeMemory??currentModel??root;eventError=normalizeError(d.error,'budget',str(d.budget)??'budget_exceeded');eventStatus='failed';}
     if(event.type==='usage_reported')usageSummary=d;
     if(terminalTypes.includes(event.type)){
       terminal=event;owner=root;root.timing.endedAt=event.timestamp;root.status=event.type==='run_failed'?'failed':event.type==='run_cancelled'?'cancelled':d.status==='partial'?'partial':'completed';
       root.output=json({response:d.response??null,report:d.report??null,gaps:d.gaps??[]});eventError=normalizeError(d.error,'runtime');root.error=eventError;eventStatus=root.status;
+      const blockingMemory=activeMemory??failedMemory;
+      if(blockingMemory&&currentModel?.status==='running'&&(root.status==='failed'||root.status==='cancelled')){
+        currentModel.status='blocked';currentModel.timing.endedAt=event.timestamp;
+        currentModel.timing.startedAt=null;
+        currentModel.attributes.blockedByMemoryStep=blockingMemory.stepId;
+      }
     }
     const attributes={...d};for(const key of ['task','input','result','observation','decision','usage','modelUsage','response','report'])delete attributes[key];
     if(!eventError)eventStatus=owner.status;

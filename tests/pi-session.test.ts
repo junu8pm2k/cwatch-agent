@@ -13,6 +13,8 @@ import { runAgent } from "@cwatch/server-core/runtime/agent";
 import { ToolRegistry } from "@cwatch/shared/tools/registry";
 import { ActionPolicy, ApprovalManager } from "@cwatch/shared/agent/core/permission-manager";
 import { validateTrace, type TraceEvent } from "@cwatch/shared/sessions/trace";
+import { StructuredTraceSchema } from '@cwatch/shared/sessions/structured-trace';
+import { langfusePayload } from '@cwatch/shared/sessions/langfuse';
 import { hash, type CompetitorTask, type Decision, type GenericTask, type ModelInput } from "@cwatch/core/types";
 import { PrerequisiteManager } from '@cwatch/shared/agent/core/prerequisite-manager';
 
@@ -331,15 +333,29 @@ check('integration', 'Real Pi session incrementally persists isolated session me
   assert.equal(read.revision, 2);
 });
 
-check('contract', 'Real Pi invalid memory response stops without a memory cursor or further business action', async () => {
-  const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1 } }, memoryResponse: 'vague unsupported memory' });
-  assert.match(actual.result.error!, /session_memory_update_failed/); assert.equal(actual.source.calls.length, 0);
-  assert.equal(actual.requests.length, 4);
+check('contract', 'Real Pi invalid memory response degrades after retries and lets the main task complete without polluting gaps', async () => {
+  const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1, growthTokens: 1_000_000, toolCalls: 1000 } }, memoryResponse: 'vague unsupported memory' });
+  assert.equal(actual.result.status, 'complete', actual.result.error);
+  assert.equal(actual.source.calls.length, 1);
+  assert.deepEqual(actual.result.gaps, []);
   assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 3);
-  const retries = actual.requests.slice(2).map(request => JSON.parse(request.messages.at(-1).content));
+  const maintenance = actual.requests.filter(request => JSON.stringify(request.messages[0]).includes('SESSION MEMORY UPDATE.'));
+  assert.equal(maintenance.length, 3);
+  const retries = maintenance.slice(1).map(request => JSON.parse(request.messages.at(-1).content));
   assert.ok(retries.every(input => input.validationErrors.some((error: string) => error.startsWith('Invalid JSON syntax'))));
   assert.equal(actual.data.read('session-memory/' + actual.result.runId + '.json', null), null);
   assert.ok(actual.data.lines<any>('sessions/' + actual.result.runId + '.jsonl').some(entry => entry.customType === 'cwatch.memory_response'));
+  const trace = StructuredTraceSchema.parse(actual.data.read('traces/' + actual.result.runId + '.json', null));
+  const attempts = trace.steps.filter(step => step.name === 'model.memory');
+  assert.equal(attempts.length, 3);
+  assert.deepEqual(attempts.map(step => step.error?.retryable), [true, true, false]);
+  assert.equal((attempts[2].output as any)?.action, 'degrade');
+  assert.ok(attempts.every(step => step.error?.code === 'invalid_working_state' && step.error.message.includes('Invalid JSON syntax')));
+  const degradedTurn = trace.steps.find(step => step.name === 'model.turn' && step.attributes.memoryDegraded);
+  assert.equal(degradedTurn?.status, 'completed');
+  assert.equal((degradedTurn?.attributes.memoryDegraded as any)?.stepId, attempts[2].stepId);
+  assert.equal((degradedTurn?.attributes.memoryDegraded as any)?.reason, 'invalid_working_state');
+  assert.doesNotMatch(JSON.stringify(trace), /vague unsupported memory/);
 });
 
 check('integration', 'Real Pi memory thinking-only truncation retries once, meters both responses and commits only valid JSON', async () => {
@@ -356,16 +372,74 @@ check('integration', 'Real Pi memory thinking-only truncation retries once, mete
   assert.equal(actual.events.filter(event => event.type === 'session_memory_updated').length, 1);
   const saved = actual.data.read<any>('session-memory/' + actual.result.runId + '.json', null).memory;
   assert.deepEqual(saved.content, state); assert.equal(saved.revision, 1);
+  const trace = StructuredTraceSchema.parse(actual.data.read('traces/' + actual.result.runId + '.json', null));
+  const attempts = trace.steps.filter(step => step.name === 'model.memory');
+  assert.deepEqual(attempts.map(step => step.status), ['failed', 'completed']);
+  assert.deepEqual(attempts[1].output, { stopReason: 'stop', textChars: JSON.stringify(state).length, thinkingChars: 0, checkpointStatus: 'saved', savedRevision: 1 });
+  assert.ok(trace.steps.filter(step => step.name === 'model.turn').every(step => step.status === 'completed'));
 });
 
-check('integration', 'Real Pi repeated memory exhaustion stops without committing or executing subsequent business tools', async () => {
-  const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1 } }, memorySteps: [
+check('integration', 'Real Pi repeated memory exhaustion degrades with cooldown, opens circuit on second failed batch, and completes the main task with Langfuse diagnostics', async () => {
+  const actual = await sessionCase(full(), { runtime: { sessionMemory: { initializeTokens: 1, growthTokens: 1_000_000, toolCalls: 2 } }, memorySteps: [
     { calls: [], thinking: 'first exhausted', finish: 'length' }, { calls: [], thinking: 'second exhausted', finish: 'length' },
+    { calls: [], thinking: 'third exhausted', finish: 'length' }, { calls: [], thinking: 'fourth exhausted', finish: 'length' },
   ] });
-  assert.match(actual.result.error!, /output limit exhausted after 2 attempts/);
-  assert.equal(actual.requests.length, 3); assert.equal(actual.source.calls.length, 0);
-  assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 2);
+  assert.equal(actual.result.status, 'complete', actual.result.error);
+  assert.deepEqual(actual.result.gaps, []);
+  assert.equal(actual.source.calls.length, 1);
+  assert.equal(actual.events.filter(event => event.type === 'model_usage' && event.data.purpose === 'memory').length, 4);
   assert.equal(actual.data.read('session-memory/' + actual.result.runId + '.json', null), null);
+  const trace = StructuredTraceSchema.parse(actual.data.read('traces/' + actual.result.runId + '.json', null));
+  const attempts = trace.steps.filter(step => step.name === 'model.memory');
+  assert.equal(attempts.length, 4);
+  const maintenanceRequests = actual.requests.filter(request => JSON.stringify(request.messages[0]).includes('SESSION MEMORY UPDATE.'));
+  assert.equal(maintenanceRequests.length, 4);
+  assert.deepEqual(attempts.slice(0, 2).map(step => step.input), maintenanceRequests.slice(0, 2).map((request, index) => {
+    const limit = request.max_tokens ?? request.max_completion_tokens;
+    return { attempt: index + 1, maxAttempts: 3, maxOutputTokens: limit, wireMaxOutputTokens: limit, checkpointRevision: 0 };
+  }));
+  assert.deepEqual(attempts[1].output, { stopReason: 'length', textChars: 0, thinkingChars: 'second exhausted'.length, reason: 'output_limit', action: 'degrade', checkpointStatus: 'unchanged', pendingRounds: 1, consecutiveFailures: 1, circuitOpen: false });
+  assert.equal((attempts[3].output as any)?.action, 'degrade');
+  assert.equal((attempts[3].output as any)?.consecutiveFailures, 2);
+  assert.equal((attempts[3].output as any)?.circuitOpen, true);
+  assert.deepEqual(attempts.map(step => step.error?.retryable), [true, false, true, false]);
+  assert.ok(attempts.every(step => step.usage.length === 1 && step.timing.startedAt && step.timing.endedAt));
+  const degradedTurns = trace.steps.filter(step => step.name === 'model.turn' && step.attributes.memoryDegraded);
+  assert.equal(degradedTurns.length, 2);
+  assert.equal((degradedTurns[0].attributes.memoryDegraded as any)?.stepId, attempts[1].stepId);
+  assert.equal((degradedTurns[1].attributes.memoryDegraded as any)?.circuitOpen, true);
+  assert.ok(trace.steps.filter(step => step.name === 'model.turn').every(step => step.status === 'completed' && step.error === null));
+  const { spans } = langfusePayload(trace, { environment: 'test' });
+  const failed = spans.filter(span => span.name === 'model.memory');
+  assert.deepEqual(failed.map(span => span.status.code), [2, 2, 2, 2]);
+  const attr = (span: typeof failed[number], key: string) => span.attributes.find(item => item.key === `langfuse.observation.${key}`)?.value.stringValue;
+  assert.equal(attr(failed[1], 'input'), JSON.stringify(attempts[1].input));
+  assert.equal(attr(failed[1], 'output'), JSON.stringify(attempts[1].output));
+  assert.equal(attr(failed[1], 'status_message'), attempts[1].error?.message);
+  assert.ok(attr(failed[1], 'usage_details'));
+  const turnSpans = spans.filter(span => span.name === 'model.turn');
+  assert.ok(turnSpans.every(span => span.status.code === 0));
+  const warnedTurns = turnSpans.filter(span => attr(span, 'level') === 'WARNING');
+  assert.equal(warnedTurns.length, 2);
+  assert.match(attr(warnedTurns[1], 'status_message') ?? '', /memory circuit open/);
+  assert.doesNotMatch(JSON.stringify({ trace, spans }), /first exhausted|second exhausted|third exhausted|fourth exhausted|SESSION MEMORY UPDATE/);
+});
+
+check('contract', 'Real Pi hard memory budget failure still stops the run and marks the waiting model turn blocked', async () => {
+  const actual = await sessionCase(full(), { runtime: { maxTokens: 200, sessionMemory: { initializeTokens: 1 } }, memorySteps: [
+    { calls: [], thinking: 'first exhausted', finish: 'length' },
+  ] });
+  assert.equal(actual.result.status, 'failed');
+  assert.match(actual.result.error ?? '', /budget_tokens/);
+  assert.equal(actual.source.calls.length, 0);
+  const trace = StructuredTraceSchema.parse(actual.data.read('traces/' + actual.result.runId + '.json', null));
+  const blocked = trace.steps.find(step => step.name === 'model.turn' && step.status === 'blocked');
+  assert.ok(blocked?.attributes.blockedByMemoryStep);
+  assert.equal(blocked?.error, null);
+  const { spans } = langfusePayload(trace, { environment: 'test' });
+  const blockedSpan = spans.find(span => span.name === 'model.turn' && span.attributes.some(item => item.key === 'langfuse.observation.metadata.status' && item.value.stringValue === 'blocked'));
+  assert.equal(blockedSpan?.status.code, 0);
+  assert.equal(blockedSpan?.attributes.find(item => item.key === 'langfuse.observation.level')?.value.stringValue, 'WARNING');
 });
 
 check('integration', 'Real Pi hanging memory recovery remains cancellable and cannot commit a checkpoint', async () => {

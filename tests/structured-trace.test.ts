@@ -62,6 +62,16 @@ check('contract','Auxiliary usage does not invent request timing, success or zer
   assert.equal(memory.status,'unknown');assert.equal(memory.timing.durationMs,null);assert.equal(memory.timing.startedAt,null);assert.equal(doc.summary.totalTokens,35);
   assert.equal(doc.summary.physicalModelRequests,null);assert.equal(doc.summary.actualCost,null);
 });
+check('contract','Memory delta_too_large degradation links to the continuing model turn without blocking it',()=>{
+  const data=store(),trace=new Trace(data,'degrade-task','degrade-run');trace.emit('run_started');trace.emit('model_requested',{iteration:1,contextChars:10});
+  trace.emit('session_memory_attempt',{iteration:1,attemptDetails:{phase:'degraded',reason:'delta_too_large',checkpointRevision:2,pendingRounds:3,consecutiveFailures:1,circuitOpen:false}});
+  trace.emit('decision_made',{decision:{kind:'respond',text:'Continued'}});trace.emit('run_completed',{status:'complete',response:'Continued',gaps:[]});
+  const doc=StructuredTraceSchema.parse(data.read(trace.structuredKey,null));
+  const memory=doc.steps.find(s=>s.name==='model.memory')!,turn=doc.steps.find(s=>s.name==='model.turn')!;
+  assert.equal(memory.status,'failed');assert.equal(memory.error?.code,'delta_too_large');
+  assert.deepEqual(memory.output,{reason:'delta_too_large',action:'degrade',checkpointStatus:'unchanged',pendingRounds:3,consecutiveFailures:1,circuitOpen:false});
+  assert.equal(turn.status,'completed');assert.deepEqual(turn.attributes.memoryDegraded,{stepId:memory.stepId,reason:'delta_too_large',checkpointRevision:2,pendingRounds:3,consecutiveFailures:1,circuitOpen:false});
+});
 check('contract','Historical JSONL exports are deterministic and leave the original event bytes unchanged',()=>{
   const data=store(),timestamp='2026-10-27T00:00:00Z';
   for(const [i,event]of [{type:'run_started',data:{}},{type:'model_requested',data:{iteration:1,contextChars:10}},{type:'decision_made',data:{decision:{kind:'respond',text:'Legacy response'}}},{type:'run_completed',data:{status:'complete',response:'Legacy response'}}].entries())data.append('traces/legacy.jsonl',{...event,taskId:'legacy-task',runId:'legacy',sequence:i+1,timestamp});

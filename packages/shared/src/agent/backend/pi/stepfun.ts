@@ -5,6 +5,11 @@ type Model = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 export const STEP5_MAX_OUTPUT_TOKENS = 64_000;
 export const STEP5_INITIAL_OUTPUT_TOKENS = 8192;
 export const STEP5_DEFAULT_OUTPUT_TOKENS = 12_288;
+export const STEP5_MEMORY_INITIAL_TOKENS = 4096;
+export const STEP5_MEMORY_UPDATE_TOKENS = 6144;
+export const STEP5_MEMORY_RETRY_TOKENS = 8192;
+export const STEP5_SUMMARY_TOKENS = 6144;
+export const STEP5_SUMMARY_RETRY_TOKENS = 8192;
 
 /** Apply StepFun parameters only on endpoints that document them. */
 export function isStep5Endpoint(modelId: string, baseUrl?: string): boolean {
