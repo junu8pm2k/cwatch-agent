@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       const approvals = new ApprovalManager(async (request, signal) => {
         if (!process.stdin.isTTY) throw new Error('approval_requires_interactive_terminal');
         const rl = createInterface({ input: process.stdin, output: process.stdout });
-        try { const answer = await rl.question(`审批 ${request.requestId}\n任务 ${request.taskId} 工具 ${request.tool}\n参数 ${request.argsSummary}\n哈希 ${request.argsHash} 到期 ${request.expiresAt}\n输入完整 requestId 以批准，其他输入拒绝：`, { signal }); return answer.trim() === request.requestId; }
+        try { const answer = await rl.question(`审批 ${request.requestId}\n任务 ${request.taskId} 工具 ${request.tool}\n参数 ${request.argsSummary}\n哈希 ${request.argsHash}${request.expiresAt ? ' 到期 ' + request.expiresAt : ''}\n输入完整 requestId 以批准，其他输入拒绝：`, { signal }); return answer.trim() === request.requestId; }
         finally { rl.close(); }
       });
       const nextUserMessage = async (answer: RunResult, signal: AbortSignal): Promise<string | null> => {

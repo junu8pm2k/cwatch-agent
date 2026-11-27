@@ -26,7 +26,31 @@ export interface MergedActivity {
   detail?: string;
   errorDetail?: string;
   stage?: number;
+  callId?: string;
+  batchId?: string;
+  batchSize?: number;
+  skipped?: boolean;
 }
+
+export interface BatchStepCounts {
+  completed: number;
+  failed: number;
+  running: number;
+  skipped: number;
+}
+
+export type StepRenderNode =
+  | { kind: 'single'; item: MergedActivity }
+  | {
+    kind: 'batch';
+    batchId: string;
+    items: MergedActivity[];
+    state: MergedActivity['state'];
+    counts: BatchStepCounts;
+    startedAt: string;
+    endedAt?: string;
+    durationMs?: number;
+  };
 
 function parseJsonSafe(raw?: string): Record<string, unknown> | undefined {
   if (!raw) return undefined;
@@ -114,12 +138,30 @@ const stageByCategory: Partial<Record<SemanticCategory, number>> = {
 
 /**
  * Merges paired `准备调用 <tool>` + `<tool> 已完成/未完成` events into clean single-row
- * semantic progress cards and filters repetitive process-lifecycle noise.
+ * semantic progress cards, infers legacy parallel batches, detects soft tool failures,
+ * and filters repetitive process-lifecycle noise.
  */
-export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
+export function mergeActivities(activities: RunActivity[], runActive = true): MergedActivity[] {
   const items: MergedActivity[] = [];
   const openByTool = new Map<string, MergedActivity[]>();
+  const openByCallId = new Map<string, MergedActivity>();
   let lastStage = 0;
+  let legacyBurst: MergedActivity[] = [];
+  let legacyBurstFirstSeq = 0;
+  let legacyBurstLastMs = 0;
+
+  const flushLegacyBurst = () => {
+    if (legacyBurst.length >= 2) {
+      const batchId = `legacy-batch-${legacyBurstFirstSeq}`;
+      for (const card of legacyBurst) {
+        if (!card.batchId) {
+          card.batchId = batchId;
+          card.batchSize = legacyBurst.length;
+        }
+      }
+    }
+    legacyBurst = [];
+  };
 
   for (const ev of activities) {
     // Skip noisy low-value boilerplate messages that clutter the stream
@@ -134,6 +176,7 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
       continue;
     }
     if (ev.kind === 'plan' && ev.message === '调查计划已保存并提交。') {
+      flushLegacyBurst();
       lastStage = 1;
       continue;
     }
@@ -144,6 +187,12 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
 
     // Tool start event
     if (ev.tool && meta && ev.message.startsWith('准备调用 ')) {
+      const evMs = Date.parse(ev.timestamp);
+      if (ev.batchId) {
+        flushLegacyBurst();
+      } else if (legacyBurst.length && (!Number.isFinite(evMs) || !Number.isFinite(legacyBurstLastMs) || Math.abs(evMs - legacyBurstLastMs) > 250)) {
+        flushLegacyBurst();
+      }
       const card: MergedActivity = {
         id: `act-${ev.sequence}`,
         category: meta.category,
@@ -154,29 +203,55 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
         tool: ev.tool,
         detail: ev.detail,
         stage,
+        ...(ev.callId ? { callId: ev.callId } : {}),
+        ...(ev.batchId ? { batchId: ev.batchId, batchSize: ev.batchSize } : {}),
       };
       items.push(card);
       const queue = openByTool.get(ev.tool) ?? [];
       queue.push(card);
       openByTool.set(ev.tool, queue);
+      if (ev.callId) openByCallId.set(ev.callId, card);
+      if (!ev.batchId) {
+        if (!legacyBurst.length) legacyBurstFirstSeq = ev.sequence;
+        legacyBurst.push(card);
+        legacyBurstLastMs = evMs;
+      }
       continue;
     }
 
-    // Tool finish event — attach to earliest matching running card
+    flushLegacyBurst();
+
+    // Tool finish event — prefer exact callId match, then fall back to earliest matching running card
     if (ev.tool && meta && (ev.state === 'skipped' || ev.message.endsWith(' 已完成') || ev.message.endsWith(' 未完成'))) {
+      let target: MergedActivity | undefined;
       const queue = openByTool.get(ev.tool);
-      const target = queue?.shift();
-      const succeeded = ev.state === 'completed' || ev.message.endsWith(' 已完成');
+      if (ev.callId && openByCallId.has(ev.callId)) {
+        target = openByCallId.get(ev.callId);
+        openByCallId.delete(ev.callId);
+        if (target && queue) {
+          const idx = queue.indexOf(target);
+          if (idx >= 0) queue.splice(idx, 1);
+        }
+      } else {
+        target = queue?.shift();
+        if (target?.callId) openByCallId.delete(target.callId);
+      }
+      const skipped = ev.state === 'skipped';
+      // Back-compat: historical activity logs marked soft tool errors as completed with error detail.
+      const hasSoftError = ev.state === 'completed' && Boolean(ev.detail) && ev.message.endsWith(' 已完成');
+      const succeeded = !skipped && !hasSoftError && (ev.state === 'completed' || ev.message.endsWith(' 已完成'));
       if (target) {
-        target.state = ev.state === 'skipped' ? 'info' : succeeded ? 'completed' : 'failed';
-        if (ev.state === 'skipped') target.title += '（额度受限，已跳过）';
+        target.state = skipped ? 'info' : succeeded ? 'completed' : 'failed';
+        if (skipped) {
+          target.skipped = true;
+          target.title += '（额度受限，已跳过）';
+        }
         target.endedAt = ev.timestamp;
         const delta = Date.parse(ev.timestamp) - Date.parse(target.startedAt);
         if (Number.isFinite(delta) && delta >= 0) target.durationMs = delta;
-        if (!succeeded && ev.detail) target.errorDetail = ev.detail;
+        if (!succeeded && !skipped && ev.detail) target.errorDetail = ev.detail;
         continue;
       }
-      const skipped = ev.state === 'skipped';
       items.push({
         id: `act-${ev.sequence}`,
         category: succeeded || skipped ? meta.category : 'error',
@@ -186,8 +261,9 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
         startedAt: ev.timestamp,
         endedAt: ev.timestamp,
         tool: ev.tool,
-        errorDetail: !succeeded ? ev.detail : undefined,
+        errorDetail: !succeeded && !skipped ? ev.detail : undefined,
         stage,
+        ...(skipped ? { skipped: true } : {}),
       });
       continue;
     }
@@ -232,5 +308,91 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
     });
   }
 
+  flushLegacyBurst();
+
+  // Finalize any still-running tool starts once the run has terminated so ended runs never report ghost "running" counts.
+  if (!runActive) {
+    for (const card of items) {
+      if (card.state === 'running') {
+        card.state = 'failed';
+        card.errorDetail = card.errorDetail ?? '运行已结束，该工具调用未返回结果。';
+      }
+    }
+  }
+
   return items;
+}
+
+/**
+ * Groups merged activities belonging to the same parallel tool call batch into tree nodes.
+ * Single-item batches (e.g. after stage filtering) remain ordinary single cards.
+ */
+export function groupMergedActivities(items: MergedActivity[]): StepRenderNode[] {
+  const byBatch = new Map<string, MergedActivity[]>();
+  for (const item of items) {
+    if (!item.batchId) continue;
+    const list = byBatch.get(item.batchId) ?? [];
+    list.push(item);
+    byBatch.set(item.batchId, list);
+  }
+
+  const nodes: StepRenderNode[] = [];
+  const emittedBatches = new Set<string>();
+  for (const item of items) {
+    if (!item.batchId) {
+      nodes.push({ kind: 'single', item });
+      continue;
+    }
+    const group = byBatch.get(item.batchId)!;
+    if (group.length < 2) {
+      nodes.push({ kind: 'single', item });
+      continue;
+    }
+    if (emittedBatches.has(item.batchId)) continue;
+    emittedBatches.add(item.batchId);
+
+    const counts: BatchStepCounts = {
+      completed: group.filter(s => s.state === 'completed').length,
+      failed: group.filter(s => s.state === 'failed').length,
+      running: group.filter(s => s.state === 'running').length,
+      skipped: group.filter(s => s.skipped).length,
+    };
+    const state: MergedActivity['state'] = counts.running > 0
+      ? 'running'
+      : counts.failed > 0
+        ? 'failed'
+        : counts.completed > 0
+          ? 'completed'
+          : 'info';
+
+    const startTimes = group.map(s => Date.parse(s.startedAt)).filter(Number.isFinite);
+    const endTimes = group.map(s => (s.endedAt ? Date.parse(s.endedAt) : NaN)).filter(Number.isFinite);
+    const startedAt = group[0].startedAt;
+    const maxEnd = counts.running === 0 && endTimes.length ? Math.max(...endTimes) : undefined;
+    const minStart = startTimes.length ? Math.min(...startTimes) : undefined;
+    const durationMs = maxEnd !== undefined && minStart !== undefined && maxEnd >= minStart
+      ? maxEnd - minStart
+      : undefined;
+
+    nodes.push({
+      kind: 'batch',
+      batchId: item.batchId,
+      items: group,
+      state,
+      counts,
+      startedAt,
+      endedAt: maxEnd !== undefined ? new Date(maxEnd).toISOString() : undefined,
+      durationMs,
+    });
+  }
+  return nodes;
+}
+
+export function formatBatchSummary(counts: BatchStepCounts): string {
+  const parts: string[] = [];
+  if (counts.completed) parts.push(`${counts.completed} 成功`);
+  if (counts.failed) parts.push(`${counts.failed} 异常`);
+  if (counts.skipped) parts.push(`${counts.skipped} 跳过`);
+  if (counts.running) parts.push(`${counts.running} 进行中`);
+  return parts.join(' · ');
 }

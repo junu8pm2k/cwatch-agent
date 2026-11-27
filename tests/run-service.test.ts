@@ -183,3 +183,87 @@ check('integration','RunService deletes completed runs, blocks deleting active r
     assert.deepEqual(blocking.delete(activeRun.id),{deleted:activeRun.id});
   }finally{await blocking.close();}
 });
+
+check('integration', 'RunService tags parallel call_tools batches with batchId/callId and marks soft tool failures as failed activities', async () => {
+  const data = store();
+  let round = 0;
+  const service = new RunService({
+    root: process.cwd(),
+    outputRoot: resolve(data.root, 'runs-parallel'),
+    modelFactory: () => ({
+      decide: async () => round++ === 0
+        ? {
+          kind: 'call_tools',
+          calls: [
+            { sdkToolCallId: 'sdk-ok', name: 'web_fetch', args: { url: 'https://ok.example' } },
+            { sdkToolCallId: 'sdk-soft-fail', name: 'web_fetch', args: { url: 'https://timeout.example' } },
+          ],
+        }
+        : { kind: 'respond', text: 'done' },
+    }),
+    configureRegistry: async (registry, signal) => {
+      await registry.register('web', 'builtin', {
+        listTools: async () => [{ name: 'web_fetch', namespace: 'native', description: 'mock fetch', action: 'collect', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } }],
+        callTool: async (_name, args) => String((args as { url?: string }).url).includes('timeout')
+          ? { status: 'timeout', error: 'upstream_timeout', provenance: 'live', signals: [], raw: '' }
+          : { status: 'success_with_data', provenance: 'live', signals: [], raw: 'ok' },
+        close: async () => {},
+      }, signal);
+    },
+  });
+  try {
+    const started = service.start({
+      profile: 'agent',
+      mode: 'replay',
+      permission: 'explore',
+      task: { kind: 'agent', taskId: 'parallel-batch-check', instruction: 'Run parallel fetch', allowedSources: ['web'] },
+    });
+    const done = await service.wait(started.id);
+    assert.ok(done.status === 'complete' || done.status === 'partial', done.error);
+    const starts = done.activities.filter(a => a.tool === 'web_fetch' && a.message.startsWith('准备调用 '));
+    assert.equal(starts.length, 2);
+    assert.ok(starts[0].batchId && starts[0].batchId === starts[1].batchId);
+    assert.equal(starts[0].batchSize, 2);
+    assert.deepEqual(starts.map(a => a.callId), ['sdk-ok', 'sdk-soft-fail']);
+    const finishes = done.activities.filter(a => a.tool === 'web_fetch' && !a.message.startsWith('准备调用 '));
+    assert.equal(finishes.length, 2);
+    const okFinish = finishes.find(a => a.callId === 'sdk-ok')!;
+    const failFinish = finishes.find(a => a.callId === 'sdk-soft-fail')!;
+    assert.equal(okFinish.kind, 'tool');
+    assert.equal(okFinish.state, 'completed');
+    assert.equal(failFinish.kind, 'error');
+    assert.equal(failFinish.state, 'failed');
+    assert.match(failFinish.detail ?? '', /upstream_timeout/);
+  } finally {
+    await service.close();
+  }
+});
+
+check('integration', 'RunService plan and tool approvals wait without automatic expiry or timeout closing the run', async () => {
+  const data = store(), fixture = approvalFixture();
+  const service = new RunService({ root: process.cwd(), outputRoot: data.root, ...fixture });
+  try {
+    const run = service.start({ ...start, permission: 'ask', limits: { timeoutMs: 1000, toolTimeoutMs: 1000 } });
+    const planned = await waitForRun(service, run.id, r => r.approvals.some(a => a.tool === 'workflow__save_plan'));
+    const planReq = planned.approvals[0];
+    assert.equal(planReq.expiresAt, undefined);
+    // Exceed both timeoutMs and toolTimeoutMs (1000ms) while waiting for plan approval.
+    await new Promise(resolve => setTimeout(resolve, 1150));
+    assert.equal(service.get(run.id).status, 'awaiting_approval');
+    service.respondToApproval(run.id, planReq.requestId, true, planReq.argsHash);
+
+    const pending = await waitForRun(service, run.id, r => r.approvals.some(a => a.tool !== 'workflow__save_plan'));
+    const toolReq = pending.approvals[0];
+    assert.equal(toolReq.expiresAt, undefined);
+    // Exceed both timeoutMs and toolTimeoutMs again while waiting for tool approval.
+    await new Promise(resolve => setTimeout(resolve, 1150));
+    assert.equal(service.get(run.id).status, 'awaiting_approval');
+    service.respondToApproval(run.id, toolReq.requestId, true, toolReq.argsHash);
+
+    const finished = await service.wait(run.id);
+    assert.equal(finished.status, 'complete', finished.error);
+    assert.equal(fixture.calls.filter(name => name === 'request_publish').length, 1);
+  } finally {
+    await service.close();
+  }
+});

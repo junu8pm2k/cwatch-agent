@@ -56,14 +56,8 @@ export class WorkbenchPage {
     await this.page.getByLabel('工具权限', { exact: true }).selectOption(permission);
   }
 
-  async openTrace(): Promise<void> {
-    await this.page.locator('#toggle-trace-drawer').click();
-    await this.page.locator('#trace-drawer').waitFor({ state: 'visible' });
-  }
-
-  async closeTrace(): Promise<void> {
-    await this.page.locator('#close-trace-drawer').click();
-    await this.page.locator('#trace-drawer').waitFor({ state: 'hidden' });
+  langfuseLink() {
+    return this.page.locator('#langfuse-trace-link');
   }
 
   async start(): Promise<void> {

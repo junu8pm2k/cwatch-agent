@@ -5,7 +5,7 @@ import { MemoryAttemptSchema, ProviderRejectionSchema } from '@cwatch/shared/age
 import { applyAgentPromptSnapshot, readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Trace, Redactor, type TraceEvent } from '@cwatch/shared/sessions/trace';
-import { exportToLangfuse, type LangfuseExportResult } from '@cwatch/shared/sessions/langfuse';
+import { LangfuseRunTracer, type LangfuseExportResult } from '@cwatch/shared/sessions/langfuse';
 import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
 import { ToolRegistry } from '@cwatch/shared/tools/registry';
 import { ToolExecutor } from '@cwatch/shared/tools/executor';
@@ -67,6 +67,8 @@ export interface AgentRuntimeOptions extends LimitOptions {
   workspaceRoot?: string;
   /** Host-controlled continuation. Waiting does not consume active execution time. */
   nextUserMessage?: (answer: RunResult, signal: AbortSignal) => Promise<string | null>;
+  /** Keyless CI OTLP span artifact output path (isomorphic with live Langfuse export). */
+  otelTraceFile?: string;
 }
 export interface RunResult { taskId: string; runId: string; permissionMode: Mode; status: 'complete' | 'partial' | 'failed' | 'cancelled'; report?: string; response?: string; error?: string; gaps: string[];
   langfuse?: LangfuseExportResult;
@@ -77,6 +79,8 @@ export interface TaskRuntimeContext {
   mode: 'live' | 'replay'; options: AgentRuntimeOptions; transcript?: SessionTranscript;
   workingState: WorkingStateTracker; memory?: SessionMemoryStore;
   toolBudgets(): ToolBudgetSnapshot;
+  pauseTimeout(): void;
+  resumeTimeout(): void;
 }
 export interface TaskExtension {
   slug: 'workflow' | 'session'; channel: 'workflow' | 'builtin'; client: SourceClient; gaps: string[];
@@ -100,7 +104,12 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   if (managedPrompts) options = { ...options, userSkills: managedPrompts.userSkills };
   if (options.nextUserMessage && isInvestigationTask(task)) throw new Error('conversation_requires_generic_agent');
   const redactor = new Redactor(options.secrets ?? Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, v]) => v ?? ''));
-  const trace = new Trace(store, task.taskId, runId, redactor, options.onEvent);
+  const otelTracer = new LangfuseRunTracer({ runId, taskId: task.taskId, mode, redactor, otelFilePath: options.otelTraceFile });
+  const trace = new Trace(store, task.taskId, runId, redactor, event => {
+    if (event.type === 'budget_exceeded') otelTracer.onBudgetExceeded(event.data);
+    else otelTracer.onToolTraceEvent(event.type, event.data);
+    options.onEvent?.(event);
+  });
   const transcript = model.runSession ? new SessionTranscript(store, runId, redactor) : undefined;
   const memoryPolicy = options.sessionMemory === false ? undefined : SessionMemoryPolicySchema.parse(options.sessionMemory ?? {});
   const memory = transcript && memoryPolicy ? new SessionMemoryStore(store, transcript, task.taskId, memoryPolicy, redactor) : undefined;
@@ -112,28 +121,32 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   let reservedForCompletion = completionReserve;
   const callsByTool = new Map<string, number>();
   const failuresByTool = new Map<string, number>();
+  const workflowFailedThisTurn = new Set<string>();
   let iteration = 0;
   const budgetSnapshot = (steps = iteration) => ({
     steps, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls,
     maxConsecutiveToolFailures: limits.maxConsecutiveToolFailures, toolCalls, reservedForCompletion,
     callsByTool: Object.fromEntries(callsByTool), failuresByTool: Object.fromEntries(failuresByTool),
+    tokensUsed: totalTokens, maxTokens: limits.maxTokens,
   });
-  const extension = createExtension({ task, state, registry, store, trace, mode, options, transcript, workingState, memory, toolBudgets: budgetSnapshot });
   const timeoutController = new AbortController();
-  let remainingMs = limits.timeoutMs, activeSince = Date.now();
+  let remainingMs = limits.timeoutMs, activeSince = Date.now(), timeoutPaused = true;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const abortOnTimeout = () => timeoutController.abort(new DOMException('run timeout', 'TimeoutError'));
   const resumeTimeout = () => {
-    if (!limits.timeoutMs) return;
+    if (!limits.timeoutMs || !timeoutPaused) return;
+    timeoutPaused = false;
     activeSince = Date.now();
     timeoutHandle = setTimeout(abortOnTimeout, Math.max(0, remainingMs));
   };
   const pauseTimeout = () => {
-    if (!limits.timeoutMs) return;
+    if (!limits.timeoutMs || timeoutPaused) return;
+    timeoutPaused = true;
     clearTimeout(timeoutHandle);
     remainingMs -= Date.now() - activeSince;
     if (remainingMs <= 0) abortOnTimeout();
   };
+  const extension = createExtension({ task, state, registry, store, trace, mode, options, transcript, workingState, memory, toolBudgets: budgetSnapshot, pauseTimeout, resumeTimeout });
   resumeTimeout();
   const modelTimeout = new AbortController();
   let modelTimer: ReturnType<typeof setTimeout> | undefined;
@@ -144,6 +157,12 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   const exceeded = (budget: string, limit: number, actual: number, tool?: string) => budgetFailure = new BudgetError(budget, limit, actual, tool);
   trace.emit('run_started', { mode, task, limits, completionToolReserve: completionReserve, toolPipeline: 'pre-tool-use-v1', permissionMode: policy.mode, engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',model:model.traceModel??null, ...(managedPrompts ? { agentPrompts: managedPrompts.provenance } : {}), ...(options.nextUserMessage ? { conversation: true } : {}) }); store.write('runs/' + runId + '.json', { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'running', startedAt: now() });
   try {
+    otelTracer.startRun({
+      runId, taskId: task.taskId, task, mode, permissionMode: policy.mode,
+      engine: model.runSession ? 'pi-agent-session' : 'replay-decisions',
+      model: model.traceModel ?? null,
+      ...(managedPrompts ? { agentPrompts: managedPrompts.provenance as unknown as Record<string, unknown> } : {}),
+    });
     for (const slug of task.allowedSources) if (!registry.known(slug) || !registry.active(slug)) extension.gaps.push((registry.known(slug) ? 'inactive_source:' : 'unknown_source:') + slug);
     if (['workflow', 'session', PI_BUILTIN_SOURCE].some(slug => registry.known(slug))) throw new Error('reserved_host_source');
     await registry.register(extension.slug, extension.channel, extension.client, signal);
@@ -153,7 +172,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     }
     const executor = new ToolExecutor(registry, policy, approvals, store, trace, task, limits.toolTimeoutMs, {
       checkPrerequisites: (binding, input) => extension.checkPrerequisites?.(binding, input) ?? { allowed: true },
-    });
+    }, { pause: pauseTimeout, resume: resumeTimeout });
     const extraSkills = options.userSkills?.documents ?? [];
     const builtinSkill = (managedPrompts?.builtinBody ?? extension.skill()) + (extension.skillAppendix ?? '');
     const skillPath = extension.skillPath;
@@ -194,12 +213,18 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         if (iteration >= limits.maxSteps) throw exceeded('iterations', limits.maxSteps, iteration + 1);
         if (totalTokens >= limits.maxTokens) throw exceeded('tokens', limits.maxTokens, totalTokens);
         usageMissing = model.tokenUsageRequired === true;
+        workflowFailedThisTurn.clear();
         state.iteration = iteration++;
         const context = contextPipeline.prepareTurn(state, registry, policy, limits.contextChars, Boolean(model.runSession), { ...limits, completionReserve });
         trace.emit('context_prepared', { iteration: state.iteration, permissionMode: policy.mode, contextHash: context.contextHash, skillHash: context.skillHash, prefixHash: context.prefixHash, toolsetHash: context.toolsetHash, promptCache: { requestedRetention: promptCache, controlOwner: 'sdk', providerSupport: 'not_asserted' }, tools: context.tools.map(tool => ({ proxyName: tool.proxy_name, sourceSlug: tool.source_slug, originalName: tool.original_name, channel: tool.channel, action: tool.action, bindingId: tool.id, ...(tool.dynamicAction ? { dynamicAction: true, availableActions: registry.availableActions(tool) } : {}) })) });
         clearTimeout(modelTimer);
         modelTimer = setTimeout(() => modelTimeout.abort(exceeded('model_timeout', limits.modelTimeoutMs, limits.modelTimeoutMs)), limits.modelTimeoutMs);
         trace.emit('model_requested', { iteration: state.iteration, contextChars: context.stable.length + context.volatile.length });
+        otelTracer.startTurn(state.iteration + 1, {
+          contextChars: context.stable.length + context.volatile.length,
+          toolCount: context.tools.length,
+          ...(model.runSession ? {} : { promptInput: { system: context.stable, prompt: context.volatile } }),
+        });
         const toolBudgets = budgetSnapshot(state.iteration);
         return { state: structuredClone(model.runSession ? { ...state, observations: [], decisions: [], userMessages: undefined } : state), sessionId: runId, ...(options.nextUserMessage ? { conversation: true } : {}), ...context, tools: context.tools, completionInstruction: extension.completionInstruction, contextChars: limits.contextChars, maxOutputTokens: Math.min(limits.maxOutputTokens, limits.maxTokens - totalTokens), maxResponseChars: limits.maxResponseChars, promptCache, toolBudgets, ...(memory ? { sessionMemoryPolicy: memoryPolicy } : {}) };
       },
@@ -216,6 +241,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         if (!previousCallsFailed && state.decisions.length - decisionStart >= 2 && decisionContent(state.decisions.at(-1)) === decisionContent(decision) && decisionContent(state.decisions.at(-2)) === decisionContent(decision)) throw new Error('no_progress: repeated identical decision');
         previousCallsFailed = decision.kind !== 'respond';
         state.decisions.push(decision); trace.emit('decision_made', { decision });
+        otelTracer.onDecision(decision);
         if (decision.kind === 'respond') {
           Object.assign(result, extension.finish(redactor.clean(decision.text)));
         } else if (decision.kind === 'call_tools') {
@@ -250,13 +276,21 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         const failed = !skipped && isFailedToolResult(observation);
         previousCallsFailed &&= call.retryable === true && failed;
         if (failed) {
-          const failures = (failuresByTool.get(name) ?? 0) + 1;
-          failuresByTool.set(name, failures);
-          if (failures === limits.maxConsecutiveToolFailures) {
-            recordGap('tool_failure_limit:' + name);
-            trace.emit('budget_exceeded', { budget: 'tool_failures', limit: failures, actual: failures, tool: name, outcome: 'deactivated' });
+          const isWorkflow = name.startsWith('workflow__');
+          const countFailure = !isWorkflow || !workflowFailedThisTurn.has(name);
+          if (isWorkflow) workflowFailedThisTurn.add(name);
+          if (countFailure) {
+            const failures = (failuresByTool.get(name) ?? 0) + 1;
+            failuresByTool.set(name, failures);
+            if (failures === limits.maxConsecutiveToolFailures) {
+              recordGap('tool_failure_limit:' + name);
+              trace.emit('budget_exceeded', { budget: 'tool_failures', limit: failures, actual: failures, tool: name, outcome: 'deactivated' });
+            }
           }
-        } else if (!skipped) failuresByTool.delete(name);
+        } else if (!skipped) {
+          failuresByTool.delete(name);
+          workflowFailedThisTurn.delete(name);
+        }
         state.observations.push({ name, result: observation });
         extension.onObservation?.(name, observation, redactor.clean(call.args));
         trace.emit('observation_added', { name, observation, ...(sdkToolCallId ? { sdkToolCallId } : {}) });
@@ -265,6 +299,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         clearTimeout(modelTimer);
         if (usage !== undefined) modelUsage.push(usage);
         const cache = cacheStats.observe(usage, purpose);
+        otelTracer.onUsage(usage, purpose, cache as unknown as Record<string, unknown>);
         if (usage && typeof usage === 'object' && !Array.isArray(usage)) trace.emit('model_usage', { iteration: state.iteration, purpose, usage, cache });
         const tokens = reportedTokens(usage); usageMissing = tokens === undefined;
         if (tokens !== undefined) {
@@ -275,17 +310,21 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
       onProcessEvent: event => { workingState.processEvent(event); trace.emit('agent_process', event); },
       onTranscript: entries => {
         transcript?.append(entries);
-        for (const entry of entries) if (entry.type === 'custom' && entry.customType === 'cwatch.provider_rejection') {
-          const data = ProviderRejectionSchema.parse(entry.data);
-          trace.emit('provider_rejected', { iteration: state.iteration, ...data });
-        } else if (entry.type === 'custom' && entry.customType === 'cwatch.response_revision') {
-          const data = z.object({ length: z.int().positive(), limit: z.int().positive() }).strict().parse(entry.data);
-          trace.emit('response_revision_requested', { iteration: state.iteration, ...data });
-        } else if (entry.type === 'custom' && typeof entry.customType === 'string' && entry.customType.startsWith('cwatch.memory_')) {
-          const details = memoryAttemptDetails(entry.customType, entry.data);
-          if (!details) continue;
-          const parsed = MemoryAttemptSchema.safeParse(details);
-          if (parsed.success) trace.emit('session_memory_attempt', { iteration: state.iteration, attemptDetails: parsed.data });
+        for (const entry of entries) {
+          otelTracer.onTranscriptEntry(entry);
+          if (entry.type === 'custom' && entry.customType === 'cwatch.provider_rejection') {
+            const data = ProviderRejectionSchema.parse(entry.data);
+            otelTracer.onProviderRejected(data.reason);
+            trace.emit('provider_rejected', { iteration: state.iteration, ...data });
+          } else if (entry.type === 'custom' && entry.customType === 'cwatch.response_revision') {
+            const data = z.object({ length: z.int().positive(), limit: z.int().positive() }).strict().parse(entry.data);
+            trace.emit('response_revision_requested', { iteration: state.iteration, ...data });
+          } else if (entry.type === 'custom' && typeof entry.customType === 'string' && entry.customType.startsWith('cwatch.memory_')) {
+            const details = memoryAttemptDetails(entry.customType, entry.data);
+            if (!details) continue;
+            const parsed = MemoryAttemptSchema.safeParse(details);
+            if (parsed.success) trace.emit('session_memory_attempt', { iteration: state.iteration, attemptDetails: parsed.data });
+          }
         }
       },
       sessionMemory: request => {
@@ -372,7 +411,17 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     trace.emit('usage_reported', { toolCalls, skippedToolCalls, callsByTool: Object.fromEntries(callsByTool), totalTokens, limits, durationMs: Date.now() - startedAt, modelUsage, cacheUsage: cacheStats.snapshot(), usageAvailable: totalTokens > 0, mode });
     trace.emit(result.status === 'cancelled' ? 'run_cancelled' : result.status === 'failed' ? 'run_failed' : 'run_completed', { ...result, ...(extension.stage ? { stage: extension.stage() } : {}) });
     result.traceArtifacts={eventsPath:trace.key,structuredPath:trace.structuredKey,available:!trace.structuredError,...(trace.structuredError?{error:trace.structuredError}:{})};
-    if (mode === 'live') result.langfuse = await exportToLangfuse(trace);
+    if (mode === 'live' || options.otelTraceFile) {
+      result.langfuse = await otelTracer.finishRun({
+        runId, taskId: task.taskId, status: result.status,
+        response: result.response, report: result.report,
+        gaps: result.gaps, error: result.error, stage: extension.stage?.(),
+      });
+      if (result.langfuse.status === 'exported' || result.langfuse.status === 'failed') {
+        try { store.write('traces/' + runId + '.langfuse.json', { result: result.langfuse, updatedAt: now() }); }
+        catch { /* Non-fatal sidecar write failure. */ }
+      }
+    }
     store.write('runs/' + runId + '.json', redactor.clean({ ...result, endedAt: now() }));
     // Durable event stream reconstructs state; this snapshot is a convenience cache only.
     store.write('states/' + runId + '.json', redactor.clean(state));

@@ -1,12 +1,26 @@
 import { createHash } from 'node:crypto';
-import { readLangfuseConfig, type LangfuseConfig } from '../config/langfuse.ts';
+import { langfuseTraceUrl, readLangfuseConfig, type LangfuseConfig } from '../config/langfuse.ts';
 import { Redactor, type Trace } from './trace.ts';
 import type { StructuredTrace, TraceStep } from './structured-trace.ts';
-
-export type LangfuseExportResult =
-  | { status: 'disabled' }
-  | { status: 'exported'; traceId: string; spanCount: number }
-  | { status: 'failed'; error: string; traceId?: string };
+import type { LangfuseExportResult } from './langfuse-otel.ts';
+export {
+  LangfuseRunTracer,
+  LangfuseOtlpHttpExporter,
+  OtlpFileSpanExporter,
+  OtlpTraceArtifactSchema,
+  LangfuseRunScoreSchema,
+  OTEL_TRACE_ARTIFACT_VERSION,
+  langfuseTraceId,
+  enrichOtlpResourceSpans,
+  sendOtlpResourceSpans,
+  sendLangfuseScores,
+  recordStandaloneGeneration,
+  type LangfuseExportResult,
+  type LangfuseLiveInfo,
+  type LangfuseRunScore,
+  type LangfuseRunTracerOptions,
+  type OtlpTraceArtifact,
+} from './langfuse-otel.ts';
 interface Attribute { key: string; value: { stringValue: string; intValue?: never } | { intValue: string; stringValue?: never } }
 interface OtlpSpan {
   traceId: string; spanId: string; parentSpanId?: string; name: string; kind: number;
@@ -125,7 +139,7 @@ export async function exportToLangfuse(trace: Trace, env: NodeJS.ProcessEnv = pr
     const { traceId, spans } = langfusePayload(document, config);
     exportedTraceId = traceId;
     await sendLangfuseTrace(config, spans, transport);
-    result = { status: 'exported', traceId, spanCount: spans.length };
+    result = { status: 'exported', traceId, spanCount: spans.length, traceUrl: langfuseTraceUrl(config.baseUrl, traceId, config.projectId) };
   } catch (error) {
     // Config/transport errors may contain user-controlled URLs; expose known safe messages only.
     const message = error instanceof Error ? error.message : '';

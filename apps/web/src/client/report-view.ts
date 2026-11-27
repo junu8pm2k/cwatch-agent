@@ -4,7 +4,7 @@ import type {
   RunComparisonSummary,
   RunSnapshot,
 } from '@cwatch/core/types/runs';
-import { mergeActivities, type MergedActivity } from './activity-merger.ts';
+import { formatBatchSummary, groupMergedActivities, mergeActivities, type MergedActivity, type StepRenderNode } from './activity-merger.ts';
 import { extractHeadings } from './markdown.ts';
 import {
   escapeHtml,
@@ -12,6 +12,7 @@ import {
   formatTime,
   isActiveRun,
   isInvestigation,
+  langfuseTraceHref,
   safeUrl,
   statusNames,
 } from './state.ts';
@@ -328,10 +329,9 @@ export function renderReportToc(doc: string): string {
     </nav>`;
 }
 
-function renderCompactStepRow(item: MergedActivity): string {
+function renderCompactStepContent(item: MergedActivity): string {
   const icon = item.state === 'completed' ? '✓' : item.state === 'failed' ? '!' : item.state === 'running' ? '…' : '·';
-  return `
-    <li class="step-card state-${item.state}">
+  const row = `
       <div class="step-card-row">
         <span class="step-state state-${item.state}" aria-hidden="true">${icon}</span>
         <span class="step-pill cat-${escapeHtml(item.category)}">${escapeHtml(item.badge)}</span>
@@ -340,7 +340,34 @@ function renderCompactStepRow(item: MergedActivity): string {
           ${item.durationMs !== undefined ? `<span class="step-dur">${escapeHtml(formatDurationMs(item.durationMs))}</span>` : ''}
           <time datetime="${escapeHtml(item.startedAt)}">${formatTime(item.startedAt)}</time>
         </span>
+      </div>`;
+  if (!item.errorDetail) return row;
+  return `<details>
+      <summary>${row}</summary>
+      <div class="step-card-detail"><pre class="json-pre error-pre">${escapeHtml(item.errorDetail)}</pre></div>
+    </details>`;
+}
+
+function renderCompactStepNode(node: StepRenderNode): string {
+  if (node.kind === 'single') {
+    return `<li class="step-card state-${node.item.state}">${renderCompactStepContent(node.item)}</li>`;
+  }
+  const icon = node.state === 'completed' ? '✓' : node.state === 'failed' ? '!' : node.state === 'running' ? '…' : '·';
+  const summary = formatBatchSummary(node.counts);
+  return `
+    <li class="step-batch state-${node.state}" data-batch-id="${escapeHtml(node.batchId)}">
+      <div class="step-batch-head">
+        <span class="step-state state-${node.state}" aria-hidden="true">${icon}</span>
+        <span class="step-pill cat-batch">并行 ×${node.items.length}</span>
+        <span class="step-title">并行调用 ${node.items.length} 项工具${summary ? `<span class="step-batch-meta">（${escapeHtml(summary)}）</span>` : ''}</span>
+        <span class="step-right">
+          ${node.durationMs !== undefined ? `<span class="step-dur">${escapeHtml(formatDurationMs(node.durationMs))}</span>` : ''}
+          <time datetime="${escapeHtml(node.startedAt)}">${formatTime(node.startedAt)}</time>
+        </span>
       </div>
+      <ul class="step-tree-list" aria-label="并行工具调用列表">
+        ${node.items.map(item => `<li class="step-tree-item state-${item.state}">${renderCompactStepContent(item)}</li>`).join('')}
+      </ul>
     </li>`;
 }
 
@@ -352,10 +379,11 @@ export function renderLiveProgressCard(run: RunSnapshot, showSteps = true): stri
     ? `当前阶段 · ${stageName}`
     : `当前状态 · ${statusNames[run.status]}`;
 
-  const merged = mergeActivities(run.activities);
-  const recent = merged.filter(item => !investigation || item.stage === currentStage).slice(-4);
-  const stepsHtml = recent.length
-    ? `<ul class="step-card-list compact live-step-list">${recent.map(renderCompactStepRow).join('')}</ul>`
+  const merged = mergeActivities(run.activities, isActiveRun(run));
+  const recent = merged.filter(item => !investigation || item.stage === currentStage).slice(-6);
+  const recentNodes = groupMergedActivities(recent);
+  const stepsHtml = recentNodes.length
+    ? `<ul class="step-card-list compact live-step-list">${recentNodes.map(renderCompactStepNode).join('')}</ul>`
     : '<p class="live-progress-empty">正在初始化运行环境与来源连接，首个执行步骤马上出现…</p>';
 
   return `
@@ -375,7 +403,7 @@ export function renderLiveProgressCard(run: RunSnapshot, showSteps = true): stri
       ${showSteps ? stepsHtml : ''}
       <div class="live-progress-actions">
         <button type="button" class="button secondary sm" data-jump-tab="process">查看实时执行轨迹</button>
-        <button type="button" class="button ghost sm" data-open-trace>打开 Trace 抽屉</button>
+        ${langfuseTraceHref(run) ? `<a class="button ghost sm" href="${escapeHtml(langfuseTraceHref(run))}" target="_blank" rel="noopener noreferrer">在 Langfuse 查看 Trace ↗</a>` : ''}
       </div>
     </section>`;
 }
@@ -446,22 +474,21 @@ export function renderPlanStageBody(run: RunSnapshot): string {
 }
 
 function renderCollectStageBody(run: RunSnapshot, steps: MergedActivity[]): string {
-  const collectSteps = steps.filter(item =>
-    Boolean(item.tool)
-    && !item.tool!.startsWith('workflow__')
-    && !item.tool!.startsWith('session__'),
-  );
+  const stageToolSteps = steps.filter(item => Boolean(item.tool));
 
-  const completed = collectSteps.filter(s => s.state === 'completed').length;
-  const failed = collectSteps.filter(s => s.state === 'failed').length;
-  const running = collectSteps.filter(s => s.state === 'running').length;
+  const completed = stageToolSteps.filter(s => s.state === 'completed').length;
+  const failed = stageToolSteps.filter(s => s.state === 'failed').length;
+  const running = stageToolSteps.filter(s => s.state === 'running').length;
+  const skipped = stageToolSteps.filter(s => s.skipped).length;
 
   const visitedUrls = new Map<string, string>();
   const searchQueries = new Set<string>();
   const usedTools = new Set<string>();
 
-  for (const step of collectSteps) {
-    if (step.tool) usedTools.add(step.tool);
+  for (const step of stageToolSteps) {
+    if (step.tool && !step.tool.startsWith('workflow__') && !step.tool.startsWith('session__')) {
+      usedTools.add(step.tool);
+    }
     const args = parseJsonObject(step.detail);
     if (typeof args?.url === 'string') {
       const safe = safeUrl(args.url);
@@ -478,9 +505,9 @@ function renderCollectStageBody(run: RunSnapshot, steps: MergedActivity[]): stri
     }
   }
 
-  const latest = collectSteps.at(-1);
+  const latest = stageToolSteps.at(-1);
   const latestLabel = latest
-    ? `${latest.title}（${latest.state === 'completed' ? '已完成' : latest.state === 'running' ? '执行中' : latest.state === 'failed' ? '未完成' : '已记录'}）`
+    ? `${latest.title}（${latest.state === 'completed' ? '已完成' : latest.state === 'running' ? '执行中' : latest.state === 'failed' ? '未完成' : latest.skipped ? '已跳过' : '已记录'}）`
     : '尚未触发采集工具调用';
 
   const urlListHtml = visitedUrls.size
@@ -492,11 +519,15 @@ function renderCollectStageBody(run: RunSnapshot, steps: MergedActivity[]): stri
   const sourceChips = isInvestigation(run.task)
     ? run.task.allowedSources.map(s => `<span class="pipeline-chip">${escapeHtml(s)}</span>`).join('')
     : '';
+  const extraCounts = [
+    skipped ? `${skipped} 跳过` : '',
+    running ? `${running} 进行中` : '',
+  ].filter(Boolean).join(' · ');
 
   return `
     <div class="pipeline-kv-strip">
-      <div class="pipeline-stat"><span class="pipeline-field-label">采集工具调用</span><strong>${collectSteps.length} 次</strong></div>
-      <div class="pipeline-stat"><span class="pipeline-field-label">成功 / 异常</span><strong>${completed} / ${failed}${running ? `（${running} 进行中）` : ''}</strong></div>
+      <div class="pipeline-stat"><span class="pipeline-field-label">采集工具调用</span><strong>${stageToolSteps.length} 次</strong></div>
+      <div class="pipeline-stat"><span class="pipeline-field-label">成功 / 异常</span><strong>${completed} / ${failed}${extraCounts ? `（${extraCounts}）` : ''}</strong></div>
       <div class="pipeline-stat"><span class="pipeline-field-label">已记录 URL</span><strong>${visitedUrls.size} 个</strong></div>
     </div>
     <div class="pipeline-field">
@@ -553,7 +584,7 @@ function renderReviewStageBody(run: RunSnapshot): string {
       </div>`;
   }
 
-  const reviewAct = mergeActivities(run.activities).filter(a => a.tool === 'workflow__review').at(-1);
+  const reviewAct = mergeActivities(run.activities, isActiveRun(run)).filter(a => a.tool === 'workflow__review').at(-1);
   const actStatus = reviewAct
     ? (reviewAct.state === 'completed' ? '规则审阅已执行完成' : reviewAct.state === 'running' ? '规则审阅执行中…' : '规则审阅执行异常')
     : '等待进入审阅阶段';
@@ -580,7 +611,7 @@ function renderDraftStageBody(run: RunSnapshot): string {
     <div class="pipeline-actions">
       ${run.reportReady ? '<button type="button" class="button primary sm" data-jump-report>定位调查报告</button>' : ''}
       <button type="button" class="button secondary sm" data-jump-tab="process">查看执行轨迹</button>
-      <button type="button" class="button ghost sm" data-open-trace>打开 Trace 抽屉</button>
+      ${langfuseTraceHref(run) ? `<a class="button ghost sm" href="${escapeHtml(langfuseTraceHref(run))}" target="_blank" rel="noopener noreferrer">在 Langfuse 查看 Trace ↗</a>` : ''}
     </div>`;
 }
 
@@ -591,7 +622,8 @@ export function renderPipelineDetail(run: RunSnapshot, index: number, showSteps:
   const pendingPlan = index === 0 && run.approvals.some(request => request.tool === 'workflow__save_plan');
   const statusLabel = done ? '已完成' : index === 0 && run.planApproval?.status === 'revising' ? '正在修改' : run.stage === index ? statusNames[run.status] : '待执行';
   const statusToneClass = done ? 'tone-ok' : current ? 'tone-busy' : 'tone-idle';
-  const steps = mergeActivities(run.activities).filter(item => item.stage === index);
+  const steps = mergeActivities(run.activities, isActiveRun(run)).filter(item => item.stage === index);
+  const stepNodes = groupMergedActivities(steps);
 
   const body = index === 0
     ? pendingPlan ? '' : renderPlanStageBody(run)
@@ -612,8 +644,8 @@ export function renderPipelineDetail(run: RunSnapshot, index: number, showSteps:
       ${collapsible ? '<button type="button" class="ghost-btn pipeline-close-btn" data-close-pipeline-detail aria-label="收起阶段详情">收起</button>' : ''}
     </div>
     <div class="pipeline-detail-body">${body}${showSteps
-      ? steps.length
-        ? `<ul class="step-card-list compact pipeline-steps" aria-label="${stageName}步骤">${steps.map(renderCompactStepRow).join('')}</ul>`
+      ? stepNodes.length
+        ? `<ul class="step-card-list compact pipeline-steps" aria-label="${stageName}步骤">${stepNodes.map(renderCompactStepNode).join('')}</ul>`
         : '<p class="pipeline-muted">该阶段暂无执行步骤。</p>'
       : ''}</div>`;
 }

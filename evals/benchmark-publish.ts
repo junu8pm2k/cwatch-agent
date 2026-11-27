@@ -1,8 +1,14 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { readLangfuseConfig } from '@cwatch/shared/config/langfuse';
-import { langfusePayload, sendLangfuseTrace } from '@cwatch/shared/sessions/langfuse';
+import {
+  OtlpTraceArtifactSchema,
+  enrichOtlpResourceSpans,
+  langfusePayload,
+  sendLangfuseTrace,
+  sendOtlpResourceSpans,
+} from '@cwatch/shared/sessions/langfuse';
 import { StructuredTraceSchema, type StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { Redactor } from '@cwatch/shared/sessions/trace';
 import { LangfuseClient } from '../scripts/langfuse-client.ts';
@@ -84,7 +90,7 @@ export const resultSchema = z.union([
   z.object({ ...reportFields, schemaVersion: z.literal(4), cases: z.array(scoredCase) }),
 ]);
 
-export function reviewTestMissingAnswerView(document: StructuredTrace, reason: string): StructuredTrace {
+function reviewTestMissingAnswerMessages(document: StructuredTrace, reason: string) {
   const task = z.object({ instruction: z.string() }).safeParse(document.input.task);
   const failedTurn = document.steps.findLast(step => step.kind === 'model' && step.status === 'failed');
   const outputTokensSchema = z.object({ output: z.number() });
@@ -101,11 +107,19 @@ export function reviewTestMissingAnswerView(document: StructuredTrace, reason: s
   }
   details.push(reason.replace(/^(?:Error:\s*)+/, '').split(/\r?\n/, 1)[0]);
   return {
+    input: task.success ? [{ role: 'user', content: task.data.instruction }] : undefined,
+    output: [{ role: 'assistant', name: 'Cwatch 评测说明', content: details.join('\n\n') }],
+  };
+}
+
+export function reviewTestMissingAnswerView(document: StructuredTrace, reason: string): StructuredTrace {
+  const view = reviewTestMissingAnswerMessages(document, reason);
+  return {
     ...document,
     steps: document.steps.map(step => step.kind === 'run' ? {
       ...step,
-      input: task.success ? [{ role: 'user', content: task.data.instruction }] : step.input,
-      output: [{ role: 'assistant', name: 'Cwatch 评测说明', content: details.join('\n\n') }],
+      input: view.input ?? step.input,
+      output: view.output,
     } : step),
   };
 }
@@ -168,11 +182,45 @@ export async function publishBenchmark(runDir: string, expectedRunId: string) {
         const traceMetadata = trialNumber === undefined ? metadata : { ...metadata, trial: String(trialNumber), trial_status: receipt.status };
         const runtimeError = document.steps.find(step => step.kind === 'run')?.error?.message;
         const failure = runtimeError ?? attempt.error ?? runtimeFailure;
-        const traceView = reviewTests && !attempt.passed && attempt.agent.output?.trim() === ''
-          ? reviewTestMissingAnswerView(document, redactor.clean(failure))
-          : document;
-        const { traceId, spans } = langfusePayload(traceView, connection, traceMetadata, sessionId);
-        await sendLangfuseTrace(connection, spans);
+        const missingAnswer = reviewTests && !attempt.passed && attempt.agent.output?.trim() === ''
+          ? reviewTestMissingAnswerMessages(document, redactor.clean(failure))
+          : undefined;
+        const otelFile = join(traceDir, 'trace.otel.json');
+        let traceId: string;
+        const runScores: Array<Record<string, unknown>> = [];
+        if (existsSync(otelFile)) {
+          const artifact = OtlpTraceArtifactSchema.parse(redactor.clean(readJson(otelFile)));
+          if (artifact.runId !== attempt.agent.runId || artifact.taskId !== item.caseId) {
+            throw Error('benchmark otel trace identity mismatch');
+          }
+          const enriched = enrichOtlpResourceSpans(artifact.resourceSpans, {
+            sessionId,
+            environment,
+            metadata: traceMetadata,
+            ...(missingAnswer?.input ? { rootInputOverride: missingAnswer.input } : {}),
+            ...(missingAnswer?.output ? { rootOutputOverride: missingAnswer.output } : {}),
+          });
+          await sendOtlpResourceSpans(connection, enriched, fetch, redactor);
+          traceId = artifact.traceId;
+          for (const runScore of artifact.scores) {
+            runScores.push({
+              id: runScore.id,
+              traceId,
+              name: runScore.name,
+              value: runScore.value,
+              dataType: runScore.dataType,
+              environment,
+              timestamp,
+              ...(runScore.comment ? { comment: redactor.clean(runScore.comment).slice(0, 2000) } : {}),
+              ...(runScore.metadata ? { metadata: redactor.clean(runScore.metadata) } : {}),
+            });
+          }
+        } else {
+          const traceView = missingAnswer ? reviewTestMissingAnswerView(document, redactor.clean(failure)) : document;
+          const legacy = langfusePayload(traceView, connection, traceMetadata, sessionId);
+          await sendLangfuseTrace(connection, legacy.spans);
+          traceId = legacy.traceId;
+        }
         tracePublished = true;
         receipt.traceId = traceId;
         const scores = attempt.scores.flatMap(score => score.value === null ? [] : [{
@@ -190,8 +238,9 @@ export async function publishBenchmark(runDir: string, expectedRunId: string) {
           ? (reviewTests || attempt.status ? verdictScores({ traceId }, 'case', attempt, traceMetadata, reason) : [])
           : verdictScores({ traceId }, 'trial', attempt, traceMetadata, reason);
         if (trialNumber === undefined && reviewTests) verdicts.push(...verdictScores({ sessionId }, 'case', attempt, metadata, reason));
-        await client.writeScores([...scores, ...verdicts]);
-        receipt.scoreCount = scores.length + verdicts.length;
+        const allScores = [...runScores, ...scores, ...verdicts];
+        await client.writeScores(allScores);
+        receipt.scoreCount = allScores.length;
       } catch (error) {
         receipt.error = redactor.clean(error instanceof Error ? error.message : String(error));
       }

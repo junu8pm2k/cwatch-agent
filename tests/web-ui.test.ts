@@ -633,9 +633,7 @@ check('integration','Web UI renders safe Markdown (code blocks, tables, safe lin
     await h.page.screenshot({path:'artifacts/web-eval/dark-markdown.png',fullPage:true});
     await h.page.reload();await h.ui.completed();
     assert.equal(await h.page.evaluate(()=>document.documentElement.dataset.theme),'dark');
-    await h.ui.openTrace();
-    await h.page.keyboard.press('Escape');
-    await h.page.locator('#trace-drawer').waitFor({state:'hidden'});
+    assert.equal(await h.ui.langfuseLink().isVisible(),false);
     await h.page.locator('#new-run').click();
     await h.page.locator('#compose-view').waitFor({state:'visible'});
     await h.page.screenshot({path:'artifacts/web-eval/dark-compose.png',fullPage:true});
@@ -643,19 +641,12 @@ check('integration','Web UI renders safe Markdown (code blocks, tables, safe lin
   }finally{await h.close();}
 });
 
-check('integration','Web UI inspects structured Trace inside slide-over drawer, filters history and deletes completed runs',async()=>{
+check('integration','Web UI keeps replay runs offline from Langfuse, filters history and deletes completed runs',async()=>{
   const h=await browserHarness('trace-and-history');
   try{
     await h.ui.open('web');
     await h.ui.start();await h.page.getByText(/^(已完成|部分完成) \/ 离线演示$/).waitFor({timeout:20000});
-    await h.ui.openTrace();
-    await h.page.locator('.trace-tree .trace-row').first().waitFor({state:'visible'});
-    assert.ok(await h.page.locator('.trace-tree .trace-row').count()>=3);
-    await h.page.locator('#trace-drawer').getByRole('button',{name:/工具/}).click();
-    await h.page.locator('.trace-tree .trace-row').first().click();
-    await h.page.locator('.trace-detail').waitFor({state:'visible'});
-    await h.page.screenshot({path:'artifacts/web-eval/trace-inspector.png',fullPage:true});
-    await h.ui.closeTrace();
+    assert.equal(await h.ui.langfuseLink().isVisible(),false);
     await h.ui.saveReport();
     await h.page.getByRole('button',{name:'我的调研',exact:true}).click();
     const search=h.page.getByRole('searchbox',{name:'搜索调查与报告'});

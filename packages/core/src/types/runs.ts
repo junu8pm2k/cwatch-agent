@@ -9,8 +9,8 @@ export interface ReportAnnotation { id: string; quote: string; note: string; rep
 export interface ReportReviewSummary { revision: number; savedRevision?: number; savedAt?: string }
 export interface ReportReviewView extends ReportReviewSummary { markdown: string; annotations: ReportAnnotation[]; messages: ConversationMessage[] }
 export interface ReportAnnotationInput { revision: number; quote: string; note: string; replacement?: string }
-export interface RunActivity { sequence: number; timestamp: string; kind: 'system' | 'plan' | 'tool' | 'approval' | 'analysis' | 'error'; message: string; detail?: string; tool?: string; state?: string; stage?: number }
-export interface PendingRunApproval { requestId: string; taskId: string; tool: string; argsHash: string; argsSummary: string; createdAt: string; expiresAt: string }
+export interface RunActivity { sequence: number; timestamp: string; kind: 'system' | 'plan' | 'tool' | 'approval' | 'analysis' | 'error'; message: string; detail?: string; tool?: string; state?: string; stage?: number; callId?: string; batchId?: string; batchSize?: number }
+export interface PendingRunApproval { requestId: string; taskId: string; tool: string; argsHash: string; argsSummary: string; createdAt: string; expiresAt?: string }
 export interface PlanApprovalProgress {
   status: 'preparing' | 'pending' | 'revising' | 'approved' | 'stopped';
   feedback?: string;
@@ -51,9 +51,15 @@ export interface WorkbenchModel {
   supportsReasoningEffort: boolean; providers: ModelProviderSummary[];
 }
 export interface SearchConnectionSummary { source: 'workbench' | 'environment' | 'none'; url?: string; fetchUrl?: string; protocol?: 'auto' | 'mcp' | 'rest'; hasToken?: boolean }
+export interface RunLangfuseStatus {
+  status: 'disabled' | 'streaming' | 'exported' | 'failed';
+  traceId?: string;
+  traceUrl?: string;
+  error?: string;
+}
 export interface RunSnapshot {
   id: string; task: AgentTask; profile: string; mode: 'live' | 'replay'; permission: Mode; status: RunStatus;
-  createdAt: string; updatedAt: string; endedAt?: string; traceRunId?: string; error?: string;
+  createdAt: string; updatedAt: string; endedAt?: string; traceRunId?: string; langfuse?: RunLangfuseStatus; error?: string;
   activities: RunActivity[]; approvals: PendingRunApproval[]; gaps: string[]; claims: RunClaim[];
   toolCalls: number; modelTurns: number; totalTokens: number; reportReady: boolean; stage: number;
   conversation?: boolean; messages?: ConversationMessage[]; revision?: number;

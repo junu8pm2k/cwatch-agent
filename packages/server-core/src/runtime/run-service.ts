@@ -13,10 +13,12 @@ import { proxyToolName, registeredToolName } from '@cwatch/shared/tools/tool-nam
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { Redactor, Trace, type TraceEvent } from '@cwatch/shared/sessions/trace';
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
+import { langfuseTraceUrl, readLangfuseConfig } from '@cwatch/shared/config/langfuse';
+import { langfuseTraceId } from '@cwatch/shared/sessions/langfuse';
 import { UserMcpStore, mcpSecrets } from '@cwatch/shared/mcp/storage';
 import { UserMcpSource } from '@cwatch/shared/mcp/source';
 import { SkillStore, parseSkill } from '@cwatch/shared/skills/storage';
-import { reportedTokens } from '@cwatch/shared/agent/core/budgets';
+import { isFailedToolResult, reportedTokens } from '@cwatch/shared/agent/core/budgets';
 import { apiSecrets } from '@cwatch/shared/sources/api-tools';
 import { runInvestigation, type RunResult } from './investigation.ts';
 import { runAgent } from './agent.ts';
@@ -84,7 +86,7 @@ const projectSchema = z.object({ name: z.string().trim().min(1).max(80) }).stric
 const projectMoveSchema = z.object({ projectId: z.string().uuid().nullable() }).strict();
 const runTitleSchema = z.object({ title: z.string().trim().min(1).max(80) }).strict();
 interface Pending { request: PendingRunApproval; resolve: (answer: boolean | string)=>void; signal:AbortSignal }
-interface Managed { view:RunSnapshot; data:FileStore; controller:AbortController; pending:Map<string,Pending>; listeners:Set<(view:RunSnapshot)=>void>; job?:Promise<void>; reportPath?:string; tools:Map<string,string>; redactor:Redactor; input?: { signal: AbortSignal; resolve: (message: string | null) => void }; acceptedMessages?: Map<string,string> }
+interface Managed { view:RunSnapshot; data:FileStore; controller:AbortController; pending:Map<string,Pending>; listeners:Set<(view:RunSnapshot)=>void>; job?:Promise<void>; reportPath?:string; tools:Map<string,{name:string;sdkToolCallId?:string}>; redactor:Redactor; input?: { signal: AbortSignal; resolve: (message: string | null) => void }; acceptedMessages?: Map<string,string> }
 export interface RunServiceOptions {
   root: string; outputRoot?:string;
   /** Trusted host seams for deterministic integration tests; never accepted through HTTP. */
@@ -113,7 +115,7 @@ export class RunService {
         if(!saved)continue;
         const view=saved.view;
         if(active(view.status)){data.recover();view.status='unknown';view.error='服务重启，之前的运行已中断；未自动重放工具。';view.endedAt=now();view.updatedAt=now();}
-        view.approvals=[];view.activities=data.lines<RunActivity>('activity.jsonl').slice(-150);
+        view.approvals=[];view.activities=data.lines<RunActivity>('activity.jsonl').slice(-600);
         const run:Managed={view,data,reportPath:saved.reportPath,controller:new AbortController(),pending:new Map(),listeners:new Set(),tools:new Map(),redactor:this.redactor()};
         if (isInvestigationTask(view.task) && view.reportReady && run.reportPath && existsSync(data.path(run.reportPath))) {
           const review = readReview(data);
@@ -196,7 +198,7 @@ export class RunService {
     const toolStage = extra.tool ? investigationToolStages.get(extra.tool) : undefined;
     const stage = isInvestigationTask(run.view.task) ? toolStage ?? Math.min(run.view.stage, 4) : undefined;
     const event=run.redactor.clean({sequence:(run.view.activities.at(-1)?.sequence??0)+1,timestamp:now(),kind,message:message.slice(0,600),stage,...extra});
-    run.view.activities.push(event);run.view.activities=run.view.activities.slice(-150);run.data.append('activity.jsonl',event);this.changed(run);
+    run.view.activities.push(event);run.view.activities=run.view.activities.slice(-600);run.data.append('activity.jsonl',event);this.changed(run);
   }
   subscribe(runId:string,listener:(snapshot:RunSnapshot)=>void):()=>void {const run=this.require(runId);run.listeners.add(listener);return()=>{run.listeners.delete(listener);};}
   async taskIntent(raw: unknown, callerSignal: AbortSignal): Promise<TaskIntent> {
@@ -288,8 +290,7 @@ export class RunService {
         await this.options.configureRegistry?.(registry,signal);signal.throwIfAborted();
         clearTimeout(timeout); // Runtime owns active execution time; preparation must not time out an idle conversation.
         run.view.status='running';this.changed(run);
-        const approvalTimeoutMs = Math.min(60_000, toolTimeoutMs);
-        const approvals = new ApprovalManager(async (request, approvalSignal) => await this.awaitApproval(run, request, approvalSignal) === true, approvalTimeoutMs);
+        const approvals = new ApprovalManager(async (request, approvalSignal) => await this.awaitApproval(run, request, approvalSignal) === true, 0);
         const timeoutMs=input.limits.timeoutMs??0,maxTokens=input.limits.maxTokens??750_000;
         const toolBudgets=defaultWebToolBudgets(maxTokens);
         const result=await (isInvestigationTask(task)?runInvestigation:runAgent)(task,model,registry,run.data,input.mode,{
@@ -308,11 +309,11 @@ export class RunService {
               run.view.planApproval = { ...run.view.planApproval, status: 'pending' };
               const request: ApprovalRequest = {
                 requestId: id(), taskId: plan.taskId, tool: 'workflow__save_plan', argsHash: planHash,
-                argsSummary: JSON.stringify(run.view.plan), createdAt: now(), expiresAt: new Date(Date.now() + approvalTimeoutMs).toISOString(),
+                argsSummary: JSON.stringify(run.view.plan), createdAt: now(),
               };
               let answer: boolean | string;
               try {
-                answer = await this.awaitApproval(run, request, AbortSignal.any([planSignal, AbortSignal.timeout(approvalTimeoutMs)]));
+                answer = await this.awaitApproval(run, request, planSignal);
               } catch {
                 signal.throwIfAborted();
                 run.view.planApproval.status = 'stopped';
@@ -355,40 +356,80 @@ export class RunService {
   }
   private onTrace(run:Managed,event:TraceEvent):void {
     run.view.traceRunId=event.runId;
+    if (event.type === 'run_started') {
+      if (run.view.mode === 'live') {
+        try {
+          const lf = readLangfuseConfig();
+          if (lf) {
+            const traceId = langfuseTraceId(event.runId);
+            run.view.langfuse = { status: 'streaming', traceId, traceUrl: langfuseTraceUrl(lf.baseUrl, traceId, lf.projectId) };
+          } else {
+            run.view.langfuse = { status: 'disabled' };
+          }
+        } catch (error) {
+          run.view.langfuse = { status: 'failed', error: run.redactor.clean(error instanceof Error ? error.message : 'langfuse_config: invalid configuration') };
+        }
+        this.changed(run);
+      } else {
+        run.view.langfuse = { status: 'disabled' };
+      }
+      return;
+    }
     const task = run.view.task;
     const investigation = isInvestigationTask(task);
     const tracked = investigation && Boolean(task.evidencePolicy);
     const data=event.data,detail=(value:unknown)=>JSON.stringify(value).slice(0,2200);
-    if(event.type==='pre_tool_use_request'){run.tools.set(String(data.requestId),String(data.toolName));return;}
+    if(event.type==='pre_tool_use_request'){
+      run.tools.set(String(data.requestId), { name: String(data.toolName), sdkToolCallId: typeof data.sdkToolCallId === 'string' ? data.sdkToolCallId : undefined });
+      return;
+    }
     if(event.type==='model_usage'){run.view.modelTurns++;run.view.totalTokens+=reportedTokens(data.usage)??0;return;}
     if(event.type==='plan_submitted'){run.view.stage=1;this.activity(run,'plan','调查计划已保存并提交。',{stage:0});}
     else if(event.type==='decision_made'){
       const decision=data.decision as Decision;
       if(decision.kind!=='respond'){
-        for(const call of decision.kind==='call_tools'?decision.calls:[decision]){
+        const calls = decision.kind==='call_tools' ? decision.calls : [decision];
+        const batchMeta = calls.length > 1 ? { batchId: `batch-${event.sequence}`, batchSize: calls.length } : {};
+        for(const call of calls){
           if (investigation && !tracked && call.name === 'workflow__analyze') run.view.stage = 2;
           if (investigation && !tracked && call.name === 'workflow__review') run.view.stage = 3;
           if (investigation && call.name === 'workflow__draft' && (!tracked || run.view.stage >= 3 || run.view.review)) run.view.stage = 4;
-          this.activity(run,/^(workflow|session)__/.test(call.name)?'analysis':'tool','准备调用 '+call.name,{tool:call.name,detail:detail(call.args)});
+          const callId = 'sdkToolCallId' in call && typeof call.sdkToolCallId === 'string' ? call.sdkToolCallId : undefined;
+          this.activity(run,/^(workflow|session)__/.test(call.name)?'analysis':'tool','准备调用 '+call.name,{
+            tool:call.name, detail:detail(call.args), ...batchMeta, ...(callId ? { callId } : {}),
+          });
         }
       }
     }else if(event.type==='budget_exceeded'&&data.outcome==='skipped'){
       const tool=String(data.tool);
-      this.activity(run,'tool',tool+' 已跳过（工具额度受限）',{tool,state:'skipped'});
+      const callId = typeof data.sdkToolCallId === 'string' ? data.sdkToolCallId : undefined;
+      this.activity(run,'tool',tool+' 已跳过（工具额度受限）',{tool,state:'skipped',...(callId ? { callId } : {})});
     }else if(event.type==='execution_finished'){
-      const tool=run.tools.get(String(data.requestId))??'工具';
+      const meta=run.tools.get(String(data.requestId));
+      const tool=meta?.name??'工具';
+      const callId=meta?.sdkToolCallId;
       if(data.state==='completed')run.view.toolCalls++;
-      const softErr=data.state==='completed'&&data.result&&typeof data.result==='object'&&typeof (data.result as {error?:unknown}).error==='string'?String((data.result as {error:string}).error):undefined;
+      const resObj = data.result && typeof data.result === 'object' ? data.result as { error?: unknown; status?: unknown } : undefined;
+      const softFailed = data.state === 'completed' && isFailedToolResult(data.result);
+      const softErr = softFailed
+        ? (typeof resObj?.error === 'string' && resObj.error ? resObj.error : typeof resObj?.status === 'string' ? resObj.status : 'tool_failed')
+        : undefined;
       const errDetail=data.error?String(data.error).slice(0,2200):softErr?softErr.slice(0,2200):undefined;
-      if (tracked && data.state === 'completed' && !errDetail) {
+      const ok = data.state === 'completed' && !softFailed;
+      if (tracked && ok && !errDetail) {
         if (tool === 'workflow__submit_analysis') run.view.stage = 3;
       }
-      if (investigation && tool === 'workflow__review' && data.state === 'completed' && !errDetail) {
+      if (investigation && tool === 'workflow__review' && ok && !errDetail) {
         const review = data.result as NonNullable<RunSnapshot['review']> & { reworkAvailable?: boolean };
         run.view.review = { decision: review.decision, issues: review.issues, evidenceRefs: review.evidenceRefs };
         run.view.stage = review.reworkAvailable ? 1 : 4;
       }
-      this.activity(run,data.state==='completed'?'tool':'error',tool+(data.state==='completed'?' 已完成':' 未完成'),{tool,state:String(data.state),...(errDetail?{detail:errDetail}:{})});
+      this.activity(run, ok ? 'tool' : 'error', tool + (ok ? ' 已完成' : ' 未完成'), {
+        tool,
+        state: ok ? 'completed' : (softFailed ? 'failed' : String(data.state)),
+        ...(callId ? { callId } : {}),
+        ...(errDetail ? { detail: errDetail } : {}),
+      });
     }else if(event.type==='evidence_saved'&&typeof data.reworkRound==='number'){
       run.view.reworkCount=data.reworkRound;
       if (data.collection) {
@@ -405,6 +446,20 @@ export class RunService {
   }
   private finish(run:Managed,result:RunResult):void {
     run.view.status=result.status;run.view.gaps=run.redactor.clean(result.gaps);run.view.error=result.error?run.redactor.clean(result.error):undefined;run.reportPath=result.report;run.view.reportReady=Boolean(result.report);
+    if (result.langfuse) {
+      if (result.langfuse.status === 'exported') {
+        run.view.langfuse = { status: 'exported', traceId: result.langfuse.traceId, traceUrl: result.langfuse.traceUrl };
+      } else if (result.langfuse.status === 'failed') {
+        run.view.langfuse = {
+          status: 'failed',
+          traceId: result.langfuse.traceId ?? run.view.langfuse?.traceId,
+          traceUrl: result.langfuse.traceUrl ?? run.view.langfuse?.traceUrl,
+          error: run.redactor.clean(result.langfuse.error),
+        };
+      } else if (result.langfuse.status === 'disabled') {
+        run.view.langfuse = { status: 'disabled' };
+      }
+    }
     if(result.status==='complete'||result.status==='partial')run.view.stage=5;
     if(isInvestigationTask(run.view.task)){
       const assessment = run.data.read<InvestigationAssessment | null>('assessments/' + result.runId + '.json', null);
@@ -462,7 +517,7 @@ export class RunService {
   }
   respondToApproval(runId:string,requestId:string,answer:boolean | { feedback: string },argsHash:string):void {
     const run=this.require(runId),pending=run.pending.get(requestId);
-    if(!pending||pending.signal.aborted||Date.parse(pending.request.expiresAt)<=Date.now())throw Error('approval_not_pending');
+    if(!pending||pending.signal.aborted||(pending.request.expiresAt&&Date.parse(pending.request.expiresAt)<=Date.now()))throw Error('approval_not_pending');
     if(pending.request.argsHash!==argsHash)throw Error('approval_hash_mismatch');
     const isPlan = pending.request.tool === 'workflow__save_plan';
     if (typeof answer !== 'boolean') {

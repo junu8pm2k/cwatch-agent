@@ -119,6 +119,8 @@ export interface ToolBudgetSnapshot {
   callsByTool: Record<string, number>;
   failuresByTool?: Record<string, number>;
   reservedForCompletion?: number;
+  tokensUsed?: number;
+  maxTokens?: number;
 }
 export interface ToolBudgetSkip {
   status: 'tool_budget_skipped';

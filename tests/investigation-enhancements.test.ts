@@ -409,3 +409,114 @@ check('integration', 'RunService populates, persists and restores plan, review, 
     await standardService.close();
   }
 });
+
+check('integration', 'workflow__extract_signal normalizes non-forum official_announcement without byline, rejects forum/fabricated byline, caps per-turn workflow failures, and guides analyze to submit_analysis', async () => {
+  const data = store(), registry = new ToolRegistry();
+  const docsUrl = 'https://nodejs.org/docs/pricing';
+  const forumUrl = 'https://nodejs.org/forum/thread-1';
+  const docsQuote = 'Enterprise support plans start at $299 per month with 24/7 SLA';
+  const forumQuote = 'Core team confirmed v24 LTS support extends through April 2028';
+  const t = webTask({
+    signalTypes: ['release', 'price'],
+    evidencePolicy: {
+      scope: 'only',
+      sources: [
+        { url: docsUrl, kind: 'documentation' },
+        { url: forumUrl, kind: 'official_forum' },
+      ],
+    },
+  });
+  await registry.register('web', 'builtin', webFetchSource({
+    [docsUrl]: { title: 'Node.js Pricing Docs', content: `Official Pricing Guide.\n${docsQuote}.` },
+    [forumUrl]: { title: 'Release Roadmap Thread', content: `Posted By Jane Doe (Core Team).\n${forumQuote}.` },
+  }), live);
+  const reviewChecks = (['scope', 'source_identity', 'citation', 'evidence_support', 'conflicts_and_gaps', 'report_consistency'] as const).map(dimension => ({
+    dimension, status: 'pass',
+  }));
+  try {
+    let cursor = 0;
+    const steps: Decision[] = [
+      {
+        kind: 'call_tool',
+        name: 'workflow__save_plan',
+        args: {
+          taskId: t.taskId,
+          objective: 'Verify pricing and forum roadmap',
+          sources: ['web'],
+          queries: ['site:nodejs.org/docs/pricing pricing'],
+          evidenceRequirements: ['Fetched docs and forum'],
+          window: { start: t.window.start, end: t.window.end },
+          questions: [{ id: 'pricing', question: 'What is the enterprise pricing and LTS roadmap?', candidatesRequired: 2 }],
+        },
+      },
+      {
+        kind: 'call_tools',
+        calls: [
+          { sdkToolCallId: 'f1', name: 'web_fetch', args: { url: docsUrl } },
+          { sdkToolCallId: 'f2', name: 'web_fetch', args: { url: forumUrl } },
+        ],
+      },
+      { kind: 'call_tool', name: 'workflow__assess_search', args: { questionId: 'pricing', candidateUrls: [docsUrl, forumUrl] } },
+      // Parallel batch of 4 failing workflow__extract_signal calls must count as 1 turn failure, NOT deactivate the tool.
+      {
+        kind: 'call_tools',
+        calls: [
+          { sdkToolCallId: 'e1', name: 'workflow__extract_signal', args: { url: forumUrl, signalType: 'release', eventKey: 'lts:forum-no-byline', title: 'Forum no byline', value: 'LTS 2028', quote: forumQuote, publishedAt, authorship: { role: 'official_announcement' } } },
+          { sdkToolCallId: 'e2', name: 'workflow__extract_signal', args: { url: docsUrl, signalType: 'price', eventKey: 'price:fake-byline', title: 'Docs fake byline', value: '$299', quote: docsQuote, publishedAt, authorship: { role: 'staff', byline: 'Fabricated Author' } } },
+          { sdkToolCallId: 'e3', name: 'workflow__extract_signal', args: { url: docsUrl, signalType: 'price', eventKey: 'price:fake-quote', title: 'Docs fake quote', value: '$999', quote: 'Completely fabricated pricing tier that does not exist on page', publishedAt } },
+          { sdkToolCallId: 'e4', name: 'workflow__extract_signal', args: { url: forumUrl, signalType: 'release', eventKey: 'lts:forum-staff-no-byline', title: 'Forum staff no byline', value: 'LTS 2028', quote: forumQuote, publishedAt, authorship: { role: 'staff' } } },
+        ],
+      },
+      // Next turn: extract_signal is still active! Non-forum official_announcement without byline normalizes honestly to unknown; forum with verified byline succeeds.
+      {
+        kind: 'call_tools',
+        calls: [
+          { sdkToolCallId: 'e5', name: 'workflow__extract_signal', args: { url: docsUrl, signalType: 'price', eventKey: 'price:enterprise', title: 'Enterprise Pricing', value: '$299/mo', quote: docsQuote, publishedAt, authorship: { role: 'official_announcement' } } },
+          { sdkToolCallId: 'e6', name: 'workflow__extract_signal', args: { url: forumUrl, signalType: 'release', eventKey: 'lts:2028', title: 'LTS Support', value: 'Through April 2028', quote: forumQuote, publishedAt, authorship: { role: 'staff', byline: 'By Jane Doe (Core Team)' } } },
+        ],
+      },
+      { kind: 'call_tool', name: 'workflow__analyze', args: {} },
+      { kind: 'call_tool', name: 'workflow__submit_analysis', args: { findings: [] } },
+      { kind: 'call_tool', name: 'workflow__review', args: { assessments: [{ questionId: 'pricing', checks: reviewChecks }] } },
+      { kind: 'call_tool', name: 'workflow__draft', args: { claimIds: [] } },
+      { kind: 'respond', text: 'Done.' },
+    ];
+    const result = await runInvestigation(t, {
+      async decide(input, signal) {
+        signal.throwIfAborted();
+        const step = structuredClone(steps[cursor++]);
+        if (step.kind === 'call_tool' && step.name === 'workflow__submit_analysis') {
+          const analyzeRes = input.state.observations.find(o => o.name === 'workflow__analyze')!.result as { claims: Array<{ id: string }>; nextStep?: string };
+          assert.match(analyzeRes.nextStep ?? '', /workflow__submit_analysis/);
+          assert.match(analyzeRes.nextStep ?? '', /Do not re-read page snapshots/);
+          step.args.findings = [{ questionId: 'pricing', status: 'verified', conclusion: 'Enterprise starts at $299/mo and LTS extends through April 2028.', claimIds: analyzeRes.claims.map(c => c.id) }];
+        }
+        if (step.kind === 'call_tool' && step.name === 'workflow__draft') {
+          const reviewRes = input.state.observations.find(o => o.name === 'workflow__review')!.result as { approvedClaimIds: string[] };
+          step.args.claimIds = reviewRes.approvedClaimIds;
+        }
+        return step;
+      },
+    }, registry, data, 'replay', { maxConsecutiveToolFailures: 4 });
+
+    assert.equal(result.status, 'complete', result.error);
+    assert.deepEqual(result.gaps, []);
+    const state = data.read<AgentState>('states/' + result.runId + '.json', null!);
+    const extracts = state.observations.filter(o => o.name === 'workflow__extract_signal').map(o => o.result as Record<string, any>);
+    assert.equal(extracts.length, 6);
+    assert.match(String(extracts[0].error), /authorship_requires_verifiable_byline/);
+    assert.match(String(extracts[1].error), /authorship_requires_verifiable_byline/);
+    assert.match(String(extracts[2].error), /quote_not_found_in_fetched_page/);
+    assert.match(String(extracts[3].error), /authorship_requires_verifiable_byline/);
+    // Turn 5 succeeded (not tool_budget_skipped) with honest role normalization on non-forum docs and verified staff byline on forum.
+    assert.equal(extracts[4].extracted, true);
+    assert.equal(extracts[4].signal.authorship.role, 'unknown');
+    assert.match(String(extracts[4].authorshipNote), /Normalized authorship\.role to "unknown"/);
+    assert.equal(extracts[5].extracted, true);
+    assert.equal(extracts[5].signal.authorship.role, 'staff');
+    assert.equal(extracts[5].signal.authorship.byline, 'By Jane Doe (Core Team)');
+    assert.deepEqual(validateTrace(data.lines<TraceEvent>('traces/' + result.runId + '.jsonl')), []);
+  } finally {
+    await registry.close();
+  }
+});

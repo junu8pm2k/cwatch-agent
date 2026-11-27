@@ -42,17 +42,25 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   const formatBudgetNotice = (toolName: string): string | undefined => {
     const budget = currentToolBudgets;
     if (!budget) return undefined;
+    const parts: string[] = [];
     const used = budget.callsByTool[toolName] ?? 0;
     const { sameTool: remSame, available } = remainingToolBudget(budget, toolName);
     const remTotal = Math.max(0, budget.maxToolCalls - budget.toolCalls);
     const lowSame = budget.maxSameToolCalls < budget.maxToolCalls && remSame <= 3;
-    if (!lowSame && available > 5) return undefined;
-    const guidance = remSame === 0
-      ? `Do NOT call ${toolName} again; it has reached its per-tool cap. Proceed with other tools or analysis/review/draft.`
-      : available === 0
-        ? 'Proceed with the available evidence. Any reserved calls are for analysis, review and drafting.'
-        : `At most ${Math.min(remSame, available)} more call(s) of ${toolName} are available.`;
-    return `Tool ${toolName}: ${used}/${budget.maxSameToolCalls} used (${remSame} remaining); total tools: ${budget.toolCalls}/${budget.maxToolCalls} (${remTotal} remaining). ${guidance}`;
+    if (lowSame || available <= 5) {
+      const guidance = remSame === 0
+        ? `Do NOT call ${toolName} again; it has reached its per-tool cap. Proceed with other tools or analysis/review/draft.`
+        : available === 0
+          ? 'Proceed with the available evidence. Any reserved calls are for analysis, review and drafting.'
+          : `At most ${Math.min(remSame, available)} more call(s) of ${toolName} are available.`;
+      parts.push(`Tool ${toolName}: ${used}/${budget.maxSameToolCalls} used (${remSame} remaining); total tools: ${budget.toolCalls}/${budget.maxToolCalls} (${remTotal} remaining). ${guidance}`);
+    }
+    if (toolName !== 'workflow__draft' && budget.maxTokens && budget.tokensUsed !== undefined && budget.tokensUsed / budget.maxTokens >= 0.75) {
+      const pct = Math.min(100, Math.round((budget.tokensUsed / budget.maxTokens) * 100));
+      const remainingTokens = Math.max(0, budget.maxTokens - budget.tokensUsed);
+      parts.push(`Token budget: ${budget.tokensUsed}/${budget.maxTokens} (${pct}% used, ${remainingTokens} remaining). Stop extra searches or snapshot reads and proceed directly to analysis/review/draft with current evidence.`);
+    }
+    return parts.length ? parts.join(' ') : undefined;
   };
   const resolveBindings = (nextTools: ModelInput['tools'], revising: boolean) =>
     revising ? [] : nextTools.filter(binding => bindings.get(binding.proxy_name)?.id === binding.id);

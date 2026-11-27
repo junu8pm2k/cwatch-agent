@@ -12,7 +12,6 @@ import type {
   WorkbenchExtensions,
   WorkbenchProject,
 } from '@cwatch/core/types/runs';
-import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 import { state } from './state.ts';
 
 export async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -44,7 +43,6 @@ export const sendMessageApi = (runId: string, input: RunMessageInput): Promise<R
 export const endConversationApi = (runId: string): Promise<RunSnapshot> => api<RunSnapshot>(`/api/runs/${runId}/end`, {});
 export const respondApprovalApi = (runId: string, requestId: string, answer: boolean | { feedback: string }, argsHash: string): Promise<RunSnapshot> =>
   api<RunSnapshot>(`/api/runs/${runId}/approvals/${requestId}`, typeof answer === 'boolean' ? { allowed: answer, argsHash } : { ...answer, argsHash });
-export const fetchTraceApi = (runId: string): Promise<StructuredTrace> => api<StructuredTrace>(`/api/runs/${runId}/trace`);
 
 export async function fetchReportApi(runId: string, saved = false): Promise<string> {
   const response = await fetch(`/api/runs/${runId}/report${saved ? '?version=saved' : ''}`);
