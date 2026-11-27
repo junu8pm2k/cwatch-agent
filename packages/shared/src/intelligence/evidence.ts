@@ -101,7 +101,8 @@ export function reviewClaims(task: CompetitorTask, claims: Claim[], events: read
 }
 export function renderReport(task: CompetitorTask, claims: Claim[], evidence: Evidence[], review: Review, comparison: Comparison[], gaps: string[], modelNarrative: string, mode: string): string {
   const lines = [`# ${task.competitor.name} / ${task.product} 调查草稿`, '', `模式：${mode}；生成：${now()}；结构化主张审阅：${review.decision}`, `时间窗：[${task.window.start}, ${task.window.end})；依据 ${task.window.basis}；时区 ${task.window.timezone}`, '', '## 模型调查说明（待人工核对）', '', modelNarrative, '', '## 结构化主张（已核对引用）', ''];
-  for (const c of claims) { lines.push(`- **${c.id}** ${c.text}（事件 ${c.eventId}；版本 ${c.versionId}）`); for (const eid of c.evidenceIds) { const e = evidence.find(e => e.id === eid)!; lines.push(`  - [${eid}](${e.signal.url})；发布时间 ${e.signal.published_at ?? '未知'}；采集时间 ${e.signal.retrieved_at}；依据时间 ${e.signal[task.window.basis] ?? '未知'}；${e.provenance}；[原始快照](../${e.rawPath})`); } }
+  const authorRoles = { official_announcement: '官方公告', staff: '员工答复', community: '社区用户', unknown: '发言者身份未核验' };
+  for (const c of claims) { lines.push(`- **${c.id}** ${c.text}（事件 ${c.eventId}；版本 ${c.versionId}）`); for (const eid of c.evidenceIds) { const e = evidence.find(e => e.id === eid)!; const author = e.signal.authorship; lines.push(`  - [${eid}](${e.signal.url})；发布时间 ${e.signal.published_at ?? '未知'}；采集时间 ${e.signal.retrieved_at}；依据时间 ${e.signal[task.window.basis] ?? '未知'}；${e.provenance}${author ? '；' + authorRoles[author.role] + (author.byline ? `（${author.byline}）` : '') : ''}；[原始快照](../${e.rawPath})`); } }
   lines.push('', '## 历史比较', '', ...comparison.map(c => `- ${c.eventId}: ${c.status}；${c.previousVersions.length} → ${c.currentVersions.length} 个版本`), '', '## 冲突与采集缺口', '', ...[...gaps, ...review.issues].map(g => '- ' + g));
   if (!gaps.length && !review.issues.length) lines.push('- 本次已配置来源内未发现需补查项；不代表覆盖全部市场动态。');
   lines.push('', '本文件仅为草稿。未知时点、空结果和失败来源不构成“没有动态”的证据。');

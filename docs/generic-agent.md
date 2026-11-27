@@ -11,7 +11,7 @@ npm run demo:agent
 npm run web
 ```
 
-工作台默认选中「通用 Agent」。离线模式使用固定脚本读取 README，结果明确标记为演示；真实模式可以编辑任务、选择已有来源和已安装 Skill。配置模型后可直接运行：
+工作台首页根据用户输入判断是否需要完整调研。只读本地任务和快速查询直接进入通用 Agent。配置模型后也可以通过 CLI 指定来源和已安装 Skill。
 
 ```powershell
 npm start -- skills install examples/skills/research-brief

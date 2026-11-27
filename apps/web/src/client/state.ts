@@ -7,6 +7,7 @@ import type {
   SkillDetail,
   WorkbenchBootstrap,
   WorkbenchExtensions,
+  WorkbenchProject,
 } from '@cwatch/core/types/runs';
 import type { StructuredTrace } from '@cwatch/shared/sessions/structured-trace';
 
@@ -76,6 +77,10 @@ export function taskTitle(task: AgentTask): string {
   return singleLine.length > 72 ? singleLine.slice(0, 72) + '…' : singleLine || '未命名任务';
 }
 
+export function sessionTitle(run: RunSnapshot): string {
+  return run.title ?? taskTitle(run.task);
+}
+
 export function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
@@ -100,6 +105,9 @@ export interface ClientState {
   extensions?: WorkbenchExtensions;
   loadingExtensions: boolean;
   runs: RunSnapshot[];
+  projects: WorkbenchProject[];
+  composeProjectId?: string;
+  savedReportMode: boolean;
   current?: RunSnapshot;
   view: 'workbench' | 'connections' | 'research';
   tab: MainTab;
@@ -113,7 +121,7 @@ export interface ClientState {
   submitting: boolean;
   sending: boolean;
   deletingRunIds: Set<string>;
-  instructionDraft: string;
+  investigationFormPrompt?: string;
   drafts: Map<string, string>;
   pendingMessage?: { runId: string; text: string; messageId: string };
   reportCache: Map<string, string>;
@@ -143,6 +151,8 @@ function readInitialTheme(): 'light' | 'dark' {
 export const state: ClientState = {
   loadingExtensions: false,
   runs: [],
+  projects: [],
+  savedReportMode: false,
   view: 'workbench',
   tab: 'report',
   traceDrawerOpen: false,
@@ -152,7 +162,6 @@ export const state: ClientState = {
   submitting: false,
   sending: false,
   deletingRunIds: new Set(),
-  instructionDraft: '',
   drafts: new Map(),
   reportCache: new Map(),
   loadingReports: new Set(),

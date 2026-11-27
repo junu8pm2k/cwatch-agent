@@ -22,8 +22,8 @@ check('contract', 'Token totals include caches once and do not double-count reas
   for (const usage of [undefined, {}, { totalTokens: 0 }, { totalTokens: -1 }, { totalTokens: Infinity }]) assert.equal(reportedTokens(usage), undefined);
 });
 
-async function replayLimited(options: RuntimeOptions, model?: ModelPort) {
-  const data = store(), registry = new ToolRegistry(), source = new CountingClient();
+async function replayLimited(options: RuntimeOptions, model?: ModelPort, source = new CountingClient()) {
+  const data = store(), registry = new ToolRegistry();
   const value = { ...task(), allowedSources: ['official'] };
   await registry.register('official','mcp',source,new AbortController().signal);
   const script = json<Decision[]>('fixtures/model-script.json');
@@ -65,6 +65,21 @@ check('contract', 'The host model deadline stops a model which ignores cancellat
   assert.match(actual.result.error!,/budget_model_timeout/);
   assert.equal(actual.data.executions().length,0);
   assert.ok(actual.events.some(e=>e.type==='budget_exceeded'));
+});
+check('integration', 'A single-tool timeout leaves later tools and report drafting available without a run deadline', async () => {
+  let attempts = 0;
+  const source = new CountingClient(undefined, async () => {
+    if (++attempts === 1) return new Promise<never>(() => {});
+    return { ok: true };
+  });
+  const actual = await replayLimited({ timeoutMs: 0, toolTimeoutMs: 50 }, undefined, source);
+  const timeouts = actual.events.filter(event => event.type === 'budget_exceeded');
+  assert.equal(timeouts.length, 1);
+  assert.equal(timeouts[0].data.budget, 'tool_timeout');
+  assert.equal(timeouts[0].data.limit, 50);
+  assert.equal(source.calls.length, 3);
+  assert.ok(actual.result.report);
+  assert.ok(!actual.result.error);
 });
 check('contract', 'CLI rejects missing and invalid limit arguments before creating output directories', () => {
   for (const args of [['--max-tokens','NaN'],['--model-timeout','0'],['--max-same-tool-calls','-1'],['--max-output-tokens']]) {

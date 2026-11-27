@@ -4,6 +4,7 @@ import { type CompactAttachment } from '@cwatch/core/types/compaction';
 import { type FileStore } from '@cwatch/shared/sessions/storage';
 import { type SessionTranscript } from '@cwatch/shared/sessions/transcript';
 import { ReadTranscriptSchema } from '@cwatch/shared/sessions/transcript';
+import { readPageSnapshotTool, type readPageSnapshot } from '@cwatch/shared/sessions/page-snapshots';
 import { type ToolRegistry } from '@cwatch/shared/tools/registry';
 import { type SkillBundle } from '@cwatch/shared/skills/storage';
 
@@ -16,7 +17,7 @@ export interface WorkflowCheckpoint {
   canReworkCollect?(): boolean;
 }
 interface ResourceRead {
-  kind: 'source_guide' | 'skill_resource' | 'tool_result' | 'plan' | 'transcript'; path?: string; sourceSlug?: string; skill?: string;
+  kind: 'source_guide' | 'skill_resource' | 'tool_result' | 'page_snapshot' | 'plan' | 'transcript'; path?: string; sourceSlug?: string; skill?: string;
   hash: string; offset: number; readChars: number; totalChars: number; text: string;
   reRead: { tool: string; args: Record<string, unknown> }; sequence: number;
 }
@@ -66,6 +67,10 @@ export class WorkingStateTracker {
   }
   recordArchive(page: ReturnType<SessionTranscript['readToolResult']>): void {
     this.record({ kind: 'tool_result', hash: page.contentHash, offset: page.offset, readChars: page.content.length, totalChars: page.totalChars, text: page.content, reRead: { tool: 'session__read_tool_result', args: { entryId: page.entryId, toolCallId: page.toolCallId, offset: page.offset, limit: 1024 } } });
+  }
+  recordPageSnapshot(page: ReturnType<typeof readPageSnapshot>): void {
+    if (!page.content) return;
+    this.record({ kind: 'page_snapshot', hash: page.snapshotId, offset: page.offset, readChars: page.content.length, totalChars: page.totalChars, text: page.content, reRead: { tool: readPageSnapshotTool, args: { snapshotId: page.snapshotId, offset: page.offset } } });
   }
   recordTranscript(page: ReturnType<SessionTranscript['readTranscript']>, args: unknown): void {
     const parsed = ReadTranscriptSchema.parse(args);

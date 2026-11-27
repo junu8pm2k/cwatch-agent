@@ -46,6 +46,8 @@ SDK 内置自动压缩继续关闭，避免其隐藏的请求、重试和用量�
 
 `session__read_tool_result` 仅在有会话转录的运行中提供，通过本次运行的 entryId + toolCallId 分页读取已脱敏的原始工具内容；默认每页 1024、最多 4096 字符，通过 nextOffset 翻页，返回内容哈希并检查快照完整性。拒绝其他会话、错误身份和任意文件路径。它走原有 ToolExecutor/IPC/预算链，读取归档不重放原工具，也不改变来源指南的前置阅读状态。每轮复查重读工具是否仍可用；已治理结果的重读入口被撤销时明确停止。
 
+`web_fetch` 长正文先在宿主存为脱敏全文快照，工具消息带首尾预览和 `textSnapshot.id`。Snip 或微压缩生成占位时也保留全文回查提示。传入 `snapshotId` 和 `offset` 可以分页，传入可选的 `query` 可以查找区分大小写的字面关键词并取回附近片段。读取通过 `session__read_page_snapshot` 完成，仅查本次运行并校验内容哈希，默认返回 1,024 字符，最多 4,096 字符。
+
 SDK 实锚：已核对安装包 pi-ai 的 ToolResultMessage（toolCallId、toolName、content、details、isError）及 SessionManager 的 message/custom entries、sessionEntryToContextMessages；用原生 entry 身份应用投影，完整转录仍使用 SDK 原始消息。工具结果被编辑后清除压缩前的 usage 锚点，避免旧用量继续触发不必要的摘要。
 
 正式摘要的输入同样使用治理后的结果，不会从完整转录重新塞回已经 microcompact 的长文。现有来源大小、raw 快照及 IPC 帧上限仍独立生效；这里的预算限制的是模型活动上下文。

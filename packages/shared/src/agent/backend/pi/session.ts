@@ -81,7 +81,7 @@ export async function runPiSession(runtime: ModelRuntime, model: Model, input: M
   const resultPolicy = (tools: ModelInput['tools']) => ({
     canRead: tools.some(binding => binding.proxy_name === 'session__read_tool_result'),
     canReadTranscript: tools.some(binding => binding.proxy_name === 'session__read_transcript'),
-    microcompactTools: tools.filter(binding => (binding.action === 'collect' && !binding.dynamicAction) || binding.source_slug === 'pi' && binding.action === 'analyze' || ['session__read_source_guide', 'session__read_skill_resource', 'session__read_tool_result', 'workflow__read_plan', 'session__read_transcript', 'session__read_session_memory'].includes(binding.proxy_name)).map(binding => binding.proxy_name),
+    microcompactTools: tools.filter(binding => (binding.action === 'collect' && !binding.dynamicAction) || binding.source_slug === 'pi' && binding.action === 'analyze' || ['session__read_source_guide', 'session__read_skill_resource', 'session__read_tool_result', 'session__read_page_snapshot', 'workflow__read_plan', 'session__read_transcript', 'session__read_session_memory'].includes(binding.proxy_name)).map(binding => binding.proxy_name),
   });
   const contextManager = new PiContextManager(session.sessionManager, hooks, input.contextChars ?? 150_000, input.maxResponseChars ?? 32_000, resultPolicy(input.tools), input.sessionMemoryPolicy);
   const fail = (error: unknown) => { fatal ??= error; session.agent.abort(); };

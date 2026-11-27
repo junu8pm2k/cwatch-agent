@@ -32,7 +32,13 @@ check('integration','RunService streams the real replay pipeline, persists its r
 for(const allowed of [true,false])check('integration','RunService '+(allowed?'approves':'denies')+' exactly one host write with its immutable argument hash',async()=>{
   const data=store(),fixture=approvalFixture(),service=new RunService({root:process.cwd(),outputRoot:data.root,...fixture});
   try{
-    const run=service.start({...start,permission:'ask'}),pending=await waitForRun(service,run.id,r=>r.approvals.length>0),request=pending.approvals[0];
+    const run=service.start({...start,permission:'ask'});
+    const planned=await waitForRun(service,run.id,r=>r.approvals.some(a=>a.tool==='workflow__save_plan'));
+    const planRequest=planned.approvals[0];
+    assert.equal(planned.stage,0);assert.ok(planned.plan);assert.equal(fixture.calls.length,0);
+    assert.throws(()=>service.respondToApproval(run.id,planRequest.requestId,true,'0'.repeat(64)),/hash_mismatch/);
+    service.respondToApproval(run.id,planRequest.requestId,true,planRequest.argsHash);
+    const pending=await waitForRun(service,run.id,r=>r.approvals.some(a=>a.tool!=='workflow__save_plan')),request=pending.approvals[0];
     assert.equal(fixture.calls.includes('request_publish'),false);
     assert.throws(()=>service.respondToApproval(run.id,request.requestId,true,'0'.repeat(64)),/hash_mismatch/);
     service.respondToApproval(run.id,request.requestId,allowed,request.argsHash);
@@ -44,7 +50,7 @@ for(const allowed of [true,false])check('integration','RunService '+(allowed?'ap
 });
 check('contract','Cancelling a web approval clears it and never executes a late approval',async()=>{
   const data=store(),fixture=approvalFixture(),service=new RunService({root:process.cwd(),outputRoot:data.root,...fixture});
-  try{const run=service.start({...start,permission:'ask'}),pending=await waitForRun(service,run.id,r=>r.approvals.length>0),request=pending.approvals[0];service.cancel(run.id);const finished=await service.wait(run.id);assert.equal(finished.status,'cancelled');assert.equal(finished.approvals.length,0);assert.throws(()=>service.respondToApproval(run.id,request.requestId,true,request.argsHash),/not_pending/);assert.equal(fixture.calls.includes('request_publish'),false);}
+  try{const run=service.start({...start,permission:'ask'}),pending=await waitForRun(service,run.id,r=>r.approvals.length>0),request=pending.approvals[0];assert.equal(request.tool,'workflow__save_plan');service.cancel(run.id);const finished=await service.wait(run.id);assert.equal(finished.status,'cancelled');assert.equal(finished.approvals.length,0);assert.throws(()=>service.respondToApproval(run.id,request.requestId,true,request.argsHash),/not_pending/);assert.deepEqual(fixture.calls,[]);}
   finally{await service.close();}
 });
 check('contract','RunService capacity and cancellation bound concurrent investigations without mixing their state',async()=>{

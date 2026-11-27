@@ -68,6 +68,18 @@ export async function startWebServer(options: WebServerOptions) {
     for await (const chunk of req.iterator({ destroyOnReturn: false })) { const data = Buffer.from(chunk); size += data.length; if (size > 65536) { req.resume(); throw Error('request_too_large'); } chunks.push(data); }
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Error('invalid_json'); }
   }
+  async function sendWhileConnected(res: ServerResponse, work: (signal: AbortSignal) => Promise<unknown>): Promise<void> {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once('close', abort);
+    try {
+      if (res.destroyed) return;
+      const result = await work(controller.signal);
+      if (!res.destroyed) send(res, 200, result);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    } finally { res.off('close', abort); }
+  }
   const server = createServer({ maxHeaderSize: 8192 }, async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
@@ -81,7 +93,7 @@ export async function startWebServer(options: WebServerOptions) {
       if (req.method === 'GET' && assets.has(path)) { const asset = assets.get(path)!; res.writeHead(200, { 'Content-Type': asset.type }); res.end(asset.body); return; }
       if (path === '/api/bootstrap' && req.method === 'GET') {
         const model = service.connections.modelSummary();
-        return send(res, 200, { csrfToken, model, profiles: service.profiles(), skills: service.skills(), runs: service.list(), maxConcurrentRuns: 2 } satisfies WorkbenchBootstrap);
+        return send(res, 200, { csrfToken, model, profiles: service.profiles(), skills: service.skills(), runs: service.list(), projects: service.projects(), maxConcurrentRuns: 2 } satisfies WorkbenchBootstrap);
       }
       if (path === '/api/extensions' && req.method === 'GET') return send(res, 200, service.extensions());
       if (req.method === 'POST') {
@@ -128,20 +140,35 @@ export async function startWebServer(options: WebServerOptions) {
         const ac = new AbortController(); req.once('close', () => ac.abort());
         return send(res, 200, await service.testMcp(slug, ac.signal));
       }
+      if (path === '/api/task-intent' && req.method === 'POST') {
+        const input = await body(req);
+        return await sendWhileConnected(res, signal => service.taskIntent(input, signal));
+      }
+      if (path === '/api/projects' && req.method === 'POST') return send(res, 201, service.createProject(await body(req)));
       if (path === '/api/runs' && req.method === 'POST') { const value = await body(req); return send(res, 202, service.start(value as RunStartInput)); }
       if (path === '/api/runs' && req.method === 'GET') return send(res, 200, service.list());
-      const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(events|cancel|delete|approvals|report|export|trace|messages|end)(?:\/([a-f0-9-]{36}))?)?$/.exec(path);
+      const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(events|cancel|delete|approvals|report|export|trace|messages|end|project|title|report-review|report-annotations|report-save|report-messages)(?:\/([a-f0-9-]{36}))?)?$/.exec(path);
       if (!match) return send(res, 404, { error: 'not_found' });
       const [, runId, action, requestId] = match;
+      const savedVersion = url.searchParams.get('version') === 'saved';
       if (req.method === 'GET' && !action) return send(res, 200, service.get(runId));
       if (req.method === 'GET' && action === 'trace') return send(res, 200, service.trace(runId));
+      if (req.method === 'GET' && action === 'report-review') return send(res, 200, service.reportReview(runId, savedVersion));
+      if (req.method === 'POST' && action === 'project') return send(res, 200, service.moveRun(runId, await body(req)));
+      if (req.method === 'POST' && action === 'title') return send(res, 200, service.renameRun(runId, await body(req)));
+      if (req.method === 'POST' && action === 'report-annotations') return send(res, 200, service.annotateReport(runId, await body(req)));
+      if (req.method === 'POST' && action === 'report-save') return send(res, 200, service.saveReport(runId, await body(req)));
+      if (req.method === 'POST' && action === 'report-messages') {
+        const input = await body(req);
+        return await sendWhileConnected(res, signal => service.replyToReport(runId, input, signal));
+      }
       if (req.method === 'GET' && action === 'report') {
-        const report = service.report(runId); res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="competitor-report.md"' }); res.end(report); return;
+        const report = service.report(runId, savedVersion); res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="competitor-report.md"' }); res.end(report); return;
       }
       if (req.method === 'GET' && action === 'export') {
         const format = url.searchParams.get('format') ?? 'md';
         if (!isDraftExportFormat(format)) return send(res, 400, { error: 'unsupported_export_format' });
-        const run = service.get(runId), report = service.report(runId);
+        const run = service.get(runId), report = service.report(runId, savedVersion);
         const redactor = new Redactor([...Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''), ...service.connections.secrets()]);
         const exported = buildDraftExport(run, report, format);
         res.writeHead(200, { 'Content-Type': exported.contentType, 'Content-Disposition': exported.contentDisposition });
@@ -153,8 +180,13 @@ export async function startWebServer(options: WebServerOptions) {
       if (req.method === 'POST' && action === 'messages') return send(res, 202, service.sendMessage(runId, await body(req) as RunMessageInput));
       if (req.method === 'POST' && action === 'end') { await body(req); return send(res, 202, service.endConversation(runId)); }
       if (req.method === 'POST' && action === 'approvals' && requestId) {
-        const input = z.object({ allowed: z.boolean(), argsHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(await body(req));
-        service.respondToApproval(runId, requestId, input.allowed, input.argsHash); return send(res, 200, service.get(runId));
+        const argsHash = z.string().regex(/^[a-f0-9]{64}$/);
+        const input = z.union([
+          z.object({ allowed: z.boolean(), argsHash }).strict(),
+          z.object({ feedback: z.string().trim().min(1).max(2000), argsHash }).strict(),
+        ]).parse(await body(req));
+        service.respondToApproval(runId, requestId, 'allowed' in input ? input.allowed : { feedback: input.feedback }, input.argsHash);
+        return send(res, 200, service.get(runId));
       }
       if (req.method === 'GET' && action === 'events') {
         service.get(runId); if (streams.size >= 16) return send(res, 429, { error: 'event_stream_capacity' });
@@ -174,7 +206,10 @@ export async function startWebServer(options: WebServerOptions) {
       if (res.headersSent) { res.end(); return; }
       const redactor = new Redactor([...Object.entries(process.env).filter(([key]) => /KEY|TOKEN|SECRET|PASSWORD/.test(key)).map(([, value]) => value ?? ''), ...service.connections.secrets()]);
       const message = redactor.clean(error instanceof Error ? error.message : String(error));
-      const status = message.includes('not_found') ? 404 : message.includes('capacity') || message.includes('run_active') || message.includes('not_pending') || message.includes('not_waiting') || message.includes('id_conflict') || message.includes('message_limit') || message.includes('hash_mismatch') ? 409 : message.includes('too_large') ? 413 : 400;
+      if (message.startsWith('task_intent_timeout: ') || message.startsWith('task_intent_unavailable: ')) {
+        return send(res, message.startsWith('task_intent_timeout: ') ? 504 : 502, { error: message.slice(message.indexOf(': ') + 2) });
+      }
+      const status = message.includes('not_found') ? 404 : message.includes('capacity') || message.includes('run_active') || message.includes('not_pending') || message.includes('not_waiting') || /(?:id|revision|name)_conflict/.test(message) || message.includes('message_limit') || message.includes('hash_mismatch') ? 409 : message.includes('too_large') ? 413 : 400;
       send(res, status, { error: message });
     }
   });

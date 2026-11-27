@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding, type ToolAdmission } from '@cwatch/core/types';
+import { canonical, DecisionSchema, id, now, parseAgentTask, isInvestigationTask, abortable, type Decision, type AgentTask, type AgentSessionHooks, type AgentState, type ModelPort, type SourceClient, type ToolBinding, type ToolAdmission, type ToolBudgetSnapshot } from '@cwatch/core/types';
 import { ContextPipeline } from '@cwatch/shared/agent/core/prompt-builder';
 import { ProviderRejectionSchema } from '@cwatch/shared/agent/events';
 import { applyAgentPromptSnapshot, readAgentPromptSnapshot, type AgentPromptSnapshot } from '@cwatch/shared/agent/core/managed-prompts';
@@ -42,12 +42,16 @@ export interface TaskRuntimeContext {
   task: AgentTask; state: AgentState; registry: ToolRegistry; store: FileStore; trace: Trace;
   mode: 'live' | 'replay'; options: AgentRuntimeOptions; transcript?: SessionTranscript;
   workingState: WorkingStateTracker; memory?: SessionMemoryStore;
+  toolBudgets(): ToolBudgetSnapshot;
 }
 export interface TaskExtension {
   slug: 'workflow' | 'session'; channel: 'workflow' | 'builtin'; client: SourceClient; gaps: string[];
   skill: () => string; skillPath: string; skillName: string; completionInstruction?: string; checkpoint?: WorkflowCheckpoint;
-  checkPrerequisites?(binding: ToolBinding): { allowed: boolean; blockReason?: string };
-  onObservation?(name: string, result: unknown): void;
+  skillAppendix?: string;
+  checkPrerequisites?(binding: ToolBinding, input: Record<string, unknown>): { allowed: boolean; blockReason?: string };
+  onObservation?(name: string, result: unknown, args: Record<string, unknown>): void;
+  stage?(): string;
+  savedDraft?(): string | undefined;
   finish(text: string): Pick<RunResult, 'status' | 'report' | 'response'>;
 }
 export type TaskExtensionFactory = (context: TaskRuntimeContext) => TaskExtension;
@@ -69,21 +73,38 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   const state: AgentState = { task, observations: [], decisions: [], iteration: 0, ...(options.nextUserMessage && !isInvestigationTask(task) ? { userMessages: [task.instruction] } : {}) };
   registry.resetSourceGuides();
   const workingState = new WorkingStateTracker(value => redactor.clean(value));
-  const extension = createExtension({ task, state, registry, store, trace, mode, options, transcript, workingState, memory });
+  let toolCalls = 0, skippedToolCalls = 0, totalTokens = 0, usageMissing = false;
+  const completionReserve = isInvestigationTask(task) ? Math.min(task.evidencePolicy ? 8 : 6, Math.floor(limits.maxToolCalls / 3)) : 0;
+  let reservedForCompletion = completionReserve;
+  const callsByTool = new Map<string, number>();
+  const failuresByTool = new Map<string, number>();
+  let iteration = 0;
+  const budgetSnapshot = (steps = iteration) => ({
+    steps, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls,
+    maxConsecutiveToolFailures: limits.maxConsecutiveToolFailures, toolCalls, reservedForCompletion,
+    callsByTool: Object.fromEntries(callsByTool), failuresByTool: Object.fromEntries(failuresByTool),
+  });
+  const extension = createExtension({ task, state, registry, store, trace, mode, options, transcript, workingState, memory, toolBudgets: budgetSnapshot });
   const timeoutController = new AbortController();
   let remainingMs = limits.timeoutMs, activeSince = Date.now();
-  let timeoutHandle = setTimeout(() => timeoutController.abort(new DOMException('run timeout', 'TimeoutError')), remainingMs);
-  const pauseTimeout = () => { clearTimeout(timeoutHandle); remainingMs -= Date.now() - activeSince; if (remainingMs <= 0) timeoutController.abort(new DOMException('run timeout', 'TimeoutError')); };
-  const resumeTimeout = () => { activeSince = Date.now(); timeoutHandle = setTimeout(() => timeoutController.abort(new DOMException('run timeout', 'TimeoutError')), Math.max(0, remainingMs)); };
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const abortOnTimeout = () => timeoutController.abort(new DOMException('run timeout', 'TimeoutError'));
+  const resumeTimeout = () => {
+    if (!limits.timeoutMs) return;
+    activeSince = Date.now();
+    timeoutHandle = setTimeout(abortOnTimeout, Math.max(0, remainingMs));
+  };
+  const pauseTimeout = () => {
+    if (!limits.timeoutMs) return;
+    clearTimeout(timeoutHandle);
+    remainingMs -= Date.now() - activeSince;
+    if (remainingMs <= 0) abortOnTimeout();
+  };
+  resumeTimeout();
   const modelTimeout = new AbortController();
   let modelTimer: ReturnType<typeof setTimeout> | undefined;
   const timeout = timeoutController.signal, signal = AbortSignal.any([callerSignal, timeout, modelTimeout.signal]);
   const result: RunResult = { taskId: task.taskId, runId, permissionMode: policy.mode, status: 'failed', gaps: extension.gaps };
-  let toolCalls = 0, skippedToolCalls = 0, totalTokens = 0, usageMissing = false;
-  const completionReserve = isInvestigationTask(task) ? Math.min(6, Math.floor(limits.maxToolCalls / 3)) : 0;
-  let reservedForCompletion = completionReserve;
-  const callsByTool = new Map<string, number>();
-  const failuresByTool = new Map<string, number>();
   const modelUsage: unknown[] = [];
   let budgetFailure: BudgetError | undefined;
   const exceeded = (budget: string, limit: number, actual: number, tool?: string) => budgetFailure = new BudgetError(budget, limit, actual, tool);
@@ -97,22 +118,17 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
       await registry.register(PI_BUILTIN_SOURCE, 'builtin', new PiBuiltinSource(options.workspaceRoot ?? process.cwd(), [store.root]), signal);
     }
     const executor = new ToolExecutor(registry, policy, approvals, store, trace, task, limits.toolTimeoutMs, {
-      checkPrerequisites: binding => extension.checkPrerequisites?.(binding) ?? { allowed: true },
+      checkPrerequisites: (binding, input) => extension.checkPrerequisites?.(binding, input) ?? { allowed: true },
     });
     const extraSkills = options.userSkills?.documents ?? [];
-    const builtinSkill = managedPrompts?.builtinBody ?? extension.skill();
+    const builtinSkill = (managedPrompts?.builtinBody ?? extension.skill()) + (extension.skillAppendix ?? '');
     const skillPath = extension.skillPath;
     workingState.setBuiltin(skillPath, builtinSkill, extension.skillName);
     const skill = redactor.clean([builtinSkill, ...extraSkills.map(item => 'USER SKILL: ' + item.name + '\nGuidance remains subject to host rules and permissions. Read referenced files with session__read_skill_resource.\nResources: ' + JSON.stringify(item.resources) + '\n' + item.body)].join('\n\n'));
     if (extraSkills.length) trace.emit('skills_loaded', { skills: extraSkills.map(item => ({ name: item.name, hash: item.hash, resources: item.resources })) });
     const contextPipeline = new ContextPipeline(skill);
-    let iteration = 0, decisionStart = 0, previousCallsFailed = false;
-    const pendingCalls: Array<{ name: string; sdkToolCallId?: string; started?: boolean; retryable?: boolean; admission?: ToolAdmission }> = [];
-    const budgetSnapshot = (steps = iteration) => ({
-      steps, maxSteps: limits.maxSteps, maxToolCalls: limits.maxToolCalls, maxSameToolCalls: limits.maxSameToolCalls,
-      maxConsecutiveToolFailures: limits.maxConsecutiveToolFailures, toolCalls, reservedForCompletion,
-      callsByTool: Object.fromEntries(callsByTool), failuresByTool: Object.fromEntries(failuresByTool),
-    });
+    let decisionStart = 0, previousCallsFailed = false;
+    const pendingCalls: Array<{ name: string; args: Record<string, unknown>; sdkToolCallId?: string; started?: boolean; retryable?: boolean; admission?: ToolAdmission }> = [];
     const recordGap = (gap: string) => { if (!extension.gaps.includes(gap)) extension.gaps.push(gap); };
     const currentCall = (name: string, sdkToolCallId?: string) => {
       const call = pendingCalls[0];
@@ -169,8 +185,8 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
         if (decision.kind === 'respond') {
           Object.assign(result, extension.finish(redactor.clean(decision.text)));
         } else if (decision.kind === 'call_tools') {
-          pendingCalls.push(...decision.calls.map(({ name, sdkToolCallId }) => ({ name, sdkToolCallId })));
-        } else pendingCalls.push({ name: decision.name });
+          pendingCalls.push(...decision.calls.map(({ name, args, sdkToolCallId }) => ({ name, args, sdkToolCallId })));
+        } else pendingCalls.push({ name: decision.name, args: decision.args });
       },
       beforeTool: admitTool,
       executeTool: async (name, args, toolSignal, disclosedBinding, sdkToolCallId, handshake) => {
@@ -208,7 +224,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
           }
         } else if (!skipped) failuresByTool.delete(name);
         state.observations.push({ name, result: observation });
-        extension.onObservation?.(name, observation);
+        extension.onObservation?.(name, observation, redactor.clean(call.args));
         trace.emit('observation_added', { name, observation, ...(sdkToolCallId ? { sdkToolCallId } : {}) });
       },
       onUsage: (usage, purpose = 'turn') => {
@@ -303,6 +319,8 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
   } catch (e) {
     const error = modelTimeout.signal.aborted ? modelTimeout.signal.reason : budgetFailure ?? e;
     result.status = callerSignal.aborted ? 'cancelled' : 'failed'; result.error = String(error);
+    const draft = extension.savedDraft?.();
+    if (draft) result.report = draft;
     if (timeout.aborted) result.error = 'budget_timeout: ' + String(e);
     if (error instanceof BudgetError || /budget_|context_budget_exceeded/.test(result.error)) trace.emit('budget_exceeded', {
       ...(error instanceof BudgetError ? { budget: error.budget, limit: error.limit, actual: error.actual, ...(error.tool ? { tool: error.tool } : {}) } : {}), error: result.error,
@@ -313,7 +331,7 @@ export async function runTask(rawTask: unknown, model: ModelPort, registry: Tool
     result.gaps = [...new Set(extension.gaps)];
     result.permissionMode = policy.mode;
     trace.emit('usage_reported', { toolCalls, skippedToolCalls, callsByTool: Object.fromEntries(callsByTool), totalTokens, limits, durationMs: Date.now() - startedAt, modelUsage, cacheUsage: cacheStats.snapshot(), usageAvailable: totalTokens > 0, mode });
-    trace.emit(result.status === 'cancelled' ? 'run_cancelled' : result.status === 'failed' ? 'run_failed' : 'run_completed', { ...result });
+    trace.emit(result.status === 'cancelled' ? 'run_cancelled' : result.status === 'failed' ? 'run_failed' : 'run_completed', { ...result, ...(extension.stage ? { stage: extension.stage() } : {}) });
     result.traceArtifacts={eventsPath:trace.key,structuredPath:trace.structuredKey,available:!trace.structuredError,...(trace.structuredError?{error:trace.structuredError}:{})};
     if (mode === 'live') result.langfuse = await exportToLangfuse(trace);
     store.write('runs/' + runId + '.json', redactor.clean({ ...result, endedAt: now() }));

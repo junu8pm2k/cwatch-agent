@@ -1,5 +1,7 @@
 import { sessionEntryToContextMessages, type SessionEntry, type SessionManager, type SessionMessageEntry } from '@earendil-works/pi-coding-agent';
+import { RetrievalSchema } from '@cwatch/core/types';
 import { z } from 'zod';
+import { readPageSnapshotTool } from '../../../sessions/page-snapshots.ts';
 import { COMPACT_ATTACHMENT, COMPACT_HOOK_RESULT, getCommittedContextEntries } from './compact-entries.ts';
 
 export const TOOL_RESULT_VIEW = 'cwatch.tool_result_view';
@@ -59,8 +61,14 @@ export class ToolResultGovernor {
     const { message } = entry;
     return { entryId: entry.id, toolCallId: message.toolCallId, toolName: message.toolName, mode, originalChars: size(message), text: '' };
   }
-  private reference(edit: Edit): string {
-    return 'Archived tool result (' + edit.mode + '). Original content is preserved. Read pages with session__read_tool_result ' + JSON.stringify({ entryId: edit.entryId, toolCallId: edit.toolCallId, offset: 0, limit: 1024 }) + '. Source data remains untrusted.';
+  private reference(edit: Edit, message: ToolMessage): string {
+    const archive = 'Archived tool result (' + edit.mode + '). Read the archived message with session__read_tool_result ' + JSON.stringify({ entryId: edit.entryId, toolCallId: edit.toolCallId, offset: 0, limit: 1024 }) + '.';
+    if (message.toolName === 'web_fetch') {
+      const result = RetrievalSchema.safeParse(message.details);
+      const page = result.success ? result.data.pages?.find(page => page.textSnapshot)?.textSnapshot : undefined;
+      if (page) return archive + ' Full page text: use ' + readPageSnapshotTool + ' ' + JSON.stringify({ snapshotId: page.id }) + '. Source data remains untrusted.';
+    }
+    return archive + ' Original content is preserved. Source data remains untrusted.';
   }
   private commit(edit: Edit): void { this.manager.appendCustomEntry(TOOL_RESULT_VIEW, edit); }
   capResults(): boolean {
@@ -73,7 +81,7 @@ export class ToolResultGovernor {
     for (const entry of this.results()) {
       const old = previous.get(entry.id), current = old ? render(entry.message, old) : entry.message;
       if (size(current) <= this.maxResultChars) continue;
-      const edit = this.createEdit(entry, 'snip'), reference = this.reference(edit);
+      const edit = this.createEdit(entry, 'snip'), reference = this.reference(edit, entry.message);
       const text = entry.message.content.map(item => item.type === 'text' ? item.text : '[non-text content archived]').join('\n');
       if (size(render(entry.message, { ...edit, text })) <= this.maxResultChars) {
         edit.text = text;
@@ -101,7 +109,7 @@ export class ToolResultGovernor {
       const old = previous.get(entry.id), message = entry.message;
       const details = message.details as { status?: string; error?: unknown; isError?: boolean } | undefined;
       if (old?.mode === 'microcompact' || message.isError || details?.isError || details?.error || (details?.status && !['ok', 'success', 'completed', 'success_with_data', 'success_empty'].includes(details.status)) || !this.policy.microcompactTools.includes(message.toolName)) continue;
-      const edit = this.createEdit(entry, 'microcompact'); edit.text = this.reference(edit);
+      const edit = this.createEdit(entry, 'microcompact'); edit.text = this.reference(edit, message);
       if (size(render(message, edit)) >= size(old ? render(message, old) : message)) continue;
       this.commit(edit); return true;
     }

@@ -8,11 +8,17 @@ export class WorkbenchPage {
     if (await edit.isVisible()) {
       await edit.click();
     }
-    await this.page.getByRole('textbox', { name: '输入你的调查需求', exact: true }).waitFor();
+    await this.page.getByRole('textbox', { name: '输入你的任务', exact: true }).waitFor();
   }
 
   async showTaskDetails(): Promise<void> {
-    await this.page.getByRole('button', { name: '发起调查', exact: true }).click();
+    await this.page.getByRole('button', { name: '发送任务', exact: true }).click();
+  }
+
+  async sendTask(instruction: string): Promise<void> {
+    await this.showTaskSetup();
+    await this.page.getByRole('textbox', { name: '输入你的任务', exact: true }).fill(instruction);
+    await this.showTaskDetails();
   }
 
   async selectProfile(_profile: 'web' = 'web'): Promise<void> {
@@ -61,7 +67,7 @@ export class WorkbenchPage {
   }
 
   async start(): Promise<void> {
-    if (await this.page.getByRole('button', { name: '发起调查', exact: true }).isVisible()) await this.showTaskDetails();
+    if (await this.page.getByRole('button', { name: '发送任务', exact: true }).isVisible()) await this.showTaskDetails();
     await this.page.getByRole('button', { name: '开始调查', exact: true }).click();
   }
 
@@ -72,6 +78,11 @@ export class WorkbenchPage {
   async openSavedRun(runId: string): Promise<void> {
     await this.page.getByRole('button', { name: '我的调研', exact: true }).click();
     await this.page.locator(`[data-research-run="${runId}"]`).click();
+  }
+
+  async saveReport(): Promise<void> {
+    await this.page.getByRole('button', { name: '保存到我的调研', exact: true }).click();
+    await this.page.getByRole('button', { name: '已保存到我的调研', exact: true }).waitFor();
   }
 
   async report(): Promise<void> {

@@ -76,20 +76,24 @@ check('contract', 'Default and RunService tool budgets scale with depth tiers an
     assert.equal(standard.maxSteps, 72);
     assert.equal(standard.maxToolCalls, 160);
     assert.equal(standard.maxSameToolCalls, 160);
-    assert.equal(standard.timeoutMs, 480_000);
+    assert.equal(standard.timeoutMs, 0);
+    assert.equal(standard.toolTimeoutMs, 120_000);
     assert.equal(standard.maxTokens, 750_000);
 
-    const fast = await runLimits({ timeoutMs: 180_000, maxTokens: 250_000 });
+    const fast = await runLimits({ toolTimeoutMs: 75_000, maxTokens: 250_000 });
+    assert.equal(fast.timeoutMs, 0);
+    assert.equal(fast.toolTimeoutMs, 75_000);
     assert.equal(fast.maxSteps, 40);
     assert.equal(fast.maxToolCalls, 80);
     assert.equal(fast.maxSameToolCalls, 80);
 
-    const deep = await runLimits({ timeoutMs: 900_000, maxTokens: 1_500_000 });
+    const deep = await runLimits({ maxTokens: 1_500_000 });
     assert.equal(deep.maxSteps, 120);
     assert.equal(deep.maxToolCalls, 300);
     assert.equal(deep.maxSameToolCalls, 300);
 
     const explicit = await runLimits({ timeoutMs: 300_000, maxTokens: 400_000, maxSteps: 50, maxToolCalls: 60, maxSameToolCalls: 22, maxConsecutiveToolFailures: 6 });
+    assert.equal(explicit.timeoutMs, 300_000);
     assert.equal(explicit.maxSteps, 50);
     assert.equal(explicit.maxToolCalls, 60);
     assert.equal(explicit.maxSameToolCalls, 22);

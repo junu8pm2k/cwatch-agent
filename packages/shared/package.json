@@ -40,6 +40,7 @@
     "./sessions/langfuse": "./src/sessions/langfuse.ts",
     "./sessions/structured-trace": "./src/sessions/structured-trace.ts",
     "./sessions/transcript": "./src/sessions/transcript.ts",
+    "./sessions/page-snapshots": "./src/sessions/page-snapshots.ts",
     "./sessions/memory": "./src/sessions/memory.ts",
     "./agent/backend/pi/session-memory": "./src/agent/backend/pi/session-memory.ts",
     "./agent/backend/pi/context": "./src/agent/backend/pi/context.ts",

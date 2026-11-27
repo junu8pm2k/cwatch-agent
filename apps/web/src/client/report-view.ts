@@ -17,6 +17,10 @@ import {
 } from './state.ts';
 
 export const PIPELINE_STAGES = ['计划', '采集', '分析', '审阅', '草稿'] as const;
+export function displayedPipelineStage(run: RunSnapshot, selectedStage?: number): number | undefined {
+  if (!isInvestigation(run.task)) return undefined;
+  return selectedStage ?? (run.planApproval?.status === 'pending' || run.planApproval?.status === 'revising' ? 0 : undefined);
+}
 
 const SIGNAL_TYPE_LABELS: Record<string, string> = {
   release: '发布 release',
@@ -340,16 +344,16 @@ function renderCompactStepRow(item: MergedActivity): string {
     </li>`;
 }
 
-export function renderLiveProgressCard(run: RunSnapshot): string {
+export function renderLiveProgressCard(run: RunSnapshot, showSteps = true): string {
   const investigation = isInvestigation(run.task);
-  const clampedStage = Math.min(Math.max(run.stage, 0), PIPELINE_STAGES.length - 1);
-  const stageName = PIPELINE_STAGES[clampedStage];
+  const currentStage = Math.min(run.stage, PIPELINE_STAGES.length - 1);
+  const stageName = PIPELINE_STAGES[currentStage];
   const stageText = investigation
-    ? `当前阶段 ${clampedStage + 1}/${PIPELINE_STAGES.length} · ${stageName}`
+    ? `当前阶段 · ${stageName}`
     : `当前状态 · ${statusNames[run.status]}`;
 
   const merged = mergeActivities(run.activities);
-  const recent = merged.slice(-4);
+  const recent = merged.filter(item => !investigation || item.stage === currentStage).slice(-4);
   const stepsHtml = recent.length
     ? `<ul class="step-card-list compact live-step-list">${recent.map(renderCompactStepRow).join('')}</ul>`
     : '<p class="live-progress-empty">正在初始化运行环境与来源连接，首个执行步骤马上出现…</p>';
@@ -368,7 +372,7 @@ export function renderLiveProgressCard(run: RunSnapshot): string {
           ? '采集、归因分析与规则审阅完成后，结构化指标与带引用的调查报告将自动呈现在这里。'
           : '任务完成后，回答内容将在这里展示，并支持复制与导出。',
       )}</p>
-      ${stepsHtml}
+      ${showSteps ? stepsHtml : ''}
       <div class="live-progress-actions">
         <button type="button" class="button secondary sm" data-jump-tab="process">查看实时执行轨迹</button>
         <button type="button" class="button ghost sm" data-open-trace>打开 Trace 抽屉</button>
@@ -380,17 +384,21 @@ export function renderPipeline(run: RunSnapshot, selectedStage?: number): string
   return PIPELINE_STAGES.map((name, index) => {
     const done = run.stage > index;
     const current = run.stage === index && isActiveRun(run);
+    const spinning = current && (run.status === 'running' || run.status === 'preparing');
     const selected = selectedStage === index;
     const cls = [
       'pipeline-step',
       done ? 'done' : current ? 'current' : '',
       selected ? 'selected' : '',
     ].filter(Boolean).join(' ');
-    return `<button type="button" class="${cls}" data-pipeline-stage="${index}" aria-pressed="${selected ? 'true' : 'false'}"><span class="step-dot">${done ? '✓' : index + 1}</span><span>${name}</span></button>`;
+    const waiting = current && run.status === 'awaiting_approval';
+    const icon = spinning ? '<span class="pipeline-spinner"></span>' : done ? '✓' : waiting ? '◷' : index + 1;
+    const status = current ? statusNames[run.status] : done ? '已完成' : '待执行';
+    return `<button type="button" class="${cls}" data-pipeline-stage="${index}" aria-pressed="${selected}" aria-controls="pipeline-detail"${current ? ' aria-current="step"' : ''}><span class="step-dot" aria-hidden="true">${icon}</span><span>${name}</span><span class="sr-only">（${status}）</span></button>`;
   }).join('');
 }
 
-function renderPlanStageBody(run: RunSnapshot): string {
+export function renderPlanStageBody(run: RunSnapshot): string {
   const plan = resolveRunPlan(run);
   if (!plan) {
     return `<p class="pipeline-empty">${isActiveRun(run) ? '调查计划尚未锁定，正在等待 Agent 生成并提交计划…' : '本次运行未记录结构化计划详情。'}</p>`;
@@ -430,12 +438,15 @@ function renderPlanStageBody(run: RunSnapshot): string {
         <span class="pipeline-field-label">证据要求</span>
         ${reqsHtml}
       </div>
+      ${plan.sourceScope ? `<div class="pipeline-field"><span class="pipeline-field-label">指定来源范围</span>
+        <p>${plan.sourceScope === 'only' ? '只查指定网址及其下级路径' : '优先查指定来源，可补查公开来源'}</p>
+        ${plan.specifiedSources?.length ? `<ul class="pipeline-list">${plan.specifiedSources.map(source => `<li>${escapeHtml(source.url)}</li>`).join('')}</ul>` : ''}</div>` : ''}
+      ${plan.questions?.length ? `<div class="pipeline-field"><span class="pipeline-field-label">必查问题</span><ul class="pipeline-list">${plan.questions.map(question => `<li>${escapeHtml(question.question)} · ${question.candidatesRequired} 个候选</li>`).join('')}</ul></div>` : ''}
     </div>`;
 }
 
-function renderCollectStageBody(run: RunSnapshot): string {
-  const merged = mergeActivities(run.activities);
-  const collectSteps = merged.filter(item =>
+function renderCollectStageBody(run: RunSnapshot, steps: MergedActivity[]): string {
+  const collectSteps = steps.filter(item =>
     Boolean(item.tool)
     && !item.tool!.startsWith('workflow__')
     && !item.tool!.startsWith('session__'),
@@ -573,18 +584,19 @@ function renderDraftStageBody(run: RunSnapshot): string {
     </div>`;
 }
 
-export function renderPipelineDetail(run: RunSnapshot, stageIndex: number): string {
-  const index = Math.min(Math.max(stageIndex, 0), PIPELINE_STAGES.length - 1);
+export function renderPipelineDetail(run: RunSnapshot, index: number, showSteps: boolean, collapsible: boolean): string {
   const stageName = PIPELINE_STAGES[index];
   const done = run.stage > index;
   const current = run.stage === index && isActiveRun(run);
-  const statusLabel = done ? '已完成' : current ? '进行中' : '待执行';
+  const pendingPlan = index === 0 && run.approvals.some(request => request.tool === 'workflow__save_plan');
+  const statusLabel = done ? '已完成' : index === 0 && run.planApproval?.status === 'revising' ? '正在修改' : run.stage === index ? statusNames[run.status] : '待执行';
   const statusToneClass = done ? 'tone-ok' : current ? 'tone-busy' : 'tone-idle';
+  const steps = mergeActivities(run.activities).filter(item => item.stage === index);
 
   const body = index === 0
-    ? renderPlanStageBody(run)
+    ? pendingPlan ? '' : renderPlanStageBody(run)
     : index === 1
-      ? renderCollectStageBody(run)
+      ? renderCollectStageBody(run, steps)
       : index === 2
         ? renderAnalyzeStageBody(run)
         : index === 3
@@ -595,9 +607,13 @@ export function renderPipelineDetail(run: RunSnapshot, stageIndex: number): stri
     <div class="pipeline-detail-head">
       <div class="pipeline-detail-title">
         <span class="status-chip ${statusToneClass}">${statusLabel}</span>
-        <h4>阶段 ${index + 1} · ${escapeHtml(stageName)}</h4>
+        <h4>${escapeHtml(stageName)}</h4>
       </div>
-      <button type="button" class="ghost-btn pipeline-close-btn" data-close-pipeline-detail aria-label="收起阶段详情">收起</button>
+      ${collapsible ? '<button type="button" class="ghost-btn pipeline-close-btn" data-close-pipeline-detail aria-label="收起阶段详情">收起</button>' : ''}
     </div>
-    <div class="pipeline-detail-body">${body}</div>`;
+    <div class="pipeline-detail-body">${body}${showSteps
+      ? steps.length
+        ? `<ul class="step-card-list compact pipeline-steps" aria-label="${stageName}步骤">${steps.map(renderCompactStepRow).join('')}</ul>`
+        : '<p class="pipeline-muted">该阶段暂无执行步骤。</p>'
+      : ''}</div>`;
 }

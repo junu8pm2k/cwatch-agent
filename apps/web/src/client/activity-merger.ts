@@ -25,6 +25,7 @@ export interface MergedActivity {
   tool?: string;
   detail?: string;
   errorDetail?: string;
+  stage?: number;
 }
 
 function parseJsonSafe(raw?: string): Record<string, unknown> | undefined {
@@ -57,6 +58,9 @@ function describeToolCall(tool: string, detail?: string): { category: SemanticCa
     const title = typeof args?.title === 'string' ? args.title.trim() : '';
     return { category: 'analysis', badge: '抽取', title: title ? `抽取结构化证据：${title}` : '从网页抽取结构化证据' };
   }
+  if (tool === 'workflow__assess_search') return { category: 'search', badge: '筛选', title: '筛选搜索候选来源' };
+  if (tool === 'workflow__collection_status') return { category: 'search', badge: '采集', title: '检查采集覆盖情况' };
+  if (tool === 'workflow__submit_analysis') return { category: 'analysis', badge: '分析', title: '提交逐项分析结论' };
   if (tool === 'workflow__analyze') {
     return { category: 'analysis', badge: '分析', title: '归因分析与结构化整理' };
   }
@@ -104,6 +108,10 @@ function describeToolCall(tool: string, detail?: string): { category: SemanticCa
   return { category: 'search', badge: '工具', title: `调用 ${tool}` };
 }
 
+const stageByCategory: Partial<Record<SemanticCategory, number>> = {
+  plan: 0, search: 1, fetch: 1, mcp: 1, analysis: 2, review: 3, draft: 4,
+};
+
 /**
  * Merges paired `准备调用 <tool>` + `<tool> 已完成/未完成` events into clean single-row
  * semantic progress cards and filters repetitive process-lifecycle noise.
@@ -111,6 +119,7 @@ function describeToolCall(tool: string, detail?: string): { category: SemanticCa
 export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
   const items: MergedActivity[] = [];
   const openByTool = new Map<string, MergedActivity[]>();
+  let lastStage = 0;
 
   for (const ev of activities) {
     // Skip noisy low-value boilerplate messages that clutter the stream
@@ -125,12 +134,16 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
       continue;
     }
     if (ev.kind === 'plan' && ev.message === '调查计划已保存并提交。') {
+      lastStage = 1;
       continue;
     }
 
+    const meta = ev.tool ? describeToolCall(ev.tool, ev.detail) : undefined;
+    const stage = ev.stage === -1 ? 0 : ev.stage ?? (ev.tool === 'workflow__extract_signal' ? 1 : (meta && stageByCategory[meta.category]) ?? lastStage);
+    lastStage = stage;
+
     // Tool start event
-    if (ev.tool && ev.message.startsWith('准备调用 ')) {
-      const meta = describeToolCall(ev.tool, ev.detail);
+    if (ev.tool && meta && ev.message.startsWith('准备调用 ')) {
       const card: MergedActivity = {
         id: `act-${ev.sequence}`,
         category: meta.category,
@@ -140,6 +153,7 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
         startedAt: ev.timestamp,
         tool: ev.tool,
         detail: ev.detail,
+        stage,
       };
       items.push(card);
       const queue = openByTool.get(ev.tool) ?? [];
@@ -149,29 +163,31 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
     }
 
     // Tool finish event — attach to earliest matching running card
-    if (ev.tool && (ev.message.endsWith(' 已完成') || ev.message.endsWith(' 未完成'))) {
+    if (ev.tool && meta && (ev.state === 'skipped' || ev.message.endsWith(' 已完成') || ev.message.endsWith(' 未完成'))) {
       const queue = openByTool.get(ev.tool);
       const target = queue?.shift();
       const succeeded = ev.state === 'completed' || ev.message.endsWith(' 已完成');
       if (target) {
-        target.state = succeeded ? 'completed' : 'failed';
+        target.state = ev.state === 'skipped' ? 'info' : succeeded ? 'completed' : 'failed';
+        if (ev.state === 'skipped') target.title += '（额度受限，已跳过）';
         target.endedAt = ev.timestamp;
         const delta = Date.parse(ev.timestamp) - Date.parse(target.startedAt);
         if (Number.isFinite(delta) && delta >= 0) target.durationMs = delta;
         if (!succeeded && ev.detail) target.errorDetail = ev.detail;
         continue;
       }
-      const meta = describeToolCall(ev.tool);
+      const skipped = ev.state === 'skipped';
       items.push({
         id: `act-${ev.sequence}`,
-        category: succeeded ? meta.category : 'error',
-        badge: succeeded ? meta.badge : '异常',
+        category: succeeded || skipped ? meta.category : 'error',
+        badge: skipped ? '跳过' : succeeded ? meta.badge : '异常',
         title: ev.message,
-        state: succeeded ? 'completed' : 'failed',
+        state: skipped ? 'info' : succeeded ? 'completed' : 'failed',
         startedAt: ev.timestamp,
         endedAt: ev.timestamp,
         tool: ev.tool,
         errorDetail: !succeeded ? ev.detail : undefined,
+        stage,
       });
       continue;
     }
@@ -185,6 +201,7 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
         state: 'info',
         startedAt: ev.timestamp,
         tool: ev.tool,
+        stage,
       });
       continue;
     }
@@ -198,6 +215,7 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
         state: 'failed',
         startedAt: ev.timestamp,
         errorDetail: ev.detail,
+        stage,
       });
       continue;
     }
@@ -210,6 +228,7 @@ export function mergeActivities(activities: RunActivity[]): MergedActivity[] {
       state: 'info',
       startedAt: ev.timestamp,
       detail: ev.detail,
+      stage,
     });
   }
 

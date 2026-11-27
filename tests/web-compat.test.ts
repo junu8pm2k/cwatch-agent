@@ -9,6 +9,7 @@ import { detectKnownRestPreset } from '@cwatch/shared/sources/web-rest-presets';
 import { SourceConfigsSchema, SourceServerBuilder } from '@cwatch/shared/sources/server-builder';
 import { validateTrace, Redactor } from '@cwatch/shared/sessions/trace';
 import { SessionTranscript } from '@cwatch/shared/sessions/transcript';
+import { readPageSnapshot } from '@cwatch/shared/sessions/page-snapshots';
 import { PiContextManager, getMessagesAfterCompactBoundary } from '@cwatch/shared/agent/backend/pi/context';
 import { buildProxyTools } from '@cwatch/shared/agent/backend/pi/tool-hooks';
 import { createPiRuntime } from '@cwatch/shared/agent/backend/pi/model-runtime';
@@ -138,7 +139,9 @@ check('integration', 'AI-only native web_fetch passes through snapshot archival 
   const obs = proxyResult.details as RetrievalResult;
   assert.equal(obs.backend, 'native.anthropic');
   assert.equal(obs.pages![0].truncated, true);
-  assert.equal(obs.pages![0].text.length, 24_000);
+  assert.equal(obs.pages![0].text.length, 8_000);
+  assert.ok(obs.pages![0].text.endsWith(':NATIVE-TAIL'));
+  assert.equal(obs.pages![0].textSnapshot?.totalChars, largePage.length);
   assert.equal(obs.rawTruncated, true);
   assert.ok(obs.snapshot && readFileSync(h.data.path(obs.snapshot.path), 'utf8').includes(':NATIVE-TAIL'));
 
@@ -170,9 +173,11 @@ check('integration', 'AI-only native web_fetch passes through snapshot archival 
   assert.match(rendered, /Archived tool result \(snip\)/);
   assert.match(rendered, /\[\.\.\.snipped\.\.\.\]/);
   assert.match(rendered, /NATIVE-HEAD/);
+  assert.match(rendered, /NATIVE-TAIL/);
   assert.match(rendered, /session__read_tool_result/);
+  assert.match(rendered, /session__read_page_snapshot/);
 
-  // Original full native toolResult remains readable via paged transcript lookup.
+  // The archived tool message retains its preview; the page snapshot holds the full text.
   const originalEntry = manager.getEntries().find(e => e.type === 'message' && e.message.role === 'toolResult')!;
   let offset = 0, reconstructed = '';
   do {
@@ -181,7 +186,12 @@ check('integration', 'AI-only native web_fetch passes through snapshot archival 
     offset = page.nextOffset ?? -1;
   } while (offset !== -1);
   assert.ok(reconstructed.includes('NATIVE-HEAD:'));
-  assert.ok(reconstructed.length > 24_000);
+  assert.ok(reconstructed.includes(':NATIVE-TAIL'));
+  assert.ok(reconstructed.includes(obs.pages![0].textSnapshot!.id));
+  assert.ok(reconstructed.length < largePage.length);
+  const snapshotId = obs.pages![0].textSnapshot!.id;
+  assert.equal(readPageSnapshot(h.data, h.trace.runId, { snapshotId, offset: 24_000 }).content, largePage.slice(24_000, 25_024));
+  assert.throws(() => readPageSnapshot(h.data, id(), { snapshotId }), /page_snapshot_not_found_in_current_run/);
   assert.deepEqual(validateTrace(h.finish(), ['native-fixture-key']), []);
 });
 
@@ -439,7 +449,9 @@ check('integration', 'MCP and REST API web_fetch also retain full snapshot archi
     const obs = proxyResult.details as RetrievalResult;
     assert.equal(obs.backend, scenario.expectedBackend);
     assert.equal(obs.pages![0].truncated, true);
-    assert.equal(obs.pages![0].text.length, 24_000);
+    assert.equal(obs.pages![0].text.length, 8_000);
+    assert.ok(obs.pages![0].text.endsWith(':EXTERNAL-TAIL'));
+    assert.equal(obs.pages![0].textSnapshot?.totalChars, largeBody.length);
     assert.equal(obs.rawTruncated, true);
     assert.ok(obs.snapshot && readFileSync(h.data.path(obs.snapshot.path), 'utf8').includes(':EXTERNAL-TAIL'));
 
@@ -465,7 +477,9 @@ check('integration', 'MCP and REST API web_fetch also retain full snapshot archi
     assert.match(rendered, /Archived tool result \(snip\)/);
     assert.match(rendered, /\[\.\.\.snipped\.\.\.\]/);
     assert.match(rendered, /EXTERNAL-HEAD/);
+    assert.match(rendered, /EXTERNAL-TAIL/);
     assert.match(rendered, /session__read_tool_result/);
+    assert.match(rendered, /session__read_page_snapshot/);
     assert.deepEqual(validateTrace(h.finish(), ['mcp-fixture-key']), []);
   }
 });

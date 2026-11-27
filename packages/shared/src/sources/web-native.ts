@@ -155,7 +155,7 @@ async function callAnthropicNative(
   }
   if (content?.type !== 'web_fetch_result' || content.url !== args.url || content.content?.source?.type !== 'text') throw new WebFailure('parse_failed', 'native_fetch_missing_exact_url_text');
   const text = String(content.content.source.data);
-  return RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend: 'native.anthropic', pages: [{ url: content.url, title: content.content.title ?? '', text: text.slice(0, 24_000), published_at: null, retrieved_at: instant(content.retrieved_at) ?? now(), truncated: text.length > 24_000 }] });
+  return RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend: 'native.anthropic', pages: [{ url: content.url, title: content.content.title ?? '', text, published_at: null, retrieved_at: instant(content.retrieved_at) ?? now(), truncated: false }] });
 }
 
 async function callOpenAiNative(
@@ -279,7 +279,7 @@ async function callGeminiNative(
   const text = parts.map(part => typeof part?.text === 'string' ? part.text : '').filter(Boolean).join('\n').trim();
   if (!text) throw new WebFailure('parse_failed', 'native_fetch_missing_exact_url_text');
   checkUrl(String(args.url));
-  return RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend: 'native.gemini', pages: [{ url: String(args.url), title: '', text: text.slice(0, 24_000), published_at: null, retrieved_at: now(), truncated: text.length > 24_000 }] });
+  return RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend: 'native.gemini', pages: [{ url: String(args.url), title: '', text, published_at: null, retrieved_at: now(), truncated: false }] });
 }
 
 export async function callNativeWeb(

@@ -73,5 +73,5 @@ export function normalizeWebResult(name: string, args: Record<string, unknown>, 
   const content = data !== undefined ? string(page?.markdown, page?.raw_content, page?.text, page?.content, page?.html) : string(resource?.text, text);
   if (!content) return fail('missing_page_text');
   const url = String(args.url); checkUrl(url);
-  return { result: RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend, pages: [{ url, title: string(page?.title, page?.metadata?.title) ?? '', text: content.slice(0, 24_000), published_at: null, retrieved_at: now(), truncated: content.length > 24_000 }] }), returned: 1, filteredOutsideScope: 0 };
+  return { result: RetrievalSchema.parse({ status: 'success_with_data', signals: [], raw, provenance: 'live', backend, pages: [{ url, title: string(page?.title, page?.metadata?.title) ?? '', text: content, published_at: null, retrieved_at: now(), truncated: false }] }), returned: 1, filteredOutsideScope: 0 };
 }

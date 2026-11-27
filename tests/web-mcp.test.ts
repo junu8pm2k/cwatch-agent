@@ -3,7 +3,7 @@ import { check } from './harness.ts';
 import { harness, mcpProtocol } from './web.test.ts';
 import { readSearchMcp, selectMcpTool, SearchMcpConfigSchema } from "@cwatch/shared/sources/web-mcp";
 import { normalizeMcpResult } from "@cwatch/shared/sources/web-mcp-results";
-import { allowedUrl, type WebOptions } from "@cwatch/shared/sources/web";
+import { allowedUrl, PreferredWebSource, type WebOptions } from "@cwatch/shared/sources/web";
 import { validateTrace } from "@cwatch/shared/sessions/trace";
 import { SourceConfigsSchema, SourceServerBuilder } from "@cwatch/shared/sources/server-builder";
 import type { RetrievalResult } from "@cwatch/core/types";
@@ -25,11 +25,15 @@ check('contract', 'Remote MCP request timeout is explicit, bounded and propagate
   const configured = readSearchMcp({ requestTimeoutMs: 60000 }, { SEARCH_MCP_URL: endpoint, SEARCH_MCP_TOKEN: 'remote' })!;
   assert.equal(configured.url, endpoint); assert.equal(configured.requestTimeoutMs, 60000);
   assert.equal(readSearchMcp({}, { SEARCH_MCP_URL: endpoint })?.requestTimeoutMs, undefined);
-  for (const requestTimeoutMs of [0, 999, 120001, 1.5, '60000']) assert.equal(SearchMcpConfigSchema.safeParse({ requestTimeoutMs }).success, false);
+  for (const requestTimeoutMs of [0, 999, 300001, 1.5, '60000']) assert.equal(SearchMcpConfigSchema.safeParse({ requestTimeoutMs }).success, false);
 });
 
 check('integration', 'Configured MCP fetch consumes a nested page envelope and records its request budget and exact URL', async () => {
-  const h = await harness({ ...options, searchMcp: { ...remoteOptions, requestTimeoutMs: 60000 } }, { fetcher: mcpProtocol({ url: endpoint,
+  const search = { ...remoteOptions, requestTimeoutMs: 60_000 };
+  const builder = new SourceServerBuilder(process.cwd(), undefined, search, 180_000);
+  const { client } = await builder.build({ slug: 'web', kind: 'web', active: true, allowedDomains: ['nodejs.org'] }, 'live', live);
+  assert.ok(client instanceof PreferredWebSource);
+  const h = await harness(client.options, { fetcher: mcpProtocol({ url: endpoint,
     data: { code: 0, message: '', page: { url: pageArgs.url, markdown: 'Official page body', title: 'Node.js' } },
   }) });
   const result = await h.executor.execute('web_fetch', pageArgs, live) as RetrievalResult;
@@ -37,7 +41,8 @@ check('integration', 'Configured MCP fetch consumes a nested page envelope and r
   assert.equal(result.pages![0].url, pageArgs.url); assert.equal(result.pages![0].text, 'Official page body');
   assert.equal(result.pages![0].published_at, null); assert.match(result.raw, /"page"/);
   const events = h.finish(); assert.deepEqual(validateTrace(events), []);
-  assert.ok(events.some(event => event.type === 'provider_tool_event' && event.data.requestTimeoutMs === 60000));
+  assert.ok(events.some(event => event.type === 'provider_tool_event' && event.data.requestTimeoutMs === 180_000));
+  assert.equal(search.requestTimeoutMs, 60_000);
   assert.ok(!events.some(event => event.type === 'backend_started' && !String(event.data.backend).startsWith('mcp.remote.')));
 });
 

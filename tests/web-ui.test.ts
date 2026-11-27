@@ -1,11 +1,12 @@
 import { startWorkbenchProvider } from './web-provider-fixture.ts';
+import { investigationDecisions, releaseUrl, resolveInvestigationDecision } from './tracked-investigation-fixture.ts';
 import { FileStore } from '@cwatch/shared/sessions/storage';
 import { validateTrace, type TraceEvent } from '@cwatch/shared/sessions/trace';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
-import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RunService, type RunServiceOptions } from '@cwatch/server-core/runtime/run-service';
 import { ReplayModel } from '@cwatch/shared/agent/models';
@@ -19,20 +20,20 @@ import { check, store, fixture } from './harness.ts';
 import { createWebToolDefinitions } from '@cwatch/shared/sources/web-tools';
 import type { RunSnapshot } from '@cwatch/core/types/runs';
 
-check('integration','Web unifies onto Investigation mode, hides mode switcher, exports draft in 5 formats and restores result after refresh',async()=>{
+check('integration','Web keeps the investigation demo available from the task composer and exports drafts in 5 formats',async()=>{
   const h=await browserHarness('unified-investigation',webSignalFixture());
   try{
     await h.page.goto(h.app.origin);await h.page.getByText('本地服务已连接',{exact:true}).waitFor();
     const editor=h.page.getByRole('region',{name:'确认调查'});
     assert.equal(await editor.isVisible(),false);
     await h.ui.showTaskSetup();
-    const composer=h.page.getByRole('form',{name:'发起调查'});
-    assert.equal(await h.page.getByRole('heading',{name:'今天想调查什么？',exact:true}).isVisible(),true);
+    const composer=h.page.getByRole('form',{name:'提交任务'});
+    assert.equal(await h.page.getByRole('heading',{name:'今天想做什么？',exact:true}).isVisible(),true);
     assert.equal(await h.page.getByRole('heading',{name:'从示例开始',exact:true}).isVisible(),true);
     assert.equal(await composer.isVisible(),true);
     assert.equal(await h.page.locator('#task-profile').count(),0);
-    assert.equal(await h.page.locator('.compose-hero').getByRole('button', { name: '新建调查', exact: true }).count(),0);
-    await h.page.getByRole('button', { name: '新建调查', exact: true }).click();
+    assert.equal(await h.page.locator('.compose-hero').getByRole('button', { name: '新建任务', exact: true }).count(),0);
+    await h.page.getByRole('button', { name: '新建任务', exact: true }).click();
     assert.equal(await composer.getByRole('textbox').evaluate(node=>node===document.activeElement),true);
     assert.equal(await h.page.getByRole('dialog').count(),0);
     assert.equal(await h.page.getByRole('button',{name:'我的调研',exact:true}).isVisible(),true);
@@ -121,6 +122,164 @@ function webSignalFixture(){
   }};
 }
 
+check('integration', 'Web routes local tasks directly and requires scope confirmation before the complete investigation', async () => {
+  const root = store().root;
+  mkdirSync(resolve(root, 'examples'));
+  for (const name of ['task.json', 'task-web.json', 'task-adapters.json', 'sources.json', 'sources-web.json', 'sources-adapters.json']) {
+    copyFileSync(resolve('examples', name), resolve(root, 'examples', name));
+  }
+  writeFileSync(resolve(root, 'notes.txt'), 'local-only-routing-fixture\n');
+  const localRequest = '帮我看看本地的 notes.txt';
+  const researchRequest = '核对 Node.js 的 Node.js 版本发布记录，交叉核验并生成带引用的调研报告';
+  const quickRequest = '查一下 Node.js 当前的 LTS 是哪个版本';
+  const timedRequest = '调查一下kimi的codingplan';
+  const planFeedback = '把官方发布日志放在首位';
+  let releaseRevision!: () => void;
+  const revisionGate = new Promise<void>(resolve => { releaseRevision = resolve; });
+  const requests: string[] = [];
+  const h = await browserHarness('task-intent', {
+    root,
+    ...webSignalFixture(),
+    intentModelFactory: () => ({ decide: async input => {
+      assert.deepEqual(input.tools, []);
+      const { request } = JSON.parse(input.volatile);
+      requests.push(request);
+      if (request === localRequest) return { kind: 'respond', text: '{"kind":"agent","needsWeb":false}' };
+      if (request === researchRequest) return { kind: 'respond', text: '{"kind":"investigation","competitor":"Node.js","product":"Node.js"}' };
+      if (request === quickRequest || request === timedRequest) return { kind: 'respond', text: '{"kind":"agent","needsWeb":true}' };
+      throw Error('unexpected intent request');
+    } }),
+    modelFactory: (_mode, task, configs) => {
+      if (!isInvestigationTask(task)) {
+        if (task.instruction === timedRequest) return { decide: (_input, signal) => abortable(new Promise<never>(() => {}), signal) };
+        if (task.instruction === quickRequest) return new ReplayModel([{ kind: 'respond', text: '快速查询完成。' }]);
+        assert.deepEqual(configs, []);
+        return new ReplayModel([
+          { kind: 'call_tool', name: 'read', args: { path: 'notes.txt' } },
+          { kind: 'respond', text: '已检查工作区的 notes.txt。' },
+        ]);
+      }
+      const steps = investigationDecisions(task);
+      const model = new ReplayModel(steps);
+      let revised = false;
+      return { decide: async (input, signal) => {
+        const latest = input.state.observations.at(-1);
+        if (!revised && latest?.name === 'workflow__save_plan' && (latest.result as { feedback?: string }).feedback !== undefined) {
+          assert.equal((latest.result as { feedback: string }).feedback, planFeedback);
+          revised = true;
+          await abortable(revisionGate, signal);
+          const original = steps[0];
+          assert.equal(original.kind, 'call_tool');
+          return { ...original, args: { ...original.args, objective: '优先核验官方发布日志' } };
+        }
+        return resolveInvestigationDecision(await model.decide(input, signal), Boolean(task.evidencePolicy), name => input.state.observations.findLast(observation => observation.name === name)?.result);
+      } };
+    },
+  });
+  try {
+    h.service.connections.addProvider({ provider: 'routing-fixture', baseUrl: 'https://routing.example.invalid/v1', apiKey: 'routing-fixture-key', modelIds: ['routing-fixture'] });
+    await h.page.goto(h.app.origin);
+    await h.page.getByText('本地服务已连接', { exact: true }).waitFor();
+    await h.ui.sendTask(localRequest);
+    await h.page.getByText('已检查工作区的 notes.txt。', { exact: true }).waitFor();
+    assert.equal(await h.page.getByRole('region', { name: '确认调查' }).isVisible(), false);
+    const [local] = h.service.list();
+    assert.equal(local.profile, 'agent');
+    assert.deepEqual(local.task.allowedSources, []);
+    const localEvents = new FileStore(resolve(h.service.outputRoot, local.id)).lines<TraceEvent>('traces/' + local.traceRunId + '.jsonl');
+    assert.ok(localEvents.some(event => event.type === 'observation_added' && event.data.name === 'read' && JSON.stringify(event.data.observation).includes('local-only-routing-fixture')));
+    assert.equal(localEvents.some(event => event.type === 'plan_submitted'), false);
+
+    await h.page.getByRole('complementary', { name: '工作区导航' }).getByRole('button', { name: '新建任务', exact: true }).click();
+    await h.ui.sendTask(researchRequest);
+    const confirmation = h.page.getByRole('region', { name: '确认调查' });
+    await confirmation.waitFor();
+    assert.equal(await confirmation.getByLabel('公司或组织').inputValue(), 'Node.js');
+    assert.equal(await confirmation.getByLabel('产品 / 主题').inputValue(), 'Node.js');
+    assert.equal(await confirmation.getByLabel('调研重点（可选）').inputValue(), researchRequest);
+    assert.equal(await confirmation.getByLabel('开始日期').inputValue(), '');
+    assert.equal(h.service.list().length, 1);
+    await confirmation.getByLabel('开始日期').fill('2025-05-01');
+    await confirmation.getByLabel('结束日期（不含）').fill('2025-06-01');
+    await h.ui.openSettings();
+    await h.page.getByLabel('单次工具超时（秒）').fill('180');
+    await h.ui.closeSettings();
+    await h.ui.start();
+    const phaseDetail = h.page.getByRole('region', { name: '阶段详情摘要' });
+    const approvalCard = phaseDetail.getByRole('region', { name: '待处理审批' });
+    const planStage = h.page.locator('#pipeline [data-pipeline-stage="0"]');
+    const collectionStage = h.page.locator('#pipeline [data-pipeline-stage="1"]');
+    const approvePlan = approvalCard.getByRole('button', { name: '批准计划并开始采集', exact: true });
+    await approvePlan.waitFor();
+    assert.equal(await h.page.locator('#pipeline .pipeline-step').count(), 5);
+    assert.equal(await planStage.getAttribute('aria-current'), 'step');
+    const pendingProcess = h.page.getByRole('tabpanel', { name: /执行轨迹/ });
+    await pendingProcess.getByText('等待审批调查计划。', { exact: true }).waitFor();
+    assert.equal(await pendingProcess.getByText(/读取网页/).count(), 0);
+    await h.page.getByRole('tab', { name: '调查报告', exact: true }).click();
+    await phaseDetail.getByRole('list', { name: '计划步骤' }).getByText('等待审批调查计划。', { exact: true }).waitFor();
+    const initialRequest = h.service.list()[0].approvals[0];
+    const feedback = approvalCard.getByLabel('计划修改意见');
+    await feedback.fill(planFeedback);
+    await collectionStage.click();
+    await phaseDetail.getByRole('heading', { name: '采集', exact: true }).waitFor();
+    assert.equal(await h.page.getByRole('region', { name: '待处理审批' }).count(), 0);
+    assert.equal(await phaseDetail.getByText('等待审批调查计划。', { exact: true }).count(), 0);
+    await planStage.click();
+    assert.equal(await feedback.inputValue(), planFeedback);
+    await approvalCard.getByRole('button', { name: '提交修改意见', exact: true }).click();
+    await approvalCard.waitFor({ state: 'hidden' });
+    await planStage.locator('.pipeline-spinner').waitFor();
+    const reviewing = h.service.list()[0];
+    assert.equal(reviewing.stage, 0);
+    assert.equal(reviewing.planApproval?.status, 'revising');
+    assert.throws(() => h.service.respondToApproval(reviewing.id, initialRequest.requestId, true, initialRequest.argsHash), /approval_not_pending/);
+    assert.ok(!reviewing.activities.some(activity => activity.tool === 'web_fetch'));
+    releaseRevision();
+    await approvalCard.getByText('优先核验官方发布日志', { exact: true }).waitFor();
+    assert.notEqual(h.service.list()[0].approvals[0].argsHash, initialRequest.argsHash);
+    await approvePlan.click();
+    await h.page.getByText('已完成 / 真实调查', { exact: true }).waitFor();
+    const planSteps = phaseDetail.getByRole('list', { name: '计划步骤' });
+    await planSteps.getByText('已批准调查计划。', { exact: true }).waitFor();
+    assert.equal(await planSteps.getByText(/读取网页/).count(), 0);
+    await collectionStage.click();
+    const collectionSteps = phaseDetail.getByRole('list', { name: '采集步骤' });
+    await collectionSteps.getByText(/读取网页/).waitFor();
+    assert.equal(await collectionSteps.getByText(/审批调查计划|已提交计划修改意见/).count(), 0);
+    const investigation = h.service.list().find(run => run.profile === 'web')!;
+    assert.ok(investigation.plan && investigation.reportReady);
+    assert.equal(investigation.review?.decision, 'accept');
+    const investigationEvents = new FileStore(resolve(h.service.outputRoot, investigation.id)).lines<TraceEvent>('traces/' + investigation.traceRunId + '.jsonl');
+    const investigationLimits = investigationEvents.find(event => event.type === 'run_started')!.data.limits as Record<string, number>;
+    assert.equal(investigationLimits.timeoutMs, 0);
+    assert.equal(investigationLimits.toolTimeoutMs, 180_000);
+    await h.page.getByRole('complementary', { name: '工作区导航' }).getByRole('button', { name: '新建任务', exact: true }).click();
+    await h.ui.sendTask(quickRequest);
+    await h.page.getByText('快速查询完成。', { exact: true }).waitFor();
+    const quick = h.service.list().find(run => !isInvestigationTask(run.task) && run.task.instruction === quickRequest)!;
+    const quickEvents = new FileStore(resolve(h.service.outputRoot, quick.id)).lines<TraceEvent>('traces/' + quick.traceRunId + '.jsonl');
+    const limits = quickEvents.find(event => event.type === 'run_started')!.data.limits as Record<string, number>;
+    assert.equal(limits.timeoutMs, 0);
+    assert.equal(limits.toolTimeoutMs, 120_000);
+    assert.equal(limits.maxToolCalls, 5);
+    assert.equal(limits.maxSameToolCalls, 3);
+
+    const timed = h.service.start({ profile: 'agent', mode: 'live', permission: 'explore', task: { kind: 'agent', taskId: 'old-misrouted-lookup', instruction: timedRequest, allowedSources: ['web'] }, limits: { timeoutMs: 1000 } });
+    assert.match((await h.service.wait(timed.id)).error ?? '', /^budget_timeout/);
+    await h.page.reload();
+    await h.page.locator(`[data-session-id="${timed.id}"]`).click();
+    await h.page.locator('#retry-run').click();
+    await confirmation.waitFor();
+    assert.equal(await confirmation.getByLabel('公司或组织').inputValue(), 'kimi');
+    assert.equal(await confirmation.getByLabel('产品 / 主题').inputValue(), 'codingplan');
+    assert.equal(await confirmation.getByLabel('调研重点（可选）').inputValue(), timedRequest);
+    assert.equal(h.service.list().length, 4);
+    assert.deepEqual(requests, [localRequest, researchRequest, quickRequest, timedRequest]);
+    assert.deepEqual(h.errors, []);
+  } finally { await h.close(); }
+});
+
 check('integration','Web UI starts a real offline investigation, highlights evidence rail on claim click, downloads report and restores after refresh',async()=>{
   const h=await browserHarness('replay',webSignalFixture());
   try{
@@ -147,6 +306,96 @@ check('integration','Web UI starts a real offline investigation, highlights evid
   }finally{await h.close();}
 });
 
+check('integration', 'Web reviews a draft in chat, moves the whole session into a project, and compares explicitly saved versions', async () => {
+  const h = await browserHarness('research-workspace', webSignalFixture());
+  const { page } = h;
+  const history = page.getByRole('region', { name: '项目与历史会话' });
+  const projectName = '版本追踪';
+  const project = history.getByRole('region', { name: `项目 ${projectName}` });
+  const archive = page.getByRole('button', { name: '我的调研', exact: true });
+  const report = page.getByRole('region', { name: '报告标注与追问' });
+  try {
+    await h.ui.open('web');
+    await h.ui.start(); await h.ui.completed();
+    const first = h.service.list()[0];
+    await history.getByRole('button', { name: '新建项目' }).click();
+    await history.getByLabel('项目名称').fill(projectName);
+    await history.getByRole('button', { name: '创建', exact: true }).click();
+    await project.waitFor();
+    const originalSession = history.locator(`[data-session-id="${first.id}"]`);
+    await originalSession.dragTo(project);
+    await project.locator(`[data-session-id="${first.id}"]`).waitFor();
+    const projectId = h.service.projects()[0].id;
+    assert.equal(h.service.get(first.id).projectId, projectId);
+    assert.equal(await history.getByText('未归档会话', { exact: true }).count(), 0);
+    assert.equal(await history.getByLabel('移动当前会话').count(), 0);
+    assert.equal(await history.getByRole('region', { name: '历史会话', exact: true }).count(), 0);
+    const renamedTitle = '发布追踪记录';
+    await project.locator(`[data-session-actions="${first.id}"]`).click();
+    page.once('dialog', dialog => { void dialog.accept(renamedTitle); });
+    await project.locator(`[data-rename-session="${first.id}"]`).click();
+    await project.getByRole('button', { name: renamedTitle, exact: true }).waitFor();
+    await page.getByRole('heading', { name: renamedTitle, exact: true }).waitFor();
+    await report.getByLabel('继续追问').fill('这份报告哪些地方还需要核对？');
+    await report.getByRole('button', { name: '发送追问' }).click();
+    await report.getByText('这份报告哪些地方还需要核对？', { exact: true }).waitFor();
+    await report.getByText(/这是离线演示报告/).waitFor();
+    await report.getByText('添加标注或校订', { exact: true }).click();
+    await report.getByLabel('原文选段（可选）').fill('本报告来自明确标注的合成测试快照');
+    await report.getByLabel('标注意见').fill('让报告更清楚地区分来源');
+    await report.getByLabel('校订文字（可选）').fill('本报告已校订，材料来自合成测试快照');
+    await report.getByRole('button', { name: '添加标注', exact: true }).click();
+    await report.getByText('让报告更清楚地区分来源', { exact: true }).waitFor();
+    await h.ui.saveReport();
+    assert.match(h.service.report(first.id, true), /本报告已校订，材料来自合成测试快照/);
+    await report.getByLabel('标注意见').fill('此标注尚未保存到我的调研');
+    await report.getByRole('button', { name: '添加标注', exact: true }).click();
+    await report.getByText('此标注尚未保存到我的调研', { exact: true }).waitFor();
+
+    await project.getByRole('button', { name: `在 ${projectName} 中新建会话` }).click();
+    await page.getByText(`新会话将加入 ${projectName}`).waitFor();
+    await h.ui.start(); await h.ui.completed(); await h.ui.saveReport();
+    const second = h.service.list().find(run => run.id !== first.id)!;
+    assert.equal(second.projectId, projectId);
+    await archive.click();
+    await page.locator(`[data-compare-report="${first.id}"]`).check();
+    await page.locator(`[data-compare-report="${second.id}"]`).check();
+    await page.getByRole('button', { name: '对比所选报告' }).click();
+    const comparison = page.getByRole('region', { name: '报告对比' });
+    await comparison.getByText(/本报告已校订，材料来自合成测试快照/).waitFor();
+    assert.equal(await comparison.getByRole('article').count(), 2);
+    assert.equal(await comparison.getByText(/各报告共同列出的主张/).isVisible(), true);
+    assert.equal(await comparison.getByText('此标注尚未保存到我的调研').count(), 0);
+    await page.screenshot({ path: 'artifacts/web-eval/research-comparison.png', fullPage: true });
+    await page.reload();
+    await project.locator(`[data-session-id="${first.id}"]`).click();
+    await project.getByRole('button', { name: renamedTitle, exact: true }).waitFor();
+    await page.getByRole('heading', { name: renamedTitle, exact: true }).waitFor();
+    await report.getByText('这份报告哪些地方还需要核对？', { exact: true }).waitFor();
+    await report.getByText('此标注尚未保存到我的调研', { exact: true }).waitFor();
+    const secondSession = project.locator(`[data-session-id="${second.id}"]`);
+    const secondActions = project.locator(`[data-session-actions="${second.id}"]`);
+    const deleteSecond = project.locator(`[data-delete-session="${second.id}"]`);
+    await secondSession.click();
+    await secondActions.click();
+    page.once('dialog', dialog => { void dialog.dismiss(); });
+    await deleteSecond.click();
+    assert.equal(h.service.list().length, 2);
+    await secondActions.click();
+    let deleteMessage = '';
+    page.once('dialog', dialog => {
+      deleteMessage = dialog.message();
+      void dialog.accept();
+    });
+    await deleteSecond.click();
+    await secondSession.waitFor({ state: 'detached' });
+    assert.match(deleteMessage, /我的调研.*已保存报告将一并删除/);
+    await page.getByRole('heading', { name: renamedTitle, exact: true }).waitFor();
+    assert.deepEqual(h.service.list().map(run => run.id), [first.id]);
+    assert.deepEqual(h.errors, []);
+  } finally { await h.close(); }
+});
+
 check('integration', 'My research is the single archive for investigations and reports, with search, mode filter and original evidence', async () => {
   const h = await browserHarness('my-research', webSignalFixture());
   const { page } = h;
@@ -159,9 +408,14 @@ check('integration', 'My research is the single archive for investigations and r
     await navigation.click();
     await page.getByRole('heading', { name: '还没有调查' }).waitFor();
     assert.equal(await page.locator('#research-kind').count(), 0);
-    await page.getByRole('button', { name: '新建调查', exact: true }).first().click();
+    await page.getByRole('button', { name: '新建任务', exact: true }).first().click();
     await h.ui.start();
     await h.ui.completed();
+    const session = page.getByRole('region', { name: '历史会话', exact: true }).locator('[data-session-id]');
+    await navigation.click();
+    await page.getByRole('heading', { name: '还没有调查' }).waitFor();
+    await session.click();
+    await h.ui.saveReport();
     await navigation.click();
     await reportList.waitFor();
     assert.equal(await page.getByRole('navigation', { name: '历史记录' }).count(), 0);
@@ -203,6 +457,7 @@ for(const allowed of [true,false])check('integration','Web UI '+(allowed?'approv
   try{
     await h.ui.open('web');await h.ui.setPermission('ask');await h.ui.closeSettings();
     await h.ui.start();await h.page.getByText('等待审批 / 离线演示',{exact:true}).waitFor();
+    await h.page.getByRole('button',{name:'批准计划并开始采集',exact:true}).click();
     // Inline Approval Spotlight appears immediately at top of run view — no tab switching needed
     await h.page.getByRole('heading',{name:'这次操作需要你的确认'}).waitFor();assert.equal(fixture.calls.includes('request_publish'),false);
     await h.page.screenshot({path:'artifacts/web-eval/approval.png',fullPage:true});
@@ -217,11 +472,34 @@ check('integration','Web UI cancels a pending approval and restores the cancelle
   try{
     await h.ui.open('web');await h.ui.setPermission('ask');await h.ui.closeSettings();
     await h.ui.start();await h.page.getByText('等待审批 / 离线演示',{exact:true}).waitFor();
-    await h.page.getByRole('heading',{name:'这次操作需要你的确认'}).waitFor();
+    await h.page.getByRole('heading',{name:'审批调查计划'}).waitFor();
     await h.ui.cancel();
-    assert.equal(fixture.calls.includes('request_publish'),false);await h.page.reload();await h.page.getByText('已取消 / 离线演示',{exact:true}).waitFor();
+    assert.deepEqual(fixture.calls,[]);await h.page.reload();await h.page.getByText('已取消 / 离线演示',{exact:true}).waitFor();
     assert.equal(await h.page.locator('#approval-spotlight').isVisible(),false);assert.deepEqual(h.errors,[]);
   }finally{await h.close();}
+});
+
+check('integration', 'Web UI requires plan approval in full mode and blocks collection when rejected', async () => {
+  const fixture = approvalFixture('web'), h = await browserHarness('full-mode-plan-approval', fixture);
+  try {
+    await h.ui.open('web'); await h.ui.setPermission('allow-all'); await h.ui.closeSettings();
+    await h.ui.start();
+    const card = h.page.getByRole('region', { name: '待处理审批' });
+    await card.getByRole('heading', { name: '审批调查计划', exact: true }).waitFor();
+    await card.getByText('计划查询 (1)', { exact: true }).waitFor();
+    assert.deepEqual(fixture.calls, []);
+    await card.getByRole('button', { name: '拒绝计划', exact: true }).click();
+    await h.page.getByText('已取消 / 离线演示', { exact: true }).waitFor();
+    const rejected = await h.service.wait(h.service.list()[0].id);
+    assert.match(rejected.error ?? '', /调查计划未获批准/);
+    assert.equal(rejected.reportReady, false);
+    assert.deepEqual(fixture.calls, []);
+    await h.page.getByRole('button', { name: '尝试重试', exact: true }).first().click();
+    await card.getByRole('button', { name: '批准计划并开始采集', exact: true }).click();
+    await h.ui.completed();
+    assert.deepEqual(fixture.calls, ['request_publish', 'web_fetch']);
+    assert.deepEqual(h.errors, []);
+  } finally { await h.close(); }
 });
 
 check('integration','Web UI cancels a running investigation, releases capacity and retries in one click via retry button',async()=>{
@@ -255,8 +533,9 @@ check('contract','Web UI remains usable on mobile, supports keyboard tabs and re
     await h.page.getByRole('tab',{name:'调查报告',exact:true}).focus();await h.page.keyboard.press('ArrowRight');assert.equal(await h.page.getByRole('tab',{name:/执行轨迹/}).getAttribute('aria-selected'),'true');
     const bootstrap=await(await fetch(h.app.origin+'/api/bootstrap')).json(),task=bootstrap.profiles.find((p:{id:string})=>p.id==='web').task;task.competitor.name='<img src=x onerror="window.__xss=1">';
     const response=await fetch(h.app.origin+'/api/runs',{method:'POST',headers:{Origin:h.app.origin,'Content-Type':'application/json','X-Cwatch-Token':bootstrap.csrfToken},body:JSON.stringify({profile:'web',mode:'replay',permission:'explore',task})});assert.equal(response.status,202);const created=await response.json() as RunSnapshot;await h.service.wait(created.id);
+    h.service.saveReport(created.id, { revision: 0 });
     await h.page.evaluate(()=>localStorage.removeItem('cwatch-selected-run'));await h.page.reload();
-    await h.page.getByRole('form',{name:'发起调查'}).waitFor();
+    await h.page.getByRole('form',{name:'提交任务'}).waitFor();
     await h.ui.openSavedRun(created.id);await h.ui.completed();
     assert.ok((await h.page.locator('#run-title').textContent())!.includes('<img'));assert.equal(await h.page.locator('img[src=x]').count(),0);assert.equal(await h.page.evaluate(()=>Reflect.get(window,'__xss')),undefined);assert.deepEqual(h.errors,[]);
   }finally{await h.close();}
@@ -289,17 +568,27 @@ check('integration','Web live research submits the chosen model, reasoning effor
     await h.page.getByRole('heading',{name:'调研范围',exact:true}).waitFor();
     assert.match(await h.page.locator('#task-selection-summary').innerText(),/web-fixture-alternate · 思考强度 高/);
     assert.equal(await h.page.getByLabel('调研重点（可选）',{exact:true}).inputValue(),'核对版本发布时间');
+    await h.page.getByRole('button', { name: '添加来源网址' }).click();
+    await h.page.getByLabel('指定来源网址', { exact: true }).fill(releaseUrl);
+    await h.page.getByLabel('来源类型', { exact: true }).selectOption('changelog');
+    await h.page.getByLabel('搜索范围', { exact: true }).selectOption('only');
     await h.page.setViewportSize({width:390,height:844});
     assert.equal(await h.page.locator('#task-editor').evaluate(editor=>editor.scrollWidth>editor.clientWidth),false);
     await h.page.screenshot({path:'artifacts/web-eval/new-task-details-mobile.png'});
-    await h.ui.start();await h.page.getByText('已完成 / 真实调查',{exact:true}).waitFor({timeout:30000});await h.ui.report();
-    const run=h.service.list()[0];assert.equal(run.mode,'live');assert.equal(run.claims.length,1);assert.equal(run.modelTurns,6);assert.equal(run.totalTokens,720);
+    await h.ui.start();
+    await h.page.getByRole('button', { name: '批准计划并开始采集', exact: true }).click();
+    await h.page.getByText('已完成 / 真实调查',{exact:true}).waitFor({timeout:30000});await h.ui.report();
+    const run=h.service.list()[0];assert.equal(run.mode,'live');assert.equal(run.claims.length,1);assert.equal(run.modelTurns,provider.modelRequests.length);assert.equal(run.totalTokens,120 * provider.modelRequests.length);
     assert.deepEqual(run.model,{id:'web-fixture-alternate',reasoningEffort:'high'});
     assert.deepEqual(provider.modelRequests[0],{model:'web-fixture-alternate',reasoningEffort:'high'});
     assert.deepEqual(provider.initialTask()?.researchBrief,{focus:'核对版本发布时间',deliverable:'用表格列出版本和发布日期'});
+    assert.deepEqual(provider.initialTask()?.evidencePolicy,{ scope: 'only', sources: [{ url: releaseUrl, kind: 'changelog' }] });
+    assert.deepEqual(run.assessment?.collection?.specifiedCoverage, { attempted: 1, total: 1 });
+    assert.equal(run.assessment?.review?.[0].checks.length, 6);
+    await h.page.getByRole('region', { name: '阶段结束依据' }).waitFor();
     const data=new FileStore(resolve(h.service.outputRoot,run.id)),events=data.lines<TraceEvent>('traces/'+run.traceRunId+'.jsonl');
     assert.ok(events.some(event=>event.type==='agent_process'&&event.data.state==='ready'));assert.ok(events.some(event=>event.type==='backend_started'&&event.data.backend==='test.web.fixture'));assert.deepEqual(validateTrace(events),[]);
-    assert.equal(provider.turns(),6);assert.deepEqual(provider.errors,[]);assert.deepEqual(h.errors,[]);
+    assert.equal(provider.turns(),8);assert.deepEqual(provider.errors,[]);assert.deepEqual(h.errors,[]);
   }finally{
     await h?.close();await provider.close();for(const key of Object.keys(variables)){if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key];}
   }
@@ -367,11 +656,13 @@ check('integration','Web UI inspects structured Trace inside slide-over drawer, 
     await h.page.locator('.trace-detail').waitFor({state:'visible'});
     await h.page.screenshot({path:'artifacts/web-eval/trace-inspector.png',fullPage:true});
     await h.ui.closeTrace();
+    await h.ui.saveReport();
     await h.page.getByRole('button',{name:'我的调研',exact:true}).click();
     const search=h.page.getByRole('searchbox',{name:'搜索调查与报告'});
     await search.fill('不存在的关键词');
     await h.page.getByText('没有符合条件的调查',{exact:true}).waitFor();
     await search.fill('');
+    h.page.once('dialog', dialog => { void dialog.accept(); });
     await h.page.getByRole('button',{name:/^删除调查 /}).click();
     await h.page.getByText('还没有调查',{exact:true}).waitFor();
     assert.equal(h.service.list().length,0);
@@ -565,26 +856,28 @@ check('integration','Web UI investigation form quick date presets and 3-tier dep
       assert.equal(await h.page.locator(`[data-window-days="${days}"]`).isDisabled(),true);
     }
     // Each depth preset's visible budget matches the form values when selected.
-    const standard=h.page.getByRole('button',{name:'标准核验 480s · 750k',exact:true});
-    const fast=h.page.getByRole('button',{name:'快速浏览 180s · 250k',exact:true});
-    const deep=h.page.getByRole('button',{name:'深入调查 900s · 1.5M',exact:true});
+    const standard=h.page.getByRole('button',{name:'标准核验 750k',exact:true});
+    const fast=h.page.getByRole('button',{name:'快速浏览 250k',exact:true});
+    const deep=h.page.getByRole('button',{name:'深入调查 1.5M',exact:true});
     assert.equal(await fast.isVisible(),false);
     await h.ui.openSettings();
-    assert.equal(await h.page.locator('#timeout').inputValue(),'480');
+    const toolTimeout=h.page.getByLabel('单次工具超时（秒）');
+    assert.equal(await toolTimeout.inputValue(),'120');
     assert.equal(await h.page.locator('#tokens').inputValue(),'750000');
     assert.equal(await standard.getAttribute('aria-pressed'),'true');
     await fast.click();
-    assert.equal(await h.page.locator('#timeout').inputValue(),'180');
+    assert.equal(await toolTimeout.inputValue(),'120');
     assert.equal(await h.page.locator('#tokens').inputValue(),'250000');
     assert.equal(await fast.getAttribute('aria-pressed'),'true');
+    await toolTimeout.fill('75');
+    assert.equal(await fast.getAttribute('aria-pressed'),'true');
     await deep.click();
-    assert.equal(await h.page.locator('#timeout').inputValue(),'900');
+    assert.equal(await toolTimeout.inputValue(),'75');
     assert.equal(await h.page.locator('#tokens').inputValue(),'1500000');
     assert.equal(await deep.getAttribute('aria-pressed'),'true');
 
-    // Manual limits clear the active depth preset.
-    await h.page.locator('#timeout').fill('240');
-    assert.equal(await h.page.locator('#timeout').inputValue(),'240');
+    // A custom token budget clears the active depth preset.
+    await h.page.locator('#tokens').fill('800000');
     for(const key of ['fast','standard','deep']){
       assert.equal(await h.page.locator(`[data-depth-preset="${key}"]`).getAttribute('aria-pressed'),'false');
     }
@@ -654,10 +947,16 @@ check('integration','Web UI investigation report renders 4-metric ribbon, TOC ju
     await h.page.locator('#pipeline-detail').waitFor({state:'visible'});
     const planText=await h.page.locator('#pipeline-detail').innerText();
     assert.ok(planText.includes('调查目标')&&planText.includes('计划查询')&&planText.includes('releases'));
+    assert.equal(await h.page.locator('#pipeline-detail').getByText('生成并提交调查计划', { exact: true }).count(), 1);
+    assert.equal(await h.page.locator('#pipeline .pipeline-spinner').count(), 0);
     // Cycle through remaining stages and toggle plan closed
-    for(const idx of [1,2,3,4]){
+    const stages = ['采集', '分析', '审阅', '草稿'];
+    for(const [i, stage] of stages.entries()){
+      const idx = i + 1;
       await h.page.locator(`#pipeline button[data-pipeline-stage="${idx}"]`).click();
       assert.equal(await h.page.locator('#pipeline-detail').isVisible(),true);
+      assert.deepEqual(await h.page.locator('#pipeline-detail ul[aria-label$="步骤"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), [stage + '步骤']);
+      assert.equal(await h.page.locator('#pipeline-detail').getByText('生成并提交调查计划', { exact: true }).count(), 0);
     }
     await planBtn.click();
     assert.equal(await h.page.locator('#pipeline-detail').isVisible(),true);
@@ -678,9 +977,19 @@ check('integration','Web UI investigation report renders 4-metric ribbon, TOC ju
   }finally{await h.close();}
 });
 
-check('integration','Web UI shows live running stage and recent merged steps inline in report tab before draft is ready',async()=>{
-  const modelFactory=():ModelPort=>({decide:async(_input,signal)=>abortable(new Promise<never>(()=>{}),signal)});
-  const h=await browserHarness('live-report-progress',{modelFactory});
+check('integration','Web UI moves the spinner with the live stage and filters steps when selecting another stage',async()=>{
+  let releasePlan!: () => void;
+  const planGate = new Promise<void>(resolve => { releasePlan = resolve; });
+  const modelFactory: RunServiceOptions['modelFactory'] = (_mode, task) => {
+    assert.ok(isInvestigationTask(task));
+    const model = new ReplayModel(investigationDecisions(task));
+    return { decide: async (input, signal) => {
+      if (!input.state.iteration) await abortable(planGate, signal);
+      if (input.state.iteration >= 2) return abortable(new Promise<never>(() => {}), signal);
+      return model.decide(input, signal);
+    } };
+  };
+  const h=await browserHarness('live-report-progress',{...webSignalFixture(),modelFactory});
   try{
     await h.ui.open('web');
     await h.ui.start();
@@ -688,8 +997,27 @@ check('integration','Web UI shows live running stage and recent merged steps inl
     await h.page.getByRole('tab',{name:'调查报告',exact:true}).click();
     await h.page.locator('.live-progress-card').waitFor({state:'visible'});
     assert.ok((await h.page.locator('.live-stage-pill').innerText()).includes('计划'));
-    assert.equal(await h.page.locator('.live-progress-card').getByRole('button',{name:'查看实时执行轨迹',exact:true}).isVisible(),true);
+    const activeStage = h.page.locator('#pipeline button[aria-current="step"]');
+    await activeStage.locator('.pipeline-spinner').waitFor();
+    assert.equal(await activeStage.getAttribute('data-pipeline-stage'), '0');
+    releasePlan();
+    await h.page.locator('#pipeline [data-pipeline-stage="1"] .pipeline-spinner').waitFor();
+    await h.page.locator('.live-step-list').getByText(/读取网页/).waitFor();
+    await h.page.locator('#pipeline [data-pipeline-stage="0"]').click();
+    const selectedSteps = h.page.getByRole('list', { name: '计划步骤' });
+    await selectedSteps.getByText('生成并提交调查计划', { exact: true }).waitFor();
+    assert.equal(await selectedSteps.getByText(/读取网页/).count(), 0);
+    assert.equal(await h.page.locator('.live-step-list').count(), 0);
+    assert.equal(await activeStage.getAttribute('data-pipeline-stage'), '1');
+    await h.page.locator('.live-progress-card').getByRole('button',{name:'查看实时执行轨迹',exact:true}).click();
+    const process = h.page.getByRole('tabpanel', { name: /执行轨迹/ });
+    await process.getByText('生成并提交调查计划', { exact: true }).waitFor();
+    assert.equal(await process.getByText(/读取网页/).count(), 0);
+    await h.page.locator('#pipeline [data-pipeline-stage="1"]').click();
+    await process.getByText(/读取网页/).waitFor();
+    assert.equal(await process.getByText('生成并提交调查计划', { exact: true }).count(), 0);
     await h.ui.cancel();
+    await h.page.locator('#pipeline .pipeline-spinner').waitFor({ state: 'detached' });
     assert.deepEqual(h.errors,[]);
   }finally{await h.close();}
 });

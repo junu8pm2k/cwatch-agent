@@ -23,7 +23,7 @@
     </div>
     <button type="button" class="sidebar-new-btn" id="sidebar-new-run">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
-      <span>新建调查</span>
+      <span>新建任务</span>
     </button>
 
     <div class="nav-group" role="navigation" aria-label="主导航">
@@ -42,6 +42,17 @@
     </div>
 
     <div id="capacity-meter" class="capacity-meter" aria-label="并发任务槽位" hidden></div>
+    <div id="desktop-history" class="history-host">
+      <section id="session-history" class="session-history" aria-label="项目与历史会话">
+        <div class="history-heading"><h2>项目与会话</h2><button id="new-project" class="button ghost sm" type="button" aria-expanded="false">新建项目</button></div>
+        <form id="project-form" class="project-form" hidden>
+          <label class="sr-only" for="project-name">项目名称</label>
+          <input id="project-name" name="name" maxlength="80" required placeholder="项目名称">
+          <button class="button primary sm" type="submit">创建</button>
+        </form>
+        <div id="history-list" class="history-list"></div>
+      </section>
+    </div>
 
     <div class="sidebar-bottom">
       <div class="model-pill" id="model-status" title="本机模型与运行环境状态">模型配置检查中</div>
@@ -51,7 +62,7 @@
   <main id="main">
     <header class="page-header">
       <div class="header-left">
-        <h1 id="page-title">新建调查</h1>
+        <h1 id="page-title">新建任务</h1>
       </div>
       <div class="header-actions">
         <span class="connection" id="connection"><span class="dot"></span>正在连接</span>
@@ -61,7 +72,7 @@
         </button>
         <button type="button" class="button secondary sm" id="new-run" hidden>
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
-          <span>新建调查</span>
+          <span>新建任务</span>
         </button>
         <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false" aria-label="深色模式" title="切换主题">
           <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></svg>
@@ -77,6 +88,7 @@
       <button type="button" class="button secondary sm" id="mobile-research" aria-controls="research-view" aria-expanded="false" disabled>我的调研</button>
       <button type="button" class="button secondary sm" id="mobile-sources" aria-expanded="false" aria-controls="connections-panel">连接</button>
     </nav>
+    <details id="mobile-history" class="mobile-history"><summary>项目与会话</summary><div id="mobile-history-slot"></div></details>
 
     <section id="connections-panel" class="connections-panel" hidden aria-label="来源与连接">
       <div id="connections-overview"></div>
@@ -86,9 +98,9 @@
       <div class="research-heading">
         <div>
           <h2 id="research-title" tabindex="-1">调查与报告</h2>
-          <p>在这里回看已完成的调查草稿、引用证据与信息缺口。</p>
+          <p>查看已确认保存的报告，也可以选中多份报告一起对比。</p>
         </div>
-        <button type="button" id="start-research" class="button primary">新建调查</button>
+        <button type="button" id="start-research" class="button primary">新建任务</button>
       </div>
       <div class="research-collection">
         <div id="research-filters" class="research-filters" hidden>
@@ -102,27 +114,33 @@
           </select>
         </div>
         <p id="research-count" class="research-count" role="status" hidden></p>
+        <div id="research-compare-tools" class="compare-tools" hidden><span id="compare-count"></span><button id="compare-reports" class="button primary sm" type="button" disabled>对比所选报告</button></div>
         <ul id="research-list" class="research-list" aria-label="调查与报告列表" hidden></ul>
         <div id="research-empty" class="research-empty" hidden>
           <h3 id="research-empty-title"></h3>
           <p id="research-empty-note"></p>
         </div>
       </div>
+      <section id="research-comparison" class="research-comparison" aria-labelledby="comparison-title" hidden>
+        <div class="history-heading"><h3 id="comparison-title" tabindex="-1">报告对比</h3><button id="close-comparison" class="button ghost sm" type="button">关闭对比</button></div>
+        <div id="comparison-content"></div>
+      </section>
     </section>
 
     <div class="workbench" data-has-run="false" data-conversation="false" data-has-rail="false">
       <section id="compose-view" class="compose-view" aria-labelledby="intro-title">
         <div class="compose-hero">
           <div class="hero-copy">
-            <h2 id="intro-title">今天想调查什么？</h2>
-            <p id="intro-description">输入公司、产品或想核查的问题，自动完成计划、联网采集、证据快照核验并生成可导出的调查草稿。</p>
+            <h2 id="intro-title">今天想做什么？</h2>
+            <p id="intro-description">可以查看本地文件、查询资料或发起产品调研。Agent 会根据任务选择流程。</p>
           </div>
           <div class="hero-dial" aria-hidden="true"><span></span></div>
         </div>
 
-        <form id="task-setup" class="home-composer" aria-label="发起调查">
-          <label class="sr-only" for="task-prompt">输入你的调查需求</label>
-          <textarea id="task-prompt" rows="3" maxlength="2000" placeholder="输入你想调查的公司、产品或核查重点…" disabled></textarea>
+        <form id="task-setup" class="home-composer" aria-label="提交任务">
+          <label class="sr-only" for="task-prompt">输入你的任务</label>
+          <textarea id="task-prompt" rows="3" maxlength="2000" placeholder="例如，帮我看看工作区里的 README.md…" disabled></textarea>
+          <p id="compose-project" class="field-note compose-project" hidden></p>
           <div class="home-composer-toolbar">
             <div class="home-composer-controls">
               <div class="home-composer-control">
@@ -146,7 +164,7 @@
                 </select>
               </div>
             </div>
-            <button type="submit" id="task-next" class="home-send" aria-label="发起调查" title="确认调查范围" disabled></button>
+            <button type="submit" id="task-next" class="home-send" aria-label="发送任务" title="发送任务" disabled></button>
           </div>
           <p class="field-note home-composer-note" id="mode-note" hidden></p>
         </form>
@@ -197,6 +215,13 @@
                     </div>
                     <input type="hidden" id="competitor-id">
                   </div>
+                  <fieldset class="specified-sources" data-live-question>
+                    <legend>指定来源</legend>
+                    <p class="field-note">添加官网、发布日志或论坛板块的完整 HTTPS 网址。调查会优先读取这些入口。</p>
+                    <div id="specified-source-rows"></div>
+                    <button id="add-specified-source" type="button" class="button secondary sm">添加来源网址</button>
+                    <div class="field"><label for="specified-source-scope">搜索范围</label><select id="specified-source-scope"><option value="prefer">优先查指定来源，可补充公开来源</option><option value="only">只查指定网址及其下级路径</option></select></div>
+                  </fieldset>
                   <label class="field" for="task-deliverable" data-live-question>
                     <span>交付要求（可选）</span>
                     <textarea id="task-deliverable" rows="2" maxlength="2000" placeholder="例如，用表格列出发现、时间和来源。"></textarea>
@@ -236,20 +261,20 @@
                     <div class="depth-preset-row" role="group" aria-label="调研深度">
                       <div class="depth-preset-head">
                         <span class="preset-label">调研深度</span>
-                        <span class="preset-hint" id="depth-preset-summary">480 秒 · 75 万 tokens</span>
+                        <span class="preset-hint" id="depth-preset-summary">75 万 tokens</span>
                       </div>
                       <div class="depth-segmented">
                         <button type="button" class="depth-pill" data-depth-preset="fast" aria-pressed="false">
                           <strong>快速浏览</strong>
-                          <small>180s · 250k</small>
+                          <small>250k</small>
                         </button>
                         <button type="button" class="depth-pill is-active" data-depth-preset="standard" aria-pressed="true">
                           <strong>标准核验</strong>
-                          <small>480s · 750k</small>
+                          <small>750k</small>
                         </button>
                         <button type="button" class="depth-pill" data-depth-preset="deep" aria-pressed="false">
                           <strong>深入调查</strong>
-                          <small>900s · 1.5M</small>
+                          <small>1.5M</small>
                         </button>
                       </div>
                     </div>
@@ -279,9 +304,9 @@
                   <div class="popover-section">
                     <span class="popover-label">运行上限</span>
                     <div class="field-row">
-                      <label class="field" for="timeout">
-                        <span>总时限（秒）</span>
-                        <input id="timeout" type="number" value="480" min="1" max="1200">
+                      <label class="field" for="tool-timeout">
+                        <span>单次工具超时（秒）</span>
+                        <input id="tool-timeout" type="number" value="120" min="1" max="300" required>
                       </label>
                       <label class="field" for="tokens">
                         <span>Token 上限</span>
@@ -349,6 +374,7 @@
             <h2 id="run-title" tabindex="-1">调查空间</h2>
           </div>
           <div class="run-bar-actions">
+            <button type="button" id="save-into-research" class="button primary sm" hidden>保存到我的调研</button>
             <button type="button" id="export-run" class="button primary sm" data-open-export hidden title="将调查草稿导出为 Markdown、HTML、Word、CSV 或 JSON">导出草稿</button>
             <button type="button" id="cancel-run" class="button danger sm" hidden>停止调查</button>
             <button type="button" id="retry-run" class="button primary sm" data-retry-run hidden title="以原调查配置立即重新运行">尝试重试</button>
@@ -357,7 +383,9 @@
         </div>
 
         <div id="pipeline" class="pipeline" aria-label="调查阶段" hidden></div>
-        <div id="pipeline-detail" class="pipeline-detail" role="region" aria-label="阶段详情摘要" hidden></div>
+        <div id="pipeline-detail" class="pipeline-detail" role="region" aria-label="阶段详情摘要" hidden>
+          <div id="pipeline-detail-content" class="pipeline-detail-content"></div>
+        </div>
         <div id="approval-spotlight" class="approval-spotlight" role="region" aria-label="待处理审批" hidden></div>
 
         <div class="tabs" role="tablist" aria-label="调查详情">
@@ -385,6 +413,26 @@
                 </form>
               </section>
               <div id="report-content"></div>
+              <section id="report-review" class="report-review" aria-label="报告标注与追问" hidden>
+                <div class="history-heading"><h3 id="report-review-title">报告标注与追问</h3><button id="resume-report-review" class="button secondary sm" type="button" hidden>继续编辑与追问</button></div>
+                <p id="report-review-status" class="field-note" role="status"></p>
+                <ul id="report-annotations" class="annotated-passages" aria-label="报告标注"></ul>
+                <details id="annotation-editor">
+                  <summary>添加标注或校订</summary>
+                  <form id="annotation-form" class="review-form">
+                    <button id="capture-report-quote" type="button" class="button secondary sm">引用所选正文</button>
+                    <label class="field" for="annotation-quote"><span>原文选段（可选）</span><textarea id="annotation-quote" maxlength="2000" rows="2"></textarea></label>
+                    <label class="field" for="annotation-note"><span>标注意见</span><textarea id="annotation-note" maxlength="4000" rows="2" required></textarea></label>
+                    <label class="field" for="annotation-replacement"><span>校订文字（可选）</span><textarea id="annotation-replacement" maxlength="8000" rows="2" placeholder="填写后替换在 Markdown 中唯一匹配的原文"></textarea></label>
+                    <button class="button secondary sm" type="submit">添加标注</button>
+                  </form>
+                </details>
+                <div id="report-dialogue" class="report-dialogue" aria-live="polite"></div>
+                <form id="report-followup-form" class="review-form">
+                  <label class="field" for="report-question"><span>继续追问</span><textarea id="report-question" rows="3" maxlength="6000" required placeholder="例如，第二条结论的依据是什么？这句话怎么改更准确？"></textarea></label>
+                  <button class="button primary sm" type="submit">发送追问</button>
+                </form>
+              </section>
             </div>
 
             <div id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="tab-panel" hidden>
